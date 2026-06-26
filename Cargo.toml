@@ -1,0 +1,20 @@
+[package]
+name = "rat-commander"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+async-trait = "0.1.89"
+crossterm = { version = "0.29.0", features = ["event-stream"] }
+directories = "6.0.0"
+futures = "0.3.32"
+globset = "0.4.18"
+nix = { version = "0.31.3", features = ["fs", "user"] }
+ratatui = "0.30.2"
+serde = { version = "1.0.228", features = ["derive"] }
+thiserror = "2.0.18"
+tokio = { version = "1.52.3", features = ["full"] }
+tokio-util = { version = "0.7.18", features = ["rt"] }
+toml = "1.1.2"
+unicode-width = "0.2.2"
+walkdir = "2.5.0"

@@ -1,0 +1,264 @@
+//! Rendering of a single [`Panel`] into a Ratatui area.
+
+use super::{Panel, ViewFormat};
+use crate::ui::theme::Theme;
+use crate::util::bytes::{format_time, human_size};
+use crate::util::text::{ellipsize, pad_left, pad_right};
+use crate::vfs::{VfsEntry, VfsKind};
+use ratatui::Frame;
+use ratatui::layout::Rect;
+use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
+
+/// Draw a panel (border, header, listing, mini-status) into `area`.
+pub fn render_panel(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, theme: &Theme) {
+    let border_color = if active {
+        theme.panel_border_active
+    } else {
+        theme.panel_border
+    };
+    let title = format!(" {} ", ellipsize(&panel.cwd.display(), area.width.saturating_sub(4) as usize));
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Plain)
+        .border_style(Style::default().fg(border_color).bg(theme.panel_bg))
+        .title(Span::styled(
+            title,
+            Style::default()
+                .fg(theme.panel_border_active)
+                .bg(theme.panel_bg)
+                .add_modifier(Modifier::BOLD),
+        ))
+        .style(theme.panel_base());
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    if inner.height == 0 || inner.width == 0 {
+        return;
+    }
+
+    if let Some(err) = &panel.error {
+        let p = Paragraph::new(Line::from(Span::styled(
+            err.clone(),
+            Style::default().fg(theme.error_fg).bg(theme.panel_bg),
+        )));
+        f.render_widget(p, inner);
+        return;
+    }
+
+    // Reserve the last inner row for the mini-status line.
+    let list_height = inner.height.saturating_sub(1);
+    let list_area = Rect {
+        height: list_height,
+        ..inner
+    };
+    let status_area = Rect {
+        y: inner.y + list_height,
+        height: 1,
+        ..inner
+    };
+
+    match panel.format {
+        ViewFormat::Full => render_full(f, list_area, panel, active, theme),
+        ViewFormat::Brief => render_brief(f, list_area, panel, active, theme),
+    }
+
+    render_mini_status(f, status_area, panel, theme);
+}
+
+/// Foreground color for an entry's name based on its kind/mark.
+fn name_style(e: &VfsEntry, marked: bool, theme: &Theme) -> Style {
+    let base = Style::default().bg(theme.panel_bg);
+    if marked {
+        return base.fg(theme.marked_fg).add_modifier(Modifier::BOLD);
+    }
+    match e.kind {
+        VfsKind::Dir => base.fg(theme.dir_fg).add_modifier(Modifier::BOLD),
+        VfsKind::Symlink => base.fg(theme.symlink_fg),
+        VfsKind::File if e.is_executable() => base.fg(theme.exec_fg).add_modifier(Modifier::BOLD),
+        _ => base.fg(theme.panel_fg),
+    }
+}
+
+/// Cursor row style (active vs inactive panel).
+fn cursor_style(active: bool, theme: &Theme) -> Style {
+    if active {
+        theme.cursor
+    } else {
+        theme.cursor_inactive
+    }
+}
+
+fn ensure_visible(cursor: usize, offset: &mut usize, height: usize) {
+    if height == 0 {
+        return;
+    }
+    if cursor < *offset {
+        *offset = cursor;
+    } else if cursor >= *offset + height {
+        *offset = cursor + 1 - height;
+    }
+}
+
+fn render_full(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, theme: &Theme) {
+    let width = area.width as usize;
+    let size_w = 8usize;
+    let time_w = 12usize;
+    let name_w = width.saturating_sub(size_w + time_w + 2).max(4);
+
+    // Header row.
+    let header = format!(
+        "{} {} {}",
+        pad_right("Name", name_w),
+        pad_left("Size", size_w),
+        pad_left("Modify time", time_w)
+    );
+    let header_line = Line::from(Span::styled(
+        header,
+        Style::default()
+            .fg(theme.header_fg)
+            .bg(theme.panel_bg)
+            .add_modifier(Modifier::BOLD),
+    ));
+    let header_area = Rect { height: 1, ..area };
+    f.render_widget(Paragraph::new(header_line), header_area);
+
+    let body_area = Rect {
+        y: area.y + 1,
+        height: area.height.saturating_sub(1),
+        ..area
+    };
+    let rows = body_area.height as usize;
+    ensure_visible(panel.cursor, &mut panel.offset, rows);
+
+    let mut lines: Vec<Line> = Vec::with_capacity(rows);
+    for i in 0..rows {
+        let idx = panel.offset + i;
+        let Some(e) = panel.entries.get(idx) else {
+            break;
+        };
+        let is_cursor = idx == panel.cursor;
+        let marked = panel.selection.is_marked(&e.name);
+
+        let size_str = if e.kind == VfsKind::Dir {
+            if e.name == ".." {
+                "UP--DIR".to_string()
+            } else {
+                "DIR".to_string()
+            }
+        } else {
+            human_size(e.size)
+        };
+        let time_str = e.mtime.map(format_time).unwrap_or_default();
+
+        if is_cursor {
+            let text = format!(
+                "{} {} {}",
+                pad_right(&display_name(e), name_w),
+                pad_left(&size_str, size_w),
+                pad_left(&time_str, time_w)
+            );
+            lines.push(Line::from(Span::styled(text, cursor_style(active, theme))));
+        } else {
+            let spans = vec![
+                Span::styled(pad_right(&display_name(e), name_w), name_style(e, marked, theme)),
+                Span::styled(
+                    format!(" {} ", pad_left(&size_str, size_w)),
+                    Style::default().fg(theme.panel_fg).bg(theme.panel_bg),
+                ),
+                Span::styled(
+                    pad_left(&time_str, time_w),
+                    Style::default().fg(theme.panel_fg).bg(theme.panel_bg),
+                ),
+            ];
+            lines.push(Line::from(spans));
+        }
+    }
+    f.render_widget(Paragraph::new(lines), body_area);
+}
+
+fn render_brief(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, theme: &Theme) {
+    let width = area.width as usize;
+    let rows = area.height as usize;
+    if rows == 0 {
+        return;
+    }
+    let cell_w = 16usize.min(width.max(1));
+    let columns = (width / cell_w).max(1);
+
+    // Keep the cursor's row visible (offset aligned to a row boundary).
+    let cursor_row = panel.cursor / columns;
+    let mut first_row = panel.offset / columns;
+    if cursor_row < first_row {
+        first_row = cursor_row;
+    } else if cursor_row >= first_row + rows {
+        first_row = cursor_row + 1 - rows;
+    }
+    panel.offset = first_row * columns;
+
+    let mut lines: Vec<Line> = Vec::with_capacity(rows);
+    for r in 0..rows {
+        let mut spans: Vec<Span> = Vec::with_capacity(columns);
+        for c in 0..columns {
+            let idx = (first_row + r) * columns + c;
+            match panel.entries.get(idx) {
+                Some(e) => {
+                    let is_cursor = idx == panel.cursor;
+                    let marked = panel.selection.is_marked(&e.name);
+                    let text = pad_right(&display_name(e), cell_w);
+                    let style = if is_cursor {
+                        cursor_style(active, theme)
+                    } else {
+                        name_style(e, marked, theme)
+                    };
+                    spans.push(Span::styled(text, style));
+                }
+                None => spans.push(Span::styled(
+                    " ".repeat(cell_w),
+                    Style::default().bg(theme.panel_bg),
+                )),
+            }
+        }
+        lines.push(Line::from(spans));
+    }
+    f.render_widget(Paragraph::new(lines), area);
+}
+
+/// Name as shown in the list: directories get no slash here (mc style keeps
+/// names plain and colors them), `..` shown as-is.
+fn display_name(e: &VfsEntry) -> String {
+    e.name.clone()
+}
+
+fn render_mini_status(f: &mut Frame, area: Rect, panel: &Panel, theme: &Theme) {
+    let text = if panel.selection.count() > 0 {
+        let total: u64 = panel
+            .entries
+            .iter()
+            .filter(|e| panel.selection.is_marked(&e.name))
+            .map(|e| e.size)
+            .sum();
+        format!("{} selected, {}", panel.selection.count(), human_size(total))
+    } else if let Some(e) = panel.current_entry() {
+        let kind = match e.kind {
+            VfsKind::Dir => "<DIR>".to_string(),
+            _ => human_size(e.size),
+        };
+        let link = e
+            .symlink_target
+            .as_ref()
+            .map(|t| format!(" -> {t}"))
+            .unwrap_or_default();
+        format!("{}  {}{}", e.name, kind, link)
+    } else {
+        String::new()
+    };
+    let line = Line::from(Span::styled(
+        pad_right(&text, area.width as usize),
+        Style::default()
+            .fg(theme.panel_border_active)
+            .bg(theme.panel_bg),
+    ));
+    f.render_widget(Paragraph::new(line), area);
+}
