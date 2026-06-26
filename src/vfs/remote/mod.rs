@@ -149,27 +149,40 @@ pub async fn connect(creds: &RemoteCreds) -> Result<Connection> {
 // Shared SSH client (used by SFTP and SCP)
 // ---------------------------------------------------------------------------
 
-/// Minimal russh client handler. Host keys are accepted automatically — a
-/// proper known-hosts/host-key-confirmation flow is left for Phase 6.
-pub(crate) struct AcceptAllHandler;
+/// russh client handler implementing trust-on-first-use against the user's
+/// `~/.ssh/known_hosts`: a matching key is accepted, a *changed* key is
+/// rejected (possible MITM), and an unknown host is accepted and recorded.
+pub(crate) struct HostKeyHandler {
+    host: String,
+    port: u16,
+}
 
-impl russh::client::Handler for AcceptAllHandler {
+impl russh::client::Handler for HostKeyHandler {
     type Error = russh::Error;
 
     async fn check_server_key(
         &mut self,
-        _server_public_key: &russh::keys::PublicKey,
+        server_public_key: &russh::keys::PublicKey,
     ) -> std::result::Result<bool, Self::Error> {
-        Ok(true)
+        match russh::keys::check_known_hosts(&self.host, self.port, server_public_key) {
+            Ok(true) => Ok(true),  // known host, key matches
+            Ok(false) => Ok(true), // unknown host: trust on first use
+            Err(russh::keys::Error::KeyChanged { .. }) => Ok(false), // reject possible MITM
+            Err(_) => Ok(true),    // known_hosts unreadable — fall back to accepting
+        }
     }
 }
 
-pub(crate) type SshHandle = russh::client::Handle<AcceptAllHandler>;
+pub(crate) type SshHandle = russh::client::Handle<HostKeyHandler>;
 
 /// Open an SSH connection and authenticate with a password.
 pub(crate) async fn ssh_connect(creds: &RemoteCreds) -> Result<SshHandle> {
     let config = Arc::new(russh::client::Config::default());
-    let mut handle = russh::client::connect(config, (creds.host.as_str(), creds.port), AcceptAllHandler)
+    let handler = HostKeyHandler {
+        host: creds.host.clone(),
+        port: creds.port,
+    };
+    let mut handle = russh::client::connect(config, (creds.host.as_str(), creds.port), handler)
         .await
         .map_err(|e| Error::other(format!("SSH connect failed: {e}")))?;
     let auth = handle

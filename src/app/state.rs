@@ -36,6 +36,8 @@ pub enum Flow {
     RunCommand(String),
     /// Suspend the TUI and run an external program against a file.
     RunExternal { program: String, path: std::path::PathBuf },
+    /// Ctrl-O: drop to an interactive subshell, full screen.
+    SubShell,
 }
 
 const PAGE: isize = 15;
@@ -421,7 +423,7 @@ impl AppState {
             // -- Quit / function keys --
             KeyCode::F(10) => self.dialog = Some(Dialog::Confirm(ConfirmDialog::quit())),
             KeyCode::Char('q') if ctrl => return Flow::Quit, // immediate fallback if F10 is intercepted
-            KeyCode::F(1) => self.show_info("Help", HELP_TEXT),
+            KeyCode::F(1) => self.open_help(),
             KeyCode::F(2) => self.menu = Some(MenuBarState::new()),
             KeyCode::F(3) => return self.open_view().await,
             KeyCode::F(4) => return self.open_edit().await,
@@ -457,6 +459,7 @@ impl AppState {
             KeyCode::Esc => self.cmd.clear(),
 
             // -- View / sort / layout toggles (Ctrl chords) --
+            KeyCode::Char('o') if ctrl => return Flow::SubShell,
             KeyCode::Char('r') if ctrl => {
                 let _ = self.active_panel().reload().await;
             }
@@ -757,6 +760,14 @@ impl AppState {
         let _ = p.reload().await;
     }
 
+    /// F1: show the help screen (reuses the scrollable text viewer).
+    fn open_help(&mut self) {
+        self.viewer = Some(ViewerState::new(
+            HELP_NAME.to_string(),
+            HELP_TEXT.as_bytes().to_vec(),
+        ));
+    }
+
     /// F3: view the file under the cursor (internal viewer or external pager).
     async fn open_view(&mut self) -> Flow {
         let p = &self.panels[self.active];
@@ -934,12 +945,55 @@ fn gid_name(gid: u32) -> Option<String> {
         .map(|g| g.name)
 }
 
-const HELP_TEXT: &str = "rat-commander — Tab: switch panel, Enter: open dir / run command, \
-Insert: mark, F3 view, F4 edit, F5 copy, F6 move, F7 mkdir, F8 delete, F9/F2 menu, F10 quit. \
-+ select group, - unselect, * invert. Ctrl-S cycle sort, Ctrl-E reverse, Ctrl-W brief/full, \
-Ctrl-T split, Ctrl-R reload. In viewer: F2 wrap, F4 hex/text, F7 search, n next. \
-Chmod/Chown/Symlink/Settings/Compress live in the F9 menu. SFTP/FTP/SCP connections \
-are in F9 -> Command; copy/move between local, remote and archives works across panels.";
+const HELP_TEXT: &str = "\
+rat-commander — Help
+====================
+
+PANEL NAVIGATION
+  Up/Down/PgUp/PgDn/Home/End   move the cursor
+  Enter                        open directory / enter archive / run command line
+  Tab                          switch active panel
+  Insert                       mark file and advance
+  + / - / *                    select group / unselect group / invert selection
+  Ctrl-R                       re-read the active panel
+  Ctrl-S / Ctrl-E              cycle sort key / toggle reverse
+  Ctrl-W                       toggle brief / full listing
+  Ctrl-T                       toggle vertical / horizontal split
+
+FUNCTION KEYS
+  F1  Help (this screen)       F2  Pulldown menu
+  F3  View file                F4  Edit file
+  F5  Copy                     F6  Rename / move
+  F7  Make directory           F8  Delete
+  F9  Pulldown menu            F10 Quit
+  Ctrl-O                       drop to a full-screen shell (exit to return)
+  Ctrl-Q                       quit immediately
+
+VIEWER (F3)
+  F2 wrap   F4 hex/text   F7 search   n next   Esc/F10 quit
+
+EDITOR (F4)
+  F2 save   F3 mark block   F5 copy   F6 move   F8 delete block
+  F4 search & replace   F7 search   Ctrl-Z/Ctrl-Y undo/redo
+  Ctrl-V paste   Esc/F10 quit (prompts if modified)
+
+ARCHIVES
+  Enter an archive file (.zip .tar.gz .tar.bz2 .tar.xz .7z .rar) to browse it.
+  Copy files into/out of an archive panel; Delete removes from the archive.
+  F9 -> File -> Compress... builds a new archive from the selection.
+  RAR is read-only (no tool can create RAR archives).
+
+REMOTE (F9 -> Command)
+  SFTP / FTP / SCP connection... opens a login dialog and mounts the server in
+  the active panel. Disconnect returns the panel to the local filesystem.
+  Copy/move/delete work between local, remote and archive panels.
+
+OTHER (F9 -> File / Options)
+  Chmod, Chown, Symlink, Settings (external editor/viewer, confirm-delete).
+
+Press Esc or F10 to close this help.";
+
+const HELP_NAME: &str = "Help (F1)";
 
 #[cfg(test)]
 mod tests {
@@ -988,5 +1042,14 @@ mod tests {
         assert!(names.contains(&"..".to_string()), "archive has parent link");
 
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[tokio::test]
+    async fn f1_opens_help_in_viewer() {
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
+        assert!(st.viewer.is_none());
+        st.open_help();
+        assert!(st.viewer.is_some(), "F1 should open the help viewer");
     }
 }

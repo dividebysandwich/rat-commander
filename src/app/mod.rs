@@ -56,6 +56,7 @@ async fn run_loop(
                             Flow::RunExternal { program, path } => {
                                 run_external(term, state, &program, &path).await?
                             }
+                            Flow::SubShell => run_subshell(term, state).await?,
                             Flow::Continue => {}
                         }
                     }
@@ -77,7 +78,14 @@ async fn run_loop(
 async fn run_command(term: &mut Term, state: &mut AppState, cmd: &str) -> Result<()> {
     restore_terminal(term)?;
 
-    let cwd = state.panels[state.active].cwd.path.clone();
+    // Use the panel's directory only when it's a real local path; otherwise
+    // (remote/archive panel) fall back to the process cwd.
+    let panel = &state.panels[state.active];
+    let cwd = if panel.cwd.scheme == "file" {
+        panel.cwd.path.clone()
+    } else {
+        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"))
+    };
     println!("$ {cmd}");
     let status = tokio::process::Command::new("sh")
         .arg("-c")
@@ -124,6 +132,32 @@ async fn run_external(
         let mut line = String::new();
         let _ = io::stdin().read_line(&mut line);
     }
+
+    *term = setup_terminal()?;
+    term.clear()?;
+    state.reload_all().await;
+    Ok(())
+}
+
+/// Ctrl-O: suspend the TUI and launch an interactive shell in the active
+/// panel's directory (local). The TUI restores when the shell exits.
+async fn run_subshell(term: &mut Term, state: &mut AppState) -> Result<()> {
+    restore_terminal(term)?;
+
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+    let cwd = {
+        let p = &state.panels[state.active];
+        if p.cwd.scheme == "file" {
+            p.cwd.path.clone()
+        } else {
+            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"))
+        }
+    };
+    println!("[rat-commander subshell — type 'exit' to return]");
+    let _ = tokio::process::Command::new(&shell)
+        .current_dir(&cwd)
+        .status()
+        .await;
 
     *term = setup_terminal()?;
     term.clear()?;
