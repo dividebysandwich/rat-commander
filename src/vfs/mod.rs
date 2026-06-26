@@ -7,8 +7,10 @@
 
 pub mod archive;
 pub mod local;
+pub mod membuf;
 pub mod path;
 pub mod registry;
+pub mod remote;
 
 pub use path::VfsPath;
 

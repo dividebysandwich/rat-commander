@@ -8,6 +8,7 @@ use crate::ops::progress::{ProgressUpdate, TaskId};
 use crate::ui::theme::Theme;
 use crate::util::bytes::human_size;
 use crate::vfs::VfsPath;
+use crate::vfs::remote::{Protocol, RemoteCreds};
 use ratatui::Frame;
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Constraint, Direction, Layout, Position, Rect};
@@ -59,6 +60,8 @@ pub enum Submit {
     Settings(SettingsValues),
     /// Compress these (local) sources into an archive of the given name.
     Compress(Vec<VfsPath>, String),
+    /// Open a remote connection.
+    Connect(RemoteCreds),
 }
 
 /// Values collected by the settings form.
@@ -574,6 +577,11 @@ pub enum Field {
         value: String,
         cursor: usize,
     },
+    Password {
+        label: String,
+        value: String,
+        cursor: usize,
+    },
     Check {
         label: String,
         value: bool,
@@ -591,6 +599,14 @@ impl Field {
         }
     }
 
+    pub fn password(label: &str) -> Self {
+        Field::Password {
+            label: label.to_string(),
+            value: String::new(),
+            cursor: 0,
+        }
+    }
+
     pub fn check(label: &str, value: bool) -> Self {
         Field::Check {
             label: label.to_string(),
@@ -600,7 +616,7 @@ impl Field {
 
     fn as_text(&self) -> &str {
         match self {
-            Field::Text { value, .. } => value,
+            Field::Text { value, .. } | Field::Password { value, .. } => value,
             Field::Check { .. } => "",
         }
     }
@@ -645,11 +661,11 @@ impl Form {
                     *value = !*value;
                 }
             }
-            _ => {
-                if let Some(Field::Text { value, cursor, .. }) = self.fields.get_mut(self.focus) {
-                    edit_text(value, cursor, key);
-                }
-            }
+            _ => match self.fields.get_mut(self.focus) {
+                Some(Field::Text { value, cursor, .. })
+                | Some(Field::Password { value, cursor, .. }) => edit_text(value, cursor, key),
+                _ => {}
+            },
         }
         false
     }
@@ -698,6 +714,8 @@ pub enum FormPurpose {
     Chown(VfsPath),
     /// Create a symlink inside this directory.
     Symlink(VfsPath),
+    /// Open a remote connection of this protocol.
+    Connect(Protocol),
 }
 
 pub struct FormDialog {
@@ -767,6 +785,21 @@ impl FormDialog {
         }
     }
 
+    pub fn connect(protocol: Protocol) -> Self {
+        let form = Form::new(vec![
+            Field::text("Host", ""),
+            Field::text("Port", protocol.default_port().to_string()),
+            Field::text("Username", ""),
+            Field::password("Password"),
+            Field::text("Remote path (blank = home)", ""),
+        ]);
+        FormDialog {
+            title: format!("{} connection", protocol.scheme_prefix().to_uppercase()),
+            form,
+            purpose: FormPurpose::Connect(protocol),
+        }
+    }
+
     fn chmod_mode(&self) -> u32 {
         const BITS: [u32; 9] = [
             0o400, 0o200, 0o100, 0o040, 0o020, 0o010, 0o004, 0o002, 0o001,
@@ -815,6 +848,25 @@ impl FormDialog {
                     name,
                 }
             }
+            FormPurpose::Connect(protocol) => {
+                let host = fields[0].as_text().trim().to_string();
+                if host.is_empty() {
+                    return DialogResult::Cancel;
+                }
+                let port = fields[1]
+                    .as_text()
+                    .trim()
+                    .parse::<u16>()
+                    .unwrap_or(protocol.default_port());
+                Submit::Connect(RemoteCreds {
+                    protocol: *protocol,
+                    host,
+                    port,
+                    user: fields[2].as_text().trim().to_string(),
+                    password: fields[3].as_text().to_string(),
+                    path: fields[4].as_text().trim().to_string(),
+                })
+            }
         };
         DialogResult::Submit(submit)
     }
@@ -852,13 +904,24 @@ impl FormDialog {
                     label,
                     value,
                     cursor,
+                }
+                | Field::Password {
+                    label,
+                    value,
+                    cursor,
                 } => {
+                    let masked = matches!(field, Field::Password { .. });
+                    let shown = if masked {
+                        "*".repeat(value.chars().count())
+                    } else {
+                        value.clone()
+                    };
                     let label_str = format!("{label}: ");
                     let style = if focused { focus_style } else { base };
                     let line = Line::from(vec![
                         Span::styled(label_str.clone(), style),
                         Span::styled(
-                            value.clone(),
+                            shown,
                             Style::default()
                                 .fg(theme.dialog_fg)
                                 .bg(ratatui::style::Color::White),
@@ -945,3 +1008,4 @@ fn button(text: &str, focused: bool, theme: &Theme) -> Span<'static> {
     };
     Span::styled(text.to_string(), style)
 }
+

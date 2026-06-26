@@ -222,7 +222,9 @@ impl Engine {
             self.total_done += n as u64;
             self.emit(false);
         }
-        writer.flush().await?;
+        // shutdown() flushes AND closes — required so remote/buffering writers
+        // (SFTP File, FTP/SCP CollectWriter) actually finalize the upload.
+        writer.shutdown().await?;
         drop(writer);
 
         // Best-effort: preserve permissions.

@@ -19,6 +19,7 @@ use crate::util::async_bridge::AppSender;
 use crate::viewer::{MAX_VIEW_BYTES, ViewerSignal, ViewerState};
 use crate::vfs::Vfs;
 use crate::vfs::archive::{self, formats::ArchiveFormat};
+use crate::vfs::remote::RemoteCreds;
 use crate::vfs::VfsKind;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -54,6 +55,7 @@ pub struct AppState {
     pub registry: Registry,
     tasks: HashMap<TaskId, TaskHandle>,
     next_task_id: TaskId,
+    next_session_id: usize,
     tx: AppSender,
     /// Set when a confirmed quit should propagate out as `Flow::Quit`.
     pending_quit: bool,
@@ -80,6 +82,7 @@ impl AppState {
             registry,
             tasks: HashMap::new(),
             next_task_id: 1,
+            next_session_id: 0,
             tx,
             pending_quit: false,
         }
@@ -218,6 +221,10 @@ impl AppState {
             MenuAction::SwapPanels => self.panels.swap(0, 1),
             MenuAction::Refresh => self.reload_all().await,
             MenuAction::ToggleSplit => self.split = self.split.toggle(),
+            MenuAction::Connect(proto) => {
+                self.dialog = Some(Dialog::Form(FormDialog::connect(proto)))
+            }
+            MenuAction::Disconnect => self.disconnect().await,
             MenuAction::Settings => self.open_settings(),
             MenuAction::Quit => self.dialog = Some(Dialog::Confirm(ConfirmDialog::quit())),
         }
@@ -272,6 +279,7 @@ impl AppState {
                 }
             }
             Submit::Compress(sources, name) => self.start_compress(sources, name),
+            Submit::Connect(creds) => self.connect_remote(creds).await,
             Submit::Quit => self.pending_quit = true,
             Submit::EditorSaveQuit => self.save_editor(true).await,
             Submit::EditorDiscardQuit => {
@@ -714,6 +722,41 @@ impl AppState {
         self.dialog = Some(Dialog::Progress(ProgressDialog::new(id, verb)));
     }
 
+    // -- Remote connections ------------------------------------------------
+
+    async fn connect_remote(&mut self, creds: RemoteCreds) {
+        match crate::vfs::remote::connect(&creds).await {
+            Ok(conn) => {
+                let scheme = format!("{}-{}", creds.protocol.scheme_prefix(), self.next_session_id);
+                self.next_session_id += 1;
+                self.registry.register(scheme.clone(), conn.backend.clone());
+                let cwd = VfsPath {
+                    scheme,
+                    path: PathBuf::from(&conn.root),
+                    container: None,
+                };
+                let p = self.active_panel();
+                p.cwd = cwd;
+                p.backend = conn.backend;
+                p.selection.clear();
+                let _ = p.reload().await;
+            }
+            Err(e) => self.show_error(format!("Connection failed: {e}")),
+        }
+    }
+
+    async fn disconnect(&mut self) {
+        if self.panels[self.active].cwd.scheme == "file" {
+            return;
+        }
+        let local = self.registry.local();
+        let p = self.active_panel();
+        p.cwd = VfsPath::local_cwd();
+        p.backend = local;
+        p.selection.clear();
+        let _ = p.reload().await;
+    }
+
     /// F3: view the file under the cursor (internal viewer or external pager).
     async fn open_view(&mut self) -> Flow {
         let p = &self.panels[self.active];
@@ -895,7 +938,8 @@ const HELP_TEXT: &str = "rat-commander — Tab: switch panel, Enter: open dir / 
 Insert: mark, F3 view, F4 edit, F5 copy, F6 move, F7 mkdir, F8 delete, F9/F2 menu, F10 quit. \
 + select group, - unselect, * invert. Ctrl-S cycle sort, Ctrl-E reverse, Ctrl-W brief/full, \
 Ctrl-T split, Ctrl-R reload. In viewer: F2 wrap, F4 hex/text, F7 search, n next. \
-Chmod/Chown/Symlink/Settings live in the F9 menu.";
+Chmod/Chown/Symlink/Settings/Compress live in the F9 menu. SFTP/FTP/SCP connections \
+are in F9 -> Command; copy/move between local, remote and archives works across panels.";
 
 #[cfg(test)]
 mod tests {

@@ -3,6 +3,7 @@
 use crate::panel::sort::SortKey;
 use crate::panel::ViewFormat;
 use crate::ui::menubar::TITLES;
+use crate::vfs::remote::Protocol;
 use crate::ui::theme::Theme;
 use ratatui::Frame;
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
@@ -34,6 +35,8 @@ pub enum MenuAction {
     SwapPanels,
     Refresh,
     ToggleSplit,
+    Connect(Protocol),
+    Disconnect,
     Settings,
     Quit,
 }
@@ -112,6 +115,11 @@ impl MenuBarState {
                 item("Swap panels", MenuAction::SwapPanels),
                 item("Re-read directories", MenuAction::Refresh),
                 item("Toggle split V/H", MenuAction::ToggleSplit),
+                sep(),
+                item("SFTP connection...", MenuAction::Connect(Protocol::Sftp)),
+                item("FTP connection...", MenuAction::Connect(Protocol::Ftp)),
+                item("SCP connection...", MenuAction::Connect(Protocol::Scp)),
+                item("Disconnect (back to local)", MenuAction::Disconnect),
             ],
         };
 
