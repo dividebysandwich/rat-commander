@@ -4,6 +4,7 @@
 //! Phase 5 (remote) register additional schemes here, so panel/ops code can
 //! resolve any path without knowing the backend list.
 
+use super::archive::ArchiveFs;
 use super::local::LocalFs;
 use super::{Vfs, VfsPath};
 use crate::util::{Error, Result};
@@ -20,6 +21,7 @@ impl Registry {
     pub fn new() -> Self {
         let mut backends: HashMap<String, Arc<dyn Vfs>> = HashMap::new();
         backends.insert("file".to_string(), Arc::new(LocalFs::new()));
+        backends.insert("archive".to_string(), Arc::new(ArchiveFs::new()));
         Registry { backends }
     }
 

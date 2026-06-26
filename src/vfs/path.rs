@@ -1,20 +1,20 @@
-//! [`VfsPath`] — a backend-scheme-tagged absolute path.
+//! [`VfsPath`] — a backend-scheme-tagged absolute path, with optional archive
+//! nesting.
 //!
-//! Phase 1 only needs `file://` paths, so this is a thin wrapper over an
-//! absolute [`PathBuf`] plus a scheme string. The type is deliberately the one
-//! choke point through which all path manipulation flows, so that Phase 4
-//! (archive nesting) and Phase 5 (remote roots) can extend it without touching
-//! callers.
+//! A plain path (local/remote) has `container == None`. An archive path has
+//! `scheme == "archive"`, `container == Some(archive_file_on_local_disk)`, and
+//! `path` holding the absolute path *inside* the archive (root = `/`).
 
 use std::path::{Path, PathBuf};
 
-/// An absolute path within a particular VFS backend.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct VfsPath {
-    /// Backend scheme: `"file"`, later `"sftp"`, `"ftp"`, `"scp"`, `"archive"`.
+    /// Backend scheme: `"file"`, `"archive"`, later `"sftp"`/`"ftp"`/`"scp"`.
     pub scheme: String,
-    /// Absolute path inside the backend's namespace.
+    /// Absolute path inside the backend (for archives, inside the archive).
     pub path: PathBuf,
+    /// The archive file (on local disk) when `scheme == "archive"`.
+    pub container: Option<PathBuf>,
 }
 
 impl VfsPath {
@@ -23,6 +23,16 @@ impl VfsPath {
         VfsPath {
             scheme: "file".to_string(),
             path: path.into(),
+            container: None,
+        }
+    }
+
+    /// A path inside an archive. `inner` is absolute within the archive.
+    pub fn archive(container: impl Into<PathBuf>, inner: impl Into<PathBuf>) -> Self {
+        VfsPath {
+            scheme: "archive".to_string(),
+            path: inner.into(),
+            container: Some(container.into()),
         }
     }
 
@@ -30,6 +40,23 @@ impl VfsPath {
     pub fn local_cwd() -> Self {
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
         VfsPath::local(cwd)
+    }
+
+    pub fn is_archive(&self) -> bool {
+        self.container.is_some()
+    }
+
+    /// True when this points at the root of an archive.
+    pub fn is_archive_root(&self) -> bool {
+        self.is_archive() && (self.path == Path::new("/") || self.path.as_os_str().is_empty())
+    }
+
+    /// The archive file's name, if this is an archive path.
+    pub fn container_name(&self) -> Option<String> {
+        self.container
+            .as_ref()
+            .and_then(|c| c.file_name())
+            .map(|s| s.to_string_lossy().into_owned())
     }
 
     /// Borrow the inner path.
@@ -45,11 +72,25 @@ impl VfsPath {
             .unwrap_or_else(|| self.path.to_string_lossy().into_owned())
     }
 
-    /// The parent path, or `None` at the backend root.
+    /// The parent path. At the root of an archive, this exits the archive back
+    /// to the directory containing the archive file on local disk.
     pub fn parent(&self) -> Option<VfsPath> {
+        if self.is_archive() {
+            if self.is_archive_root() {
+                // Exit the archive.
+                let container = self.container.as_ref()?;
+                return container.parent().map(VfsPath::local);
+            }
+            return self.path.parent().map(|p| VfsPath {
+                scheme: self.scheme.clone(),
+                path: p.to_path_buf(),
+                container: self.container.clone(),
+            });
+        }
         self.path.parent().map(|p| VfsPath {
             scheme: self.scheme.clone(),
             path: p.to_path_buf(),
+            container: None,
         })
     }
 
@@ -58,12 +99,15 @@ impl VfsPath {
         VfsPath {
             scheme: self.scheme.clone(),
             path: self.path.join(name),
+            container: self.container.clone(),
         }
     }
 
     /// Display string for the location bar.
     pub fn display(&self) -> String {
-        if self.scheme == "file" {
+        if let Some(c) = &self.container {
+            format!("{}!{}", c.to_string_lossy(), self.path.to_string_lossy())
+        } else if self.scheme == "file" {
             self.path.to_string_lossy().into_owned()
         } else {
             format!("{}://{}", self.scheme, self.path.to_string_lossy())

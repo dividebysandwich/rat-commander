@@ -17,6 +17,9 @@ pub enum EditorSignal {
     Close,
     /// Persist the buffer; close the editor afterwards if `close_after`.
     Save { close_after: bool },
+    /// The buffer is modified and the user asked to quit: the app should show a
+    /// modal save/discard/cancel confirmation.
+    ConfirmQuit,
 }
 
 /// An in-editor prompt occupying the bottom line.
@@ -24,7 +27,6 @@ enum Prompt {
     Search { buf: String },
     ReplaceFind { buf: String },
     ReplaceWith { find: String, buf: String },
-    QuitConfirm,
 }
 
 pub struct EditorState {
@@ -113,12 +115,11 @@ impl EditorState {
         self.status.clear();
 
         match key.code {
-            KeyCode::F(10) => {
+            KeyCode::F(10) | KeyCode::Esc => {
                 if self.dirty {
-                    self.prompt = Some(Prompt::QuitConfirm);
-                } else {
-                    return EditorSignal::Close;
+                    return EditorSignal::ConfirmQuit;
                 }
+                return EditorSignal::Close;
             }
             KeyCode::F(2) => return EditorSignal::Save { close_after: false },
             KeyCode::F(3) => self.toggle_mark(),
@@ -178,22 +179,6 @@ impl EditorState {
     }
 
     fn handle_prompt_key(&mut self, key: KeyEvent) -> EditorSignal {
-        // Quit confirmation is a single-key choice.
-        if matches!(self.prompt, Some(Prompt::QuitConfirm)) {
-            return match key.code {
-                KeyCode::Char('y') | KeyCode::Char('s') => {
-                    self.prompt = None;
-                    EditorSignal::Save { close_after: true }
-                }
-                KeyCode::Char('n') | KeyCode::Char('d') => EditorSignal::Close,
-                KeyCode::Esc => {
-                    self.prompt = None;
-                    EditorSignal::Stay
-                }
-                _ => EditorSignal::Stay,
-            };
-        }
-
         match key.code {
             KeyCode::Esc => self.prompt = None,
             KeyCode::Backspace => {
@@ -217,7 +202,6 @@ impl EditorState {
             Prompt::Search { buf } => Some(buf),
             Prompt::ReplaceFind { buf } => Some(buf),
             Prompt::ReplaceWith { buf, .. } => Some(buf),
-            Prompt::QuitConfirm => None,
         }
     }
 

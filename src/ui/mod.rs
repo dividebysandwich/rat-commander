@@ -191,6 +191,7 @@ mod tests {
         assert!(text.contains("Ln 1/2"), "status shows line/total");
         assert!(text.contains("C=104") || text.contains("0x68"), "ASCII code of 'h'");
         assert!(text.contains("hello") && text.contains("world"), "text body");
-        assert!(text.contains("F2 Save"), "shortcut bar");
+        assert!(text.contains("Save") && text.contains("Quit"), "shortcut bar");
     }
 }
+

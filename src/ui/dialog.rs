@@ -16,6 +16,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Gauge, Paragraph, Wrap};
 
 /// The active modal dialog (only one at a time).
+#[allow(clippy::large_enum_variant)]
 pub enum Dialog {
     Input(InputDialog),
     Confirm(ConfirmDialog),
@@ -37,12 +38,15 @@ pub enum DialogResult {
 }
 
 /// A confirmed user intent produced by a dialog.
+#[allow(clippy::large_enum_variant)]
 pub enum Submit {
     MkDir(String),
     Copy(Vec<VfsPath>, String),
     Move(Vec<VfsPath>, String),
     Delete(Vec<VfsPath>),
     Quit,
+    EditorSaveQuit,
+    EditorDiscardQuit,
     SelectGroup(String),
     UnselectGroup(String),
     Chmod(VfsPath, u32),
@@ -53,6 +57,8 @@ pub enum Submit {
         name: String,
     },
     Settings(SettingsValues),
+    /// Compress these (local) sources into an archive of the given name.
+    Compress(Vec<VfsPath>, String),
 }
 
 /// Values collected by the settings form.
@@ -98,6 +104,7 @@ pub enum InputPurpose {
     MoveDest(Vec<VfsPath>),
     SelectGroup,
     UnselectGroup,
+    Compress(Vec<VfsPath>),
 }
 
 pub struct InputDialog {
@@ -149,6 +156,7 @@ impl InputDialog {
                     InputPurpose::MoveDest(s) => Submit::Move(s.clone(), text),
                     InputPurpose::SelectGroup => Submit::SelectGroup(text),
                     InputPurpose::UnselectGroup => Submit::UnselectGroup(text),
+                    InputPurpose::Compress(s) => Submit::Compress(s.clone(), text),
                 };
                 DialogResult::Submit(submit)
             }
@@ -251,38 +259,74 @@ pub struct ConfirmDialog {
     pub title: String,
     pub message: String,
     pub focus_yes: bool,
+    pub yes_label: String,
+    pub no_label: String,
     pub submit: Option<Submit>,
+    /// Action for the "No" button. When `None`, "No" simply cancels.
+    pub no_submit: Option<Submit>,
 }
 
 impl ConfirmDialog {
+    fn yes_no(
+        title: &str,
+        message: String,
+        submit: Submit,
+        yes_label: &str,
+        no_label: &str,
+        no_submit: Option<Submit>,
+    ) -> Self {
+        ConfirmDialog {
+            title: title.to_string(),
+            message,
+            focus_yes: true,
+            yes_label: yes_label.to_string(),
+            no_label: no_label.to_string(),
+            submit: Some(submit),
+            no_submit,
+        }
+    }
+
     pub fn delete(targets: Vec<VfsPath>) -> Self {
         let message = if targets.len() == 1 {
             format!("Delete \"{}\"?", targets[0].file_name())
         } else {
             format!("Delete {} selected items?", targets.len())
         };
-        ConfirmDialog {
-            title: "Delete".to_string(),
-            message,
-            focus_yes: true,
-            submit: Some(Submit::Delete(targets)),
-        }
+        Self::yes_no("Delete", message, Submit::Delete(targets), "Yes", "No", None)
     }
 
     pub fn quit() -> Self {
-        ConfirmDialog {
-            title: "Quit".to_string(),
-            message: "Do you really want to quit rat-commander?".to_string(),
-            focus_yes: true,
-            submit: Some(Submit::Quit),
-        }
+        Self::yes_no(
+            "Quit",
+            "Do you really want to quit rat-commander?".to_string(),
+            Submit::Quit,
+            "Yes",
+            "No",
+            None,
+        )
+    }
+
+    /// The editor's save/discard/cancel modal. Yes = save & quit, No = discard
+    /// & quit, Esc = cancel (stay in the editor).
+    pub fn editor_quit(name: &str) -> Self {
+        Self::yes_no(
+            "File modified",
+            format!("\"{name}\" has unsaved changes. Save before closing?"),
+            Submit::EditorSaveQuit,
+            "Save",
+            "Discard",
+            Some(Submit::EditorDiscardQuit),
+        )
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> DialogResult {
         match key.code {
             KeyCode::Esc => DialogResult::Cancel,
-            KeyCode::Char('n') | KeyCode::Char('N') => DialogResult::Cancel,
-            KeyCode::Char('y') | KeyCode::Char('Y') => self.confirm(),
+            KeyCode::Char('n') | KeyCode::Char('N') => self.no_action(),
+            KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Char('s') | KeyCode::Char('S') => {
+                self.confirm()
+            }
+            KeyCode::Char('d') | KeyCode::Char('D') => self.no_action(),
             KeyCode::Left | KeyCode::Right | KeyCode::Tab => {
                 self.focus_yes = !self.focus_yes;
                 DialogResult::None
@@ -291,7 +335,7 @@ impl ConfirmDialog {
                 if self.focus_yes {
                     self.confirm()
                 } else {
-                    DialogResult::Cancel
+                    self.no_action()
                 }
             }
             _ => DialogResult::None,
@@ -305,8 +349,15 @@ impl ConfirmDialog {
         }
     }
 
+    fn no_action(&mut self) -> DialogResult {
+        match self.no_submit.take() {
+            Some(s) => DialogResult::Submit(s),
+            None => DialogResult::Cancel,
+        }
+    }
+
     fn render(&self, f: &mut Frame, area: Rect, theme: &Theme) {
-        let w = 50u16.min(area.width.saturating_sub(4));
+        let w = 54u16.min(area.width.saturating_sub(4));
         let rect = centered(area, w, 7);
         f.render_widget(Clear, rect);
         let block = dialog_block(&self.title, theme);
@@ -326,8 +377,8 @@ impl ConfirmDialog {
             rows[0],
         );
 
-        let yes = button("[ Yes ]", self.focus_yes, theme);
-        let no = button("[ No ]", !self.focus_yes, theme);
+        let yes = button(&format!("[ {} ]", self.yes_label), self.focus_yes, theme);
+        let no = button(&format!("[ {} ]", self.no_label), !self.focus_yes, theme);
         let buttons = Line::from(vec![yes, Span::raw("   "), no]);
         f.render_widget(
             Paragraph::new(buttons)

@@ -149,25 +149,30 @@ fn render_text(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) -> Op
 
 fn render_footer(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) {
     let width = area.width as usize;
-    let line = match &ed.prompt {
-        Some(Prompt::Search { buf }) => prompt_line("Search:", buf, theme),
-        Some(Prompt::ReplaceFind { buf }) => prompt_line("Replace - find:", buf, theme),
-        Some(Prompt::ReplaceWith { buf, .. }) => prompt_line("Replace - with:", buf, theme),
-        Some(Prompt::QuitConfirm) => Line::from(Span::styled(
-            pad_right("File modified. Save before quit?  y = Save   n = Discard   Esc = Cancel", width),
-            theme.fkey_label,
-        )),
-        None => {
-            let hint = if ed.status.is_empty() {
-                "F2 Save  F3 Mark  F4 Replace  F5 Copy  F6 Move  F7 Search  F8 DelBlk  F10 Quit"
-                    .to_string()
-            } else {
-                ed.status.clone()
-            };
-            Line::from(Span::styled(pad_right(&hint, width), theme.fkey_label))
+    match &ed.prompt {
+        Some(Prompt::Search { buf }) => {
+            f.render_widget(Paragraph::new(prompt_line("Search:", buf, theme)), area);
         }
-    };
-    f.render_widget(Paragraph::new(line), area);
+        Some(Prompt::ReplaceFind { buf }) => {
+            f.render_widget(Paragraph::new(prompt_line("Replace - find:", buf, theme)), area);
+        }
+        Some(Prompt::ReplaceWith { buf, .. }) => {
+            f.render_widget(Paragraph::new(prompt_line("Replace - with:", buf, theme)), area);
+        }
+        None if !ed.status.is_empty() => {
+            f.render_widget(
+                Paragraph::new(Line::from(Span::styled(
+                    pad_right(&ed.status, width),
+                    theme.fkey_label,
+                ))),
+                area,
+            );
+        }
+        None => {
+            // Same full-width, number+label styling as the main program.
+            crate::ui::fkeys::render(f, area, &crate::ui::fkeys::EDITOR_LABELS, theme);
+        }
+    }
 }
 
 fn prompt_line<'a>(label: &'a str, buf: &'a str, theme: &Theme) -> Line<'a> {

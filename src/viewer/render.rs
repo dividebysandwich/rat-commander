@@ -128,30 +128,24 @@ fn render_hex(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
 }
 
 fn render_footer(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
-    let width = area.width as usize;
-    let line = if let Some(q) = v.search_input.as_ref() {
-        Line::from(vec![
+    if let Some(q) = v.search_input.as_ref() {
+        let line = Line::from(vec![
             Span::styled("Search: ", Style::default().fg(theme.header_fg)),
             Span::raw(q.clone()),
-        ])
-    } else {
-        let hint = "F2 Wrap  F4 Hex/Text  F7 Search  n Next  F10 Quit";
-        let found = if !v.query.is_empty() {
-            format!("  [/{}]", v.query)
-        } else {
-            String::new()
-        };
-        // Pad to full width so the shortcut bar spans the screen.
-        Line::from(Span::styled(
-            pad_right(&format!("{hint}{found}"), width),
-            theme.fkey_label,
-        ))
-    };
-    f.render_widget(Paragraph::new(line), area);
-    if let Some(q) = v.search_input.as_ref() {
+        ]);
+        f.render_widget(Paragraph::new(line), area);
         let cx = area.x + 8 + q.chars().count() as u16;
         f.set_cursor_position(ratatui::layout::Position::new(cx, area.y));
+        return;
     }
+
+    // Same full-width, number+label styling as the main program.
+    let wrap = if v.wrap { "Unwrap" } else { "Wrap" };
+    let mode = if v.mode == ViewMode::Hex { "Text" } else { "Hex" };
+    let labels: [&str; 10] = [
+        "Help", wrap, "Quit", mode, "Goto", "", "Search", "", "Next", "Quit",
+    ];
+    crate::ui::fkeys::render(f, area, &labels, theme);
 }
 
 /// Split a string into display-width chunks of at most `width` characters.

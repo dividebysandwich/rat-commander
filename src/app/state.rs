@@ -18,6 +18,10 @@ use crate::ui::theme::Theme;
 use crate::util::async_bridge::AppSender;
 use crate::viewer::{MAX_VIEW_BYTES, ViewerSignal, ViewerState};
 use crate::vfs::Vfs;
+use crate::vfs::archive::{self, formats::ArchiveFormat};
+use crate::vfs::VfsKind;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 use crate::vfs::registry::Registry;
 use crate::vfs::VfsPath;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -148,6 +152,14 @@ impl AppState {
                     self.reload_all().await;
                 }
                 EditorSignal::Save { close_after } => self.save_editor(close_after).await,
+                EditorSignal::ConfirmQuit => {
+                    let name = self
+                        .editor
+                        .as_ref()
+                        .map(|e| e.name.clone())
+                        .unwrap_or_default();
+                    self.dialog = Some(Dialog::Confirm(ConfirmDialog::editor_quit(&name)));
+                }
             }
             return Flow::Continue;
         }
@@ -190,6 +202,7 @@ impl AppState {
             MenuAction::Chmod => self.open_chmod(),
             MenuAction::Chown => self.open_chown(),
             MenuAction::Symlink => self.open_symlink(),
+            MenuAction::Compress => self.open_compress(),
             MenuAction::SelectGroup => self.open_select_group(true),
             MenuAction::UnselectGroup => self.open_select_group(false),
             MenuAction::Invert => self.invert_selection(),
@@ -251,8 +264,20 @@ impl AppState {
             }
             Submit::Copy(sources, dest) => self.begin_transfer(OpKind::Copy, sources, &dest).await,
             Submit::Move(sources, dest) => self.begin_transfer(OpKind::Move, sources, &dest).await,
-            Submit::Delete(targets) => self.start_op(OpKind::Delete, targets, None, None),
+            Submit::Delete(targets) => {
+                if targets.iter().any(|t| t.is_archive()) {
+                    self.start_archive_remove(targets);
+                } else {
+                    self.start_op(OpKind::Delete, targets, None, None);
+                }
+            }
+            Submit::Compress(sources, name) => self.start_compress(sources, name),
             Submit::Quit => self.pending_quit = true,
+            Submit::EditorSaveQuit => self.save_editor(true).await,
+            Submit::EditorDiscardQuit => {
+                self.editor = None;
+                self.reload_all().await;
+            }
             Submit::SelectGroup(pattern) => self.apply_select_group(&pattern, true),
             Submit::UnselectGroup(pattern) => self.apply_select_group(&pattern, false),
             Submit::Chmod(path, mode) => {
@@ -453,13 +478,24 @@ impl AppState {
     }
 
     async fn enter_dir(&mut self) {
-        let target = self.active_panel().target_dir_under_cursor();
-        if let Some((newcwd, focus)) = target {
-            let p = self.active_panel();
-            p.cwd = newcwd;
-            p.selection.clear();
-            let _ = p.reload_keeping(focus.as_deref()).await;
-        }
+        let p = &self.panels[self.active];
+        // Directory / ".." navigation first, then "enter archive file".
+        let target = p
+            .target_dir_under_cursor()
+            .or_else(|| archive_target_under_cursor(p));
+        let Some((newcwd, focus)) = target else {
+            return;
+        };
+        // Re-resolve the backend: navigation may cross backends (local↔archive).
+        let backend = match self.registry.resolve(&newcwd) {
+            Ok(b) => b,
+            Err(e) => return self.show_error(e.to_string()),
+        };
+        let p = self.active_panel();
+        p.cwd = newcwd;
+        p.backend = backend;
+        p.selection.clear();
+        let _ = p.reload_keeping(focus.as_deref()).await;
     }
 
     fn cycle_sort(&mut self) {
@@ -474,6 +510,16 @@ impl AppState {
         let sources = self.panels[self.active].operation_targets();
         if sources.is_empty() {
             self.show_error("No files selected");
+            return;
+        }
+        // Destination is an archive → add into it (rebuild), not a file copy.
+        if self.panels[self.other_index()].cwd.is_archive() {
+            if self.panels[self.active].cwd.is_archive() {
+                self.show_error("Cannot copy directly between archives; extract first");
+                return;
+            }
+            let dest = self.panels[self.other_index()].cwd.clone();
+            self.start_archive_add(kind, sources, dest);
             return;
         }
         let dest = self.panels[self.other_index()].cwd.display();
@@ -580,6 +626,92 @@ impl AppState {
         }
         let dir = p.cwd.clone();
         self.dialog = Some(Dialog::Form(FormDialog::symlink(dir)));
+    }
+
+    // -- Archives ----------------------------------------------------------
+
+    fn open_compress(&mut self) {
+        let p = &self.panels[self.active];
+        if p.cwd.is_archive() {
+            return self.show_error("Compress from a local directory");
+        }
+        let sources = p.operation_targets();
+        if sources.is_empty() {
+            return self.show_error("No files selected");
+        }
+        self.dialog = Some(Dialog::Input(InputDialog::new(
+            "Compress",
+            "Archive name (.zip .7z .tar.gz .tar.bz2 .tar.xz):",
+            "archive.tar.gz",
+            InputPurpose::Compress(sources),
+        )));
+    }
+
+    fn start_compress(&mut self, sources: Vec<VfsPath>, name: String) {
+        let format = match ArchiveFormat::from_name(&name) {
+            Some(ArchiveFormat::Rar) => return self.show_error("Cannot create RAR archives"),
+            Some(f) => f,
+            None => {
+                return self
+                    .show_error("Unknown type (use .zip .7z .tar.gz .tar.bz2 .tar.xz)");
+            }
+        };
+        let dest = self.panels[self.active].cwd.path.join(&name);
+        let local: Vec<PathBuf> = sources.iter().map(|s| s.path.clone()).collect();
+        self.spawn_archive_op("Compressing", move || {
+            archive::create_archive(format, &dest, &local)
+        });
+    }
+
+    fn start_archive_add(&mut self, kind: OpKind, sources: Vec<VfsPath>, dest: VfsPath) {
+        let Some(container) = dest.container.clone() else {
+            return self.show_error("destination is not an archive");
+        };
+        let dest_inner = dest.path.to_string_lossy().into_owned();
+        let local: Vec<PathBuf> = sources.iter().map(|s| s.path.clone()).collect();
+        let is_move = matches!(kind, OpKind::Move);
+        self.spawn_archive_op("Updating archive", move || {
+            archive::add_to_archive(&container, &dest_inner, &local)?;
+            if is_move {
+                for s in &local {
+                    let _ = remove_local(s);
+                }
+            }
+            Ok(())
+        });
+    }
+
+    fn start_archive_remove(&mut self, targets: Vec<VfsPath>) {
+        let Some(container) = targets.first().and_then(|t| t.container.clone()) else {
+            return;
+        };
+        let set: HashSet<String> = targets
+            .iter()
+            .map(|t| t.path.to_string_lossy().into_owned())
+            .collect();
+        self.spawn_archive_op("Updating archive", move || {
+            archive::remove_from_archive(&container, &set)
+        });
+    }
+
+    /// Spawn a blocking archive mutation; shows a progress dialog and reloads
+    /// panels when it finishes (via the usual `TaskDone` path).
+    fn spawn_archive_op<F>(&mut self, verb: &'static str, f: F)
+    where
+        F: FnOnce() -> crate::util::Result<()> + Send + 'static,
+    {
+        let id = self.next_task_id;
+        self.next_task_id += 1;
+        let tx = self.tx.clone();
+        tokio::spawn(async move {
+            let outcome = match tokio::task::spawn_blocking(f).await {
+                Ok(Ok(())) => TaskOutcome::Done,
+                Ok(Err(e)) => TaskOutcome::Failed(e.to_string()),
+                Err(e) => TaskOutcome::Failed(e.to_string()),
+            };
+            let _ = tx.send(AppEvent::TaskDone { id, outcome }).await;
+        });
+        self.dialog = Some(Dialog::Progress(ProgressDialog::new(id, verb)));
     }
 
     /// F3: view the file under the cursor (internal viewer or external pager).
@@ -692,6 +824,29 @@ async fn write_file(
     Ok(())
 }
 
+/// If the cursor is on a local archive file, the path to enter it at its root.
+fn archive_target_under_cursor(p: &Panel) -> Option<(VfsPath, Option<String>)> {
+    if p.cwd.scheme != "file" {
+        return None;
+    }
+    let e = p.current_entry()?;
+    if e.kind != VfsKind::File {
+        return None;
+    }
+    ArchiveFormat::from_name(&e.name)?;
+    let file_path = p.cwd.path.join(&e.name);
+    Some((VfsPath::archive(file_path, "/"), None))
+}
+
+/// Remove a local file or directory tree (used after a move-into-archive).
+fn remove_local(p: &Path) -> std::io::Result<()> {
+    if std::fs::symlink_metadata(p)?.is_dir() {
+        std::fs::remove_dir_all(p)
+    } else {
+        std::fs::remove_file(p)
+    }
+}
+
 /// Resolve a user name or numeric uid string into a uid (or `None` if empty).
 fn resolve_uid(s: &str) -> Result<Option<u32>, String> {
     if s.is_empty() {
@@ -741,3 +896,53 @@ Insert: mark, F3 view, F4 edit, F5 copy, F6 move, F7 mkdir, F8 delete, F9/F2 men
 + select group, - unselect, * invert. Ctrl-S cycle sort, Ctrl-E reverse, Ctrl-W brief/full, \
 Ctrl-T split, Ctrl-R reload. In viewer: F2 wrap, F4 hex/text, F7 search, n next. \
 Chmod/Chown/Symlink/Settings live in the F9 menu.";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::util::async_bridge;
+
+    #[tokio::test]
+    async fn enters_zip_archive_and_lists_contents() {
+        // Build a temp dir with a zip to browse.
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("rc_nav_{}_{nanos}", std::process::id()));
+        std::fs::create_dir_all(root.join("sub")).unwrap();
+        std::fs::write(root.join("sub/file.txt"), b"hi").unwrap();
+        std::fs::write(root.join("top.txt"), b"top").unwrap();
+        let zip = root.join("test.zip");
+        archive::create_archive(
+            ArchiveFormat::Zip,
+            &zip,
+            &[root.join("sub"), root.join("top.txt")],
+        )
+        .unwrap();
+
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
+        st.panels[0].cwd = VfsPath::local(&root);
+        st.panels[0].backend = st.registry.local();
+        st.panels[0].reload().await.unwrap();
+
+        // Put the cursor on the zip and "enter" it.
+        let idx = st.panels[0]
+            .entries
+            .iter()
+            .position(|e| e.name == "test.zip")
+            .unwrap();
+        st.panels[0].cursor = idx;
+        st.active = 0;
+        st.enter_dir().await;
+
+        assert!(st.panels[0].cwd.is_archive(), "should be inside the archive");
+        let names: Vec<String> = st.panels[0].entries.iter().map(|e| e.name.clone()).collect();
+        assert!(names.contains(&"sub".to_string()), "names: {names:?}");
+        assert!(names.contains(&"top.txt".to_string()), "names: {names:?}");
+        assert!(names.contains(&"..".to_string()), "archive has parent link");
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+}

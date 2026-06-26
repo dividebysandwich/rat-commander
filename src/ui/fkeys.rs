@@ -11,14 +11,21 @@ pub const PANEL_LABELS: [&str; 10] = [
     "Help", "Menu", "View", "Edit", "Copy", "RenMov", "Mkdir", "Delete", "PullDn", "Quit",
 ];
 
-/// Render a function-key hint row using the supplied labels. The 10 segments
-/// are distributed so the row spans the full width of `area`.
-pub fn render(f: &mut Frame, area: Rect, labels: &[&str; 10], theme: &Theme) {
-    let total = area.width as usize;
-    let base = total / 10;
-    let extra = total % 10; // spread the remainder over the first segments
+/// Labels for the internal editor's function-key row (mcedit order).
+pub const EDITOR_LABELS: [&str; 10] = [
+    "Help", "Save", "Mark", "Replac", "Copy", "Move", "Search", "Delete", "", "Quit",
+];
 
-    let mut spans: Vec<Span> = Vec::with_capacity(20);
+/// Render a function-key hint row using the supplied labels. The segments are
+/// distributed so the row spans the full width of `area`, with the same
+/// number/label styling everywhere in the program.
+pub fn render(f: &mut Frame, area: Rect, labels: &[&str], theme: &Theme) {
+    let n = labels.len().max(1);
+    let total = area.width as usize;
+    let base = total / n;
+    let extra = total % n; // spread the remainder over the first segments
+
+    let mut spans: Vec<Span> = Vec::with_capacity(n * 2);
     for (i, label) in labels.iter().enumerate() {
         let seg = base + usize::from(i < extra);
         let num = (i + 1).to_string();

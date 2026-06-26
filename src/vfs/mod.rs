@@ -5,6 +5,7 @@
 //! archive crates directly. Local disk, archives, and remote servers are all
 //! interchangeable implementations of [`Vfs`].
 
+pub mod archive;
 pub mod local;
 pub mod path;
 pub mod registry;

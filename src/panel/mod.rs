@@ -172,7 +172,12 @@ impl Panel {
     pub fn target_dir_under_cursor(&self) -> Option<(VfsPath, Option<String>)> {
         let e = self.current_entry()?;
         if e.name == ".." {
-            let from = self.cwd.file_name();
+            // When stepping out of an archive root, focus the archive file.
+            let from = if self.cwd.is_archive_root() {
+                self.cwd.container_name().unwrap_or_default()
+            } else {
+                self.cwd.file_name()
+            };
             self.cwd.parent().map(|p| (p, Some(from)))
         } else if e.kind == VfsKind::Dir {
             Some((self.cwd.join(&e.name), None))
