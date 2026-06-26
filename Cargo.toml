@@ -11,6 +11,7 @@ futures = "0.3.32"
 globset = "0.4.18"
 nix = { version = "0.31.3", features = ["fs", "user"] }
 ratatui = "0.30.2"
+ropey = "1.6.1"
 serde = { version = "1.0.228", features = ["derive"] }
 thiserror = "2.0.18"
 tokio = { version = "1.52.3", features = ["full"] }

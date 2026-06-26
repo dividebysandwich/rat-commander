@@ -2,6 +2,7 @@
 
 use crate::app::event::AppEvent;
 use crate::config::Config;
+use crate::editor::{EditorSignal, EditorState};
 use crate::ops::progress::TaskOutcome;
 use crate::ops::{OpKind, OpRequest, TaskHandle, TaskId, spawn_op};
 use crate::panel::sort::SortKey;
@@ -42,6 +43,7 @@ pub struct AppState {
     pub cmd: CommandLine,
     pub dialog: Option<Dialog>,
     pub viewer: Option<ViewerState>,
+    pub editor: Option<EditorState>,
     pub menu: Option<MenuBarState>,
     pub theme: Theme,
     pub config: Config,
@@ -67,6 +69,7 @@ impl AppState {
             cmd: CommandLine::new(),
             dialog: None,
             viewer: None,
+            editor: None,
             menu: None,
             theme: Theme::mc(),
             config: Config::load(),
@@ -136,6 +139,18 @@ impl AppState {
             let res = self.dialog.as_mut().unwrap().handle_key(key);
             return self.handle_dialog_result(res).await;
         }
+        if self.editor.is_some() {
+            let signal = self.editor.as_mut().unwrap().handle_key(key);
+            match signal {
+                EditorSignal::Stay => {}
+                EditorSignal::Close => {
+                    self.editor = None;
+                    self.reload_all().await;
+                }
+                EditorSignal::Save { close_after } => self.save_editor(close_after).await,
+            }
+            return Flow::Continue;
+        }
         if let Some(v) = self.viewer.as_mut() {
             if let ViewerSignal::Close = v.handle_key(key) {
                 self.viewer = None;
@@ -167,7 +182,7 @@ impl AppState {
         match action {
             MenuAction::Separator => {}
             MenuAction::View => return self.open_view().await,
-            MenuAction::Edit => return self.open_edit(),
+            MenuAction::Edit => return self.open_edit().await,
             MenuAction::Copy => self.open_transfer_dialog(OpKind::Copy),
             MenuAction::Move => self.open_transfer_dialog(OpKind::Move),
             MenuAction::Mkdir => self.open_mkdir(),
@@ -376,7 +391,7 @@ impl AppState {
             KeyCode::F(1) => self.show_info("Help", HELP_TEXT),
             KeyCode::F(2) => self.menu = Some(MenuBarState::new()),
             KeyCode::F(3) => return self.open_view().await,
-            KeyCode::F(4) => return self.open_edit(),
+            KeyCode::F(4) => return self.open_edit().await,
             KeyCode::F(5) => self.open_transfer_dialog(OpKind::Copy),
             KeyCode::F(6) => self.open_transfer_dialog(OpKind::Move),
             KeyCode::F(7) => self.open_mkdir(),
@@ -594,9 +609,9 @@ impl AppState {
         }
     }
 
-    /// F4: edit the file under the cursor. The internal editor lands in Phase 3,
-    /// so for now this launches a configured external editor.
-    fn open_edit(&mut self) -> Flow {
+    /// F4: edit the file under the cursor with the internal editor (or a
+    /// configured external editor).
+    async fn open_edit(&mut self) -> Flow {
         let p = &self.panels[self.active];
         let Some(e) = p.current_entry() else {
             return Flow::Continue;
@@ -604,17 +619,48 @@ impl AppState {
         if e.kind.is_dir() {
             return Flow::Continue;
         }
-        let path = p.cwd.join(&e.name);
-        if self.config.editor.trim().is_empty() {
-            self.show_error(
-                "Internal editor arrives in Phase 3. Configure an external editor in Settings (F9 → Options).",
-            );
+        let name = e.name.clone();
+        let path = p.cwd.join(&name);
+        let backend = p.backend.clone();
+
+        if self.config.wants_internal_editor() {
+            match load_file(&backend, &path).await {
+                Ok(data) => {
+                    let text = String::from_utf8_lossy(&data).into_owned();
+                    self.editor = Some(EditorState::new(name, path, &text));
+                }
+                Err(e) => self.show_error(format!("cannot open file: {e}")),
+            }
             Flow::Continue
         } else {
             Flow::RunExternal {
                 program: self.config.editor.clone(),
                 path: path.path,
             }
+        }
+    }
+
+    /// Persist the editor's contents to its file, optionally closing after.
+    async fn save_editor(&mut self, close_after: bool) {
+        let Some(ed) = self.editor.as_ref() else {
+            return;
+        };
+        let contents = ed.contents();
+        let path = ed.path.clone();
+        let backend = match self.registry.resolve(&path) {
+            Ok(b) => b,
+            Err(e) => return self.show_error(e.to_string()),
+        };
+        match write_file(&backend, &path, contents.as_bytes()).await {
+            Ok(()) => {
+                if close_after {
+                    self.editor = None;
+                    self.reload_all().await;
+                } else if let Some(ed) = self.editor.as_mut() {
+                    ed.mark_saved();
+                }
+            }
+            Err(e) => self.show_error(format!("save failed: {e}")),
         }
     }
 }
@@ -629,6 +675,21 @@ async fn load_file(backend: &std::sync::Arc<dyn Vfs>, path: &VfsPath) -> crate::
         .read_to_end(&mut buf)
         .await?;
     Ok(buf)
+}
+
+/// Write all bytes to a file, truncating/creating it.
+async fn write_file(
+    backend: &std::sync::Arc<dyn Vfs>,
+    path: &VfsPath,
+    data: &[u8],
+) -> crate::util::Result<()> {
+    use tokio::io::AsyncWriteExt;
+    let mut w = backend
+        .open_write(path, crate::vfs::WriteMeta::default())
+        .await?;
+    w.write_all(data).await?;
+    w.flush().await?;
+    Ok(())
 }
 
 /// Resolve a user name or numeric uid string into a uid (or `None` if empty).

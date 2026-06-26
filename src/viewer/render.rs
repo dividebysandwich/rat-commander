@@ -128,6 +128,7 @@ fn render_hex(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
 }
 
 fn render_footer(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
+    let width = area.width as usize;
     let line = if let Some(q) = v.search_input.as_ref() {
         Line::from(vec![
             Span::styled("Search: ", Style::default().fg(theme.header_fg)),
@@ -140,8 +141,9 @@ fn render_footer(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
         } else {
             String::new()
         };
+        // Pad to full width so the shortcut bar spans the screen.
         Line::from(Span::styled(
-            format!("{hint}{found}"),
+            pad_right(&format!("{hint}{found}"), width),
             theme.fkey_label,
         ))
     };

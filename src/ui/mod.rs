@@ -31,6 +31,20 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
 
     menubar::render(f, rows[0], &theme);
 
+    // The editor (when open) takes over the whole body + chrome area.
+    if let Some(ed) = state.editor.as_mut() {
+        let body = Rect {
+            y: rows[0].y + 1,
+            height: area.height.saturating_sub(1),
+            ..area
+        };
+        crate::editor::render::render(f, body, ed, &theme);
+        if let Some(d) = &state.dialog {
+            d.render(f, area, &theme);
+        }
+        return;
+    }
+
     // The viewer (when open) takes over the whole body + chrome area.
     if let Some(v) = state.viewer.as_mut() {
         let body = Rect {
@@ -156,5 +170,27 @@ mod tests {
 
         assert!(text.contains("41 42"), "hex bytes for 'AB'");
         assert!(text.contains("|AB|"), "ascii gutter");
+    }
+
+    #[test]
+    fn editor_renders_status_and_text() {
+        use crate::editor::render::render as ed_render;
+        use crate::editor::EditorState;
+        use crate::vfs::VfsPath;
+        let mut ed = EditorState::new("note.txt".into(), VfsPath::local("/tmp/n"), "hello\nworld");
+        let theme = crate::ui::theme::Theme::mc();
+
+        let backend = TestBackend::new(80, 12);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|f| ed_render(f, f.area(), &mut ed, &theme))
+            .unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+
+        assert!(text.contains("note.txt"), "status shows filename");
+        assert!(text.contains("Ln 1/2"), "status shows line/total");
+        assert!(text.contains("C=104") || text.contains("0x68"), "ASCII code of 'h'");
+        assert!(text.contains("hello") && text.contains("world"), "text body");
+        assert!(text.contains("F2 Save"), "shortcut bar");
     }
 }

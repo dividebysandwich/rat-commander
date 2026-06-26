@@ -9,6 +9,7 @@
 
 mod app;
 mod config;
+mod editor;
 mod ops;
 mod panel;
 mod ui;

@@ -84,12 +84,19 @@ fn name_style(e: &VfsEntry, marked: bool, theme: &Theme) -> Style {
     }
 }
 
-/// Cursor row style (active vs inactive panel).
-fn cursor_style(active: bool, theme: &Theme) -> Style {
-    if active {
+/// Cursor row style (active vs inactive panel). When the entry under the
+/// cursor is also marked, the foreground is forced to the marked color so the
+/// selection remains discernible beneath the cursor highlight.
+fn cursor_style(active: bool, marked: bool, theme: &Theme) -> Style {
+    let base = if active {
         theme.cursor
     } else {
         theme.cursor_inactive
+    };
+    if marked {
+        base.fg(theme.marked_fg).add_modifier(Modifier::BOLD)
+    } else {
+        base
     }
 }
 
@@ -134,11 +141,20 @@ fn render_full(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, theme
     let rows = body_area.height as usize;
     ensure_visible(panel.cursor, &mut panel.offset, rows);
 
+    let normal = Style::default().fg(theme.panel_fg).bg(theme.panel_bg);
     let mut lines: Vec<Line> = Vec::with_capacity(rows);
     for i in 0..rows {
         let idx = panel.offset + i;
         let Some(e) = panel.entries.get(idx) else {
-            break;
+            // Empty row: still draw the column separators full height.
+            lines.push(Line::from(vec![
+                Span::styled(" ".repeat(name_w), normal),
+                Span::styled(COL_SEP, sep_style),
+                Span::styled(" ".repeat(size_w), normal),
+                Span::styled(COL_SEP, sep_style),
+                Span::styled(" ".repeat(time_w), normal),
+            ]));
+            continue;
         };
         let is_cursor = idx == panel.cursor;
         let marked = panel.selection.is_marked(&e.name);
@@ -155,16 +171,19 @@ fn render_full(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, theme
         let time_str = e.mtime.map(format_time).unwrap_or_default();
 
         if is_cursor {
-            // The whole row (separators included) is highlighted.
+            // The whole row (separators included) is highlighted; marked entries
+            // keep a yellow foreground so the selection stays visible.
             let text = format!(
                 "{}{COL_SEP}{}{COL_SEP}{}",
                 pad_right(&display_name(e), name_w),
                 pad_left(&size_str, size_w),
                 pad_left(&time_str, time_w)
             );
-            lines.push(Line::from(Span::styled(text, cursor_style(active, theme))));
+            lines.push(Line::from(Span::styled(
+                text,
+                cursor_style(active, marked, theme),
+            )));
         } else {
-            let normal = Style::default().fg(theme.panel_fg).bg(theme.panel_bg);
             let spans = vec![
                 Span::styled(pad_right(&display_name(e), name_w), name_style(e, marked, theme)),
                 Span::styled(COL_SEP, sep_style),
@@ -211,7 +230,7 @@ fn render_brief(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, them
                     let marked = panel.selection.is_marked(&e.name);
                     let text = pad_right(&display_name(e), name_w);
                     let style = if is_cursor {
-                        cursor_style(active, theme)
+                        cursor_style(active, marked, theme)
                     } else {
                         name_style(e, marked, theme)
                     };
