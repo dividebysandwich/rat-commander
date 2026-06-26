@@ -8,11 +8,13 @@
 #![allow(dead_code)]
 
 mod app;
+mod config;
 mod ops;
 mod panel;
 mod ui;
 mod util;
 mod vfs;
+mod viewer;
 
 #[tokio::main]
 async fn main() {

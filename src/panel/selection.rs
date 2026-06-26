@@ -104,3 +104,57 @@ fn build_globset(pattern: &str) -> Result<globset::GlobSet, String> {
     }
     builder.build().map_err(|e| e.to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::vfs::VfsKind;
+
+    fn ent(name: &str, kind: VfsKind) -> VfsEntry {
+        VfsEntry {
+            name: name.to_string(),
+            kind,
+            size: 0,
+            mtime: None,
+            atime: None,
+            ctime: None,
+            inode: None,
+            mode: None,
+            uid: None,
+            gid: None,
+            symlink_target: None,
+        }
+    }
+
+    #[test]
+    fn select_and_unselect_group_by_wildcard() {
+        let entries = vec![
+            ent("..", VfsKind::Dir),
+            ent("a.txt", VfsKind::File),
+            ent("b.txt", VfsKind::File),
+            ent("c.rs", VfsKind::File),
+            ent("docs", VfsKind::Dir),
+        ];
+        let mut sel = Selection::new();
+
+        let n = sel.select_group(&entries, "*.txt", true).unwrap();
+        assert_eq!(n, 2);
+        assert!(sel.is_marked("a.txt"));
+        assert!(sel.is_marked("b.txt"));
+        assert!(!sel.is_marked("c.rs"));
+        // files_only excludes the directory even if it matched.
+        assert!(!sel.is_marked("docs"));
+
+        let removed = sel.unselect_group(&entries, "a.*").unwrap();
+        assert_eq!(removed, 1);
+        assert!(!sel.is_marked("a.txt"));
+        assert!(sel.is_marked("b.txt"));
+    }
+
+    #[test]
+    fn invalid_pattern_errors() {
+        let entries = vec![ent("x", VfsKind::File)];
+        let mut sel = Selection::new();
+        assert!(sel.select_group(&entries, "[", true).is_err());
+    }
+}

@@ -1,18 +1,22 @@
 //! Application state and the key/event dispatch that drives it.
 
 use crate::app::event::AppEvent;
+use crate::config::Config;
 use crate::ops::progress::TaskOutcome;
 use crate::ops::{OpKind, OpRequest, TaskHandle, TaskId, spawn_op};
 use crate::panel::sort::SortKey;
 use crate::panel::Panel;
 use crate::ui::cmdline::CommandLine;
 use crate::ui::dialog::{
-    ConfirmDialog, Dialog, DialogResult, InputDialog, InputPurpose, MessageDialog, ProgressDialog,
-    Submit,
+    ConfirmDialog, Dialog, DialogResult, FormDialog, InputDialog, InputPurpose, MessageDialog,
+    ProgressDialog, Submit,
 };
 use crate::ui::layout::SplitDir;
+use crate::ui::menu::{MenuAction, MenuBarState, MenuSignal};
 use crate::ui::theme::Theme;
 use crate::util::async_bridge::AppSender;
+use crate::viewer::{MAX_VIEW_BYTES, ViewerSignal, ViewerState};
+use crate::vfs::Vfs;
 use crate::vfs::registry::Registry;
 use crate::vfs::VfsPath;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -24,6 +28,8 @@ pub enum Flow {
     Quit,
     /// Suspend the TUI and run this shell command in the active panel's cwd.
     RunCommand(String),
+    /// Suspend the TUI and run an external program against a file.
+    RunExternal { program: String, path: std::path::PathBuf },
 }
 
 const PAGE: isize = 15;
@@ -35,11 +41,16 @@ pub struct AppState {
     pub split: SplitDir,
     pub cmd: CommandLine,
     pub dialog: Option<Dialog>,
+    pub viewer: Option<ViewerState>,
+    pub menu: Option<MenuBarState>,
     pub theme: Theme,
+    pub config: Config,
     pub registry: Registry,
     tasks: HashMap<TaskId, TaskHandle>,
     next_task_id: TaskId,
     tx: AppSender,
+    /// Set when a confirmed quit should propagate out as `Flow::Quit`.
+    pending_quit: bool,
 }
 
 impl AppState {
@@ -55,11 +66,15 @@ impl AppState {
             split: SplitDir::Vertical,
             cmd: CommandLine::new(),
             dialog: None,
+            viewer: None,
+            menu: None,
             theme: Theme::mc(),
+            config: Config::load(),
             registry,
             tasks: HashMap::new(),
             next_task_id: 1,
             tx,
+            pending_quit: false,
         }
     }
 
@@ -121,7 +136,64 @@ impl AppState {
             let res = self.dialog.as_mut().unwrap().handle_key(key);
             return self.handle_dialog_result(res).await;
         }
+        if let Some(v) = self.viewer.as_mut() {
+            if let ViewerSignal::Close = v.handle_key(key) {
+                self.viewer = None;
+            }
+            return Flow::Continue;
+        }
+        if self.menu.is_some() {
+            return self.handle_menu_key(key).await;
+        }
         self.handle_panel_key(key).await
+    }
+
+    async fn handle_menu_key(&mut self, key: KeyEvent) -> Flow {
+        let signal = self.menu.as_mut().unwrap().handle_key(key);
+        match signal {
+            MenuSignal::Stay => Flow::Continue,
+            MenuSignal::Close => {
+                self.menu = None;
+                Flow::Continue
+            }
+            MenuSignal::Activate(action) => {
+                self.menu = None;
+                self.run_menu_action(action).await
+            }
+        }
+    }
+
+    async fn run_menu_action(&mut self, action: MenuAction) -> Flow {
+        match action {
+            MenuAction::Separator => {}
+            MenuAction::View => return self.open_view().await,
+            MenuAction::Edit => return self.open_edit(),
+            MenuAction::Copy => self.open_transfer_dialog(OpKind::Copy),
+            MenuAction::Move => self.open_transfer_dialog(OpKind::Move),
+            MenuAction::Mkdir => self.open_mkdir(),
+            MenuAction::Delete => self.open_delete_dialog(),
+            MenuAction::Chmod => self.open_chmod(),
+            MenuAction::Chown => self.open_chown(),
+            MenuAction::Symlink => self.open_symlink(),
+            MenuAction::SelectGroup => self.open_select_group(true),
+            MenuAction::UnselectGroup => self.open_select_group(false),
+            MenuAction::Invert => self.invert_selection(),
+            MenuAction::SetFormat(side, fmt) => self.panels[side].format = fmt,
+            MenuAction::SetSort(side, key) => {
+                self.panels[side].sort.key = key;
+                self.panels[side].resort();
+            }
+            MenuAction::ToggleReverse(side) => {
+                self.panels[side].sort.reverse = !self.panels[side].sort.reverse;
+                self.panels[side].resort();
+            }
+            MenuAction::SwapPanels => self.panels.swap(0, 1),
+            MenuAction::Refresh => self.reload_all().await,
+            MenuAction::ToggleSplit => self.split = self.split.toggle(),
+            MenuAction::Settings => self.open_settings(),
+            MenuAction::Quit => self.dialog = Some(Dialog::Confirm(ConfirmDialog::quit())),
+        }
+        Flow::Continue
     }
 
     async fn handle_dialog_result(&mut self, res: DialogResult) -> Flow {
@@ -134,7 +206,11 @@ impl AppState {
             DialogResult::Submit(s) => {
                 self.dialog = None;
                 self.handle_submit(s).await;
-                Flow::Continue
+                if self.pending_quit {
+                    Flow::Quit
+                } else {
+                    Flow::Continue
+                }
             }
             DialogResult::Abort(id) => {
                 if let Some(h) = self.tasks.get(&id) {
@@ -161,6 +237,69 @@ impl AppState {
             Submit::Copy(sources, dest) => self.begin_transfer(OpKind::Copy, sources, &dest).await,
             Submit::Move(sources, dest) => self.begin_transfer(OpKind::Move, sources, &dest).await,
             Submit::Delete(targets) => self.start_op(OpKind::Delete, targets, None, None),
+            Submit::Quit => self.pending_quit = true,
+            Submit::SelectGroup(pattern) => self.apply_select_group(&pattern, true),
+            Submit::UnselectGroup(pattern) => self.apply_select_group(&pattern, false),
+            Submit::Chmod(path, mode) => {
+                let backend = self.panels[self.active].backend.clone();
+                match backend.set_permissions(&path, mode).await {
+                    Ok(()) => {
+                        let _ = self.panels[self.active].reload().await;
+                    }
+                    Err(e) => self.show_error(format!("chmod failed: {e}")),
+                }
+            }
+            Submit::Chown(path, owner, group) => self.apply_chown(path, &owner, &group).await,
+            Submit::Symlink { dir, target, name } => {
+                let backend = self.panels[self.active].backend.clone();
+                let link = dir.join(&name);
+                match backend.symlink(&target, &link).await {
+                    Ok(()) => {
+                        let _ = self.panels[self.active].reload_keeping(Some(&name)).await;
+                    }
+                    Err(e) => self.show_error(format!("symlink failed: {e}")),
+                }
+            }
+            Submit::Settings(v) => {
+                self.config.editor = v.editor;
+                self.config.viewer = v.viewer;
+                self.config.use_internal_viewer = v.use_internal_viewer;
+                self.config.use_internal_editor = v.use_internal_editor;
+                self.config.confirm_delete = v.confirm_delete;
+                if let Err(e) = self.config.save() {
+                    self.show_error(format!("could not save settings: {e}"));
+                }
+            }
+        }
+    }
+
+    fn apply_select_group(&mut self, pattern: &str, select: bool) {
+        let p = &mut self.panels[self.active];
+        let res = if select {
+            p.selection.select_group(&p.entries, pattern, true)
+        } else {
+            p.selection.unselect_group(&p.entries, pattern)
+        };
+        if let Err(e) = res {
+            self.show_error(format!("invalid pattern: {e}"));
+        }
+    }
+
+    async fn apply_chown(&mut self, path: VfsPath, owner: &str, group: &str) {
+        let uid = match resolve_uid(owner) {
+            Ok(u) => u,
+            Err(e) => return self.show_error(e),
+        };
+        let gid = match resolve_gid(group) {
+            Ok(g) => g,
+            Err(e) => return self.show_error(e),
+        };
+        let backend = self.panels[self.active].backend.clone();
+        match backend.set_owner(&path, uid, gid).await {
+            Ok(()) => {
+                let _ = self.panels[self.active].reload().await;
+            }
+            Err(e) => self.show_error(format!("chown failed: {e}")),
         }
     }
 
@@ -232,24 +371,17 @@ impl AppState {
 
         match key.code {
             // -- Quit / function keys --
-            KeyCode::F(10) => return Flow::Quit,
-            KeyCode::Char('q') if ctrl => return Flow::Quit, // fallback if F10 is intercepted
+            KeyCode::F(10) => self.dialog = Some(Dialog::Confirm(ConfirmDialog::quit())),
+            KeyCode::Char('q') if ctrl => return Flow::Quit, // immediate fallback if F10 is intercepted
             KeyCode::F(1) => self.show_info("Help", HELP_TEXT),
-            KeyCode::F(2) => self.show_info("Menu", "Pulldown menus arrive in Phase 2."),
-            KeyCode::F(3) => self.show_info("View", "Internal viewer arrives in Phase 2."),
-            KeyCode::F(4) => self.show_info("Edit", "Internal editor arrives in Phase 3."),
+            KeyCode::F(2) => self.menu = Some(MenuBarState::new()),
+            KeyCode::F(3) => return self.open_view().await,
+            KeyCode::F(4) => return self.open_edit(),
             KeyCode::F(5) => self.open_transfer_dialog(OpKind::Copy),
             KeyCode::F(6) => self.open_transfer_dialog(OpKind::Move),
-            KeyCode::F(7) => {
-                self.dialog = Some(Dialog::Input(InputDialog::new(
-                    "Create directory",
-                    "Enter directory name:",
-                    "",
-                    InputPurpose::MkDir,
-                )));
-            }
+            KeyCode::F(7) => self.open_mkdir(),
             KeyCode::F(8) => self.open_delete_dialog(),
-            KeyCode::F(9) => self.show_info("Menu", "Pulldown menus arrive in Phase 2."),
+            KeyCode::F(9) => self.menu = Some(MenuBarState::new()),
 
             // -- Panel navigation --
             KeyCode::Up => self.active_panel().move_cursor(-1),
@@ -291,6 +423,11 @@ impl AppState {
                 p.sort.reverse = !p.sort.reverse;
                 p.resort();
             }
+
+            // -- Selection by wildcard (only when the command line is empty) --
+            KeyCode::Char('+') if self.cmd.is_empty() => self.open_select_group(true),
+            KeyCode::Char('-') if self.cmd.is_empty() => self.open_select_group(false),
+            KeyCode::Char('*') if self.cmd.is_empty() => self.invert_selection(),
 
             // -- Otherwise, type into the command line --
             KeyCode::Char(c) => self.cmd.insert(c),
@@ -340,10 +477,206 @@ impl AppState {
             self.show_error("No files selected");
             return;
         }
-        self.dialog = Some(Dialog::Confirm(ConfirmDialog::delete(targets)));
+        if self.config.confirm_delete {
+            self.dialog = Some(Dialog::Confirm(ConfirmDialog::delete(targets)));
+        } else {
+            self.start_op(OpKind::Delete, targets, None, None);
+        }
+    }
+
+    fn open_mkdir(&mut self) {
+        self.dialog = Some(Dialog::Input(InputDialog::new(
+            "Create directory",
+            "Enter directory name:",
+            "",
+            InputPurpose::MkDir,
+        )));
+    }
+
+    fn open_select_group(&mut self, select: bool) {
+        let (title, prompt, purpose) = if select {
+            ("Select group", "Pattern (e.g. *.txt):", InputPurpose::SelectGroup)
+        } else {
+            ("Unselect group", "Pattern (e.g. *.txt):", InputPurpose::UnselectGroup)
+        };
+        self.dialog = Some(Dialog::Input(InputDialog::new(title, prompt, "*", purpose)));
+    }
+
+    fn invert_selection(&mut self) {
+        let p = &mut self.panels[self.active];
+        let names: Vec<String> = p
+            .entries
+            .iter()
+            .filter(|e| e.name != "..")
+            .map(|e| e.name.clone())
+            .collect();
+        for n in names {
+            p.selection.toggle(&n);
+        }
+    }
+
+    fn open_settings(&mut self) {
+        self.dialog = Some(Dialog::Form(FormDialog::settings(&self.config)));
+    }
+
+    fn open_chmod(&mut self) {
+        let p = &self.panels[self.active];
+        if !p.backend.capabilities().permissions {
+            return self.show_error("This filesystem does not support permissions");
+        }
+        let Some(e) = p.current_entry() else {
+            return self.show_error("No file under cursor");
+        };
+        if e.name == ".." {
+            return self.show_error("No file under cursor");
+        }
+        let path = p.cwd.join(&e.name);
+        let mode = e.mode.unwrap_or(0o644) & 0o777;
+        self.dialog = Some(Dialog::Form(FormDialog::chmod(path, mode)));
+    }
+
+    fn open_chown(&mut self) {
+        let p = &self.panels[self.active];
+        if !p.backend.capabilities().ownership {
+            return self.show_error("This filesystem does not support ownership");
+        }
+        let Some(e) = p.current_entry() else {
+            return self.show_error("No file under cursor");
+        };
+        if e.name == ".." {
+            return self.show_error("No file under cursor");
+        }
+        let path = p.cwd.join(&e.name);
+        let owner = e
+            .uid
+            .and_then(uid_name)
+            .unwrap_or_else(|| e.uid.map(|u| u.to_string()).unwrap_or_default());
+        let group = e
+            .gid
+            .and_then(gid_name)
+            .unwrap_or_else(|| e.gid.map(|g| g.to_string()).unwrap_or_default());
+        self.dialog = Some(Dialog::Form(FormDialog::chown(path, owner, group)));
+    }
+
+    fn open_symlink(&mut self) {
+        let p = &self.panels[self.active];
+        if !p.backend.capabilities().symlinks {
+            return self.show_error("This filesystem does not support symlinks");
+        }
+        let dir = p.cwd.clone();
+        self.dialog = Some(Dialog::Form(FormDialog::symlink(dir)));
+    }
+
+    /// F3: view the file under the cursor (internal viewer or external pager).
+    async fn open_view(&mut self) -> Flow {
+        let p = &self.panels[self.active];
+        let Some(e) = p.current_entry() else {
+            return Flow::Continue;
+        };
+        if e.kind.is_dir() {
+            return Flow::Continue;
+        }
+        let name = e.name.clone();
+        let path = p.cwd.join(&name);
+        let backend = p.backend.clone();
+
+        if self.config.wants_internal_viewer() {
+            match load_file(&backend, &path).await {
+                Ok(data) => self.viewer = Some(ViewerState::new(name, data)),
+                Err(e) => self.show_error(format!("cannot open file: {e}")),
+            }
+            Flow::Continue
+        } else {
+            Flow::RunExternal {
+                program: self.config.viewer.clone(),
+                path: path.path,
+            }
+        }
+    }
+
+    /// F4: edit the file under the cursor. The internal editor lands in Phase 3,
+    /// so for now this launches a configured external editor.
+    fn open_edit(&mut self) -> Flow {
+        let p = &self.panels[self.active];
+        let Some(e) = p.current_entry() else {
+            return Flow::Continue;
+        };
+        if e.kind.is_dir() {
+            return Flow::Continue;
+        }
+        let path = p.cwd.join(&e.name);
+        if self.config.editor.trim().is_empty() {
+            self.show_error(
+                "Internal editor arrives in Phase 3. Configure an external editor in Settings (F9 → Options).",
+            );
+            Flow::Continue
+        } else {
+            Flow::RunExternal {
+                program: self.config.editor.clone(),
+                path: path.path,
+            }
+        }
     }
 }
 
+/// Read a file fully into memory (capped just above the viewer limit).
+async fn load_file(backend: &std::sync::Arc<dyn Vfs>, path: &VfsPath) -> crate::util::Result<Vec<u8>> {
+    use tokio::io::AsyncReadExt;
+    let reader = backend.open_read(path).await?;
+    let mut buf = Vec::new();
+    reader
+        .take((MAX_VIEW_BYTES + 1) as u64)
+        .read_to_end(&mut buf)
+        .await?;
+    Ok(buf)
+}
+
+/// Resolve a user name or numeric uid string into a uid (or `None` if empty).
+fn resolve_uid(s: &str) -> Result<Option<u32>, String> {
+    if s.is_empty() {
+        return Ok(None);
+    }
+    if let Ok(n) = s.parse::<u32>() {
+        return Ok(Some(n));
+    }
+    match nix::unistd::User::from_name(s) {
+        Ok(Some(u)) => Ok(Some(u.uid.as_raw())),
+        Ok(None) => Err(format!("no such user: {s}")),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Resolve a group name or numeric gid string into a gid (or `None` if empty).
+fn resolve_gid(s: &str) -> Result<Option<u32>, String> {
+    if s.is_empty() {
+        return Ok(None);
+    }
+    if let Ok(n) = s.parse::<u32>() {
+        return Ok(Some(n));
+    }
+    match nix::unistd::Group::from_name(s) {
+        Ok(Some(g)) => Ok(Some(g.gid.as_raw())),
+        Ok(None) => Err(format!("no such group: {s}")),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+fn uid_name(uid: u32) -> Option<String> {
+    nix::unistd::User::from_uid(nix::unistd::Uid::from_raw(uid))
+        .ok()
+        .flatten()
+        .map(|u| u.name)
+}
+
+fn gid_name(gid: u32) -> Option<String> {
+    nix::unistd::Group::from_gid(nix::unistd::Gid::from_raw(gid))
+        .ok()
+        .flatten()
+        .map(|g| g.name)
+}
+
 const HELP_TEXT: &str = "rat-commander — Tab: switch panel, Enter: open dir / run command, \
-Insert: mark, F5 copy, F6 move, F7 mkdir, F8 delete, F10 quit. \
-Ctrl-S: cycle sort, Ctrl-E: reverse, Ctrl-W: brief/full, Ctrl-T: split, Ctrl-R: reload.";
+Insert: mark, F3 view, F4 edit, F5 copy, F6 move, F7 mkdir, F8 delete, F9/F2 menu, F10 quit. \
++ select group, - unselect, * invert. Ctrl-S cycle sort, Ctrl-E reverse, Ctrl-W brief/full, \
+Ctrl-T split, Ctrl-R reload. In viewer: F2 wrap, F4 hex/text, F7 search, n next. \
+Chmod/Chown/Symlink/Settings live in the F9 menu.";

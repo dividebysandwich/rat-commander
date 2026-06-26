@@ -15,12 +15,13 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Gauge, Paragraph, Wrap};
 
-/// The active modal dialog (only one at a time in Phase 1).
+/// The active modal dialog (only one at a time).
 pub enum Dialog {
     Input(InputDialog),
     Confirm(ConfirmDialog),
     Progress(ProgressDialog),
     Message(MessageDialog),
+    Form(FormDialog),
 }
 
 /// What the app should do after a dialog handles a key.
@@ -41,6 +42,27 @@ pub enum Submit {
     Copy(Vec<VfsPath>, String),
     Move(Vec<VfsPath>, String),
     Delete(Vec<VfsPath>),
+    Quit,
+    SelectGroup(String),
+    UnselectGroup(String),
+    Chmod(VfsPath, u32),
+    Chown(VfsPath, String, String),
+    Symlink {
+        dir: VfsPath,
+        target: String,
+        name: String,
+    },
+    Settings(SettingsValues),
+}
+
+/// Values collected by the settings form.
+#[derive(Debug, Clone)]
+pub struct SettingsValues {
+    pub editor: String,
+    pub viewer: String,
+    pub use_internal_viewer: bool,
+    pub use_internal_editor: bool,
+    pub confirm_delete: bool,
 }
 
 impl Dialog {
@@ -50,6 +72,7 @@ impl Dialog {
             Dialog::Confirm(d) => d.handle_key(key),
             Dialog::Progress(d) => d.handle_key(key),
             Dialog::Message(_) => DialogResult::Cancel, // any key closes
+            Dialog::Form(d) => d.handle_key(key),
         }
     }
 
@@ -59,6 +82,7 @@ impl Dialog {
             Dialog::Confirm(d) => d.render(f, area, theme),
             Dialog::Progress(d) => d.render(f, area, theme),
             Dialog::Message(d) => d.render(f, area, theme),
+            Dialog::Form(d) => d.render(f, area, theme),
         }
     }
 }
@@ -72,6 +96,8 @@ pub enum InputPurpose {
     MkDir,
     CopyDest(Vec<VfsPath>),
     MoveDest(Vec<VfsPath>),
+    SelectGroup,
+    UnselectGroup,
 }
 
 pub struct InputDialog {
@@ -121,6 +147,8 @@ impl InputDialog {
                     InputPurpose::MkDir => Submit::MkDir(text),
                     InputPurpose::CopyDest(s) => Submit::Copy(s.clone(), text),
                     InputPurpose::MoveDest(s) => Submit::Move(s.clone(), text),
+                    InputPurpose::SelectGroup => Submit::SelectGroup(text),
+                    InputPurpose::UnselectGroup => Submit::UnselectGroup(text),
                 };
                 DialogResult::Submit(submit)
             }
@@ -236,8 +264,17 @@ impl ConfirmDialog {
         ConfirmDialog {
             title: "Delete".to_string(),
             message,
-            focus_yes: false,
+            focus_yes: true,
             submit: Some(Submit::Delete(targets)),
+        }
+    }
+
+    pub fn quit() -> Self {
+        ConfirmDialog {
+            title: "Quit".to_string(),
+            message: "Do you really want to quit rat-commander?".to_string(),
+            focus_yes: true,
+            submit: Some(Submit::Quit),
         }
     }
 
@@ -472,6 +509,349 @@ impl MessageDialog {
                 .style(Style::default().bg(theme.dialog_bg)),
             rows[1],
         );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Form dialog (settings, chmod, chown, symlink)
+// ---------------------------------------------------------------------------
+
+/// A single editable field in a [`Form`].
+pub enum Field {
+    Text {
+        label: String,
+        value: String,
+        cursor: usize,
+    },
+    Check {
+        label: String,
+        value: bool,
+    },
+}
+
+impl Field {
+    pub fn text(label: &str, value: impl Into<String>) -> Self {
+        let value = value.into();
+        let cursor = value.chars().count();
+        Field::Text {
+            label: label.to_string(),
+            value,
+            cursor,
+        }
+    }
+
+    pub fn check(label: &str, value: bool) -> Self {
+        Field::Check {
+            label: label.to_string(),
+            value,
+        }
+    }
+
+    fn as_text(&self) -> &str {
+        match self {
+            Field::Text { value, .. } => value,
+            Field::Check { .. } => "",
+        }
+    }
+
+    fn as_bool(&self) -> bool {
+        matches!(self, Field::Check { value: true, .. })
+    }
+}
+
+/// A vertical list of editable fields with a single focused row.
+pub struct Form {
+    fields: Vec<Field>,
+    focus: usize,
+}
+
+impl Form {
+    pub fn new(fields: Vec<Field>) -> Self {
+        Form { fields, focus: 0 }
+    }
+
+    fn focus_next(&mut self) {
+        if !self.fields.is_empty() {
+            self.focus = (self.focus + 1) % self.fields.len();
+        }
+    }
+
+    fn focus_prev(&mut self) {
+        if !self.fields.is_empty() {
+            self.focus = (self.focus + self.fields.len() - 1) % self.fields.len();
+        }
+    }
+
+    /// Handle a key for the focused field. Returns true if Enter (submit) was
+    /// pressed.
+    fn handle_key(&mut self, key: KeyEvent) -> bool {
+        match key.code {
+            KeyCode::Enter => return true,
+            KeyCode::Tab | KeyCode::Down => self.focus_next(),
+            KeyCode::BackTab | KeyCode::Up => self.focus_prev(),
+            KeyCode::Char(' ') if matches!(self.fields.get(self.focus), Some(Field::Check { .. })) => {
+                if let Some(Field::Check { value, .. }) = self.fields.get_mut(self.focus) {
+                    *value = !*value;
+                }
+            }
+            _ => {
+                if let Some(Field::Text { value, cursor, .. }) = self.fields.get_mut(self.focus) {
+                    edit_text(value, cursor, key);
+                }
+            }
+        }
+        false
+    }
+}
+
+/// Apply a single editing key to a text buffer + char cursor.
+fn edit_text(value: &mut String, cursor: &mut usize, key: KeyEvent) {
+    let byte_at = |s: &str, idx: usize| {
+        s.char_indices().nth(idx).map(|(b, _)| b).unwrap_or(s.len())
+    };
+    match key.code {
+        KeyCode::Char(c) => {
+            let b = byte_at(value, *cursor);
+            value.insert(b, c);
+            *cursor += 1;
+        }
+        KeyCode::Backspace => {
+            if *cursor > 0 {
+                let b = byte_at(value, *cursor - 1);
+                value.remove(b);
+                *cursor -= 1;
+            }
+        }
+        KeyCode::Delete => {
+            if *cursor < value.chars().count() {
+                let b = byte_at(value, *cursor);
+                value.remove(b);
+            }
+        }
+        KeyCode::Left => *cursor = cursor.saturating_sub(1),
+        KeyCode::Right => {
+            if *cursor < value.chars().count() {
+                *cursor += 1;
+            }
+        }
+        KeyCode::Home => *cursor = 0,
+        KeyCode::End => *cursor = value.chars().count(),
+        _ => {}
+    }
+}
+
+/// What a form's values should become on submit.
+pub enum FormPurpose {
+    Settings,
+    Chmod(VfsPath),
+    Chown(VfsPath),
+    /// Create a symlink inside this directory.
+    Symlink(VfsPath),
+}
+
+pub struct FormDialog {
+    pub title: String,
+    pub form: Form,
+    pub purpose: FormPurpose,
+}
+
+impl FormDialog {
+    pub fn settings(cfg: &crate::config::Config) -> Self {
+        let form = Form::new(vec![
+            Field::text("External editor", cfg.editor.clone()),
+            Field::text("External viewer", cfg.viewer.clone()),
+            Field::check("Use internal viewer", cfg.use_internal_viewer),
+            Field::check("Use internal editor", cfg.use_internal_editor),
+            Field::check("Confirm before delete", cfg.confirm_delete),
+        ]);
+        FormDialog {
+            title: "Settings".to_string(),
+            form,
+            purpose: FormPurpose::Settings,
+        }
+    }
+
+    /// Build a chmod form from the current mode bits.
+    pub fn chmod(path: VfsPath, mode: u32) -> Self {
+        let bit = |m: u32| mode & m != 0;
+        let form = Form::new(vec![
+            Field::check("Owner read    (400)", bit(0o400)),
+            Field::check("Owner write   (200)", bit(0o200)),
+            Field::check("Owner exec    (100)", bit(0o100)),
+            Field::check("Group read    (040)", bit(0o040)),
+            Field::check("Group write   (020)", bit(0o020)),
+            Field::check("Group exec    (010)", bit(0o010)),
+            Field::check("Other read    (004)", bit(0o004)),
+            Field::check("Other write   (002)", bit(0o002)),
+            Field::check("Other exec    (001)", bit(0o001)),
+        ]);
+        FormDialog {
+            title: format!("Chmod: {}", path.file_name()),
+            form,
+            purpose: FormPurpose::Chmod(path),
+        }
+    }
+
+    pub fn chown(path: VfsPath, owner: String, group: String) -> Self {
+        let form = Form::new(vec![
+            Field::text("Owner (name or uid)", owner),
+            Field::text("Group (name or gid)", group),
+        ]);
+        FormDialog {
+            title: format!("Chown: {}", path.file_name()),
+            form,
+            purpose: FormPurpose::Chown(path),
+        }
+    }
+
+    pub fn symlink(dir: VfsPath) -> Self {
+        let form = Form::new(vec![
+            Field::text("Points to (target)", ""),
+            Field::text("Link name", ""),
+        ]);
+        FormDialog {
+            title: "Create symlink".to_string(),
+            form,
+            purpose: FormPurpose::Symlink(dir),
+        }
+    }
+
+    fn chmod_mode(&self) -> u32 {
+        const BITS: [u32; 9] = [
+            0o400, 0o200, 0o100, 0o040, 0o020, 0o010, 0o004, 0o002, 0o001,
+        ];
+        let mut mode = 0;
+        for (i, f) in self.form.fields.iter().enumerate() {
+            if f.as_bool() {
+                mode |= BITS[i];
+            }
+        }
+        mode
+    }
+
+    fn handle_key(&mut self, key: KeyEvent) -> DialogResult {
+        if let KeyCode::Esc = key.code {
+            return DialogResult::Cancel;
+        }
+        if !self.form.handle_key(key) {
+            return DialogResult::None;
+        }
+        // Enter pressed → build the submit payload.
+        let fields = &self.form.fields;
+        let submit = match &self.purpose {
+            FormPurpose::Settings => Submit::Settings(SettingsValues {
+                editor: fields[0].as_text().trim().to_string(),
+                viewer: fields[1].as_text().trim().to_string(),
+                use_internal_viewer: fields[2].as_bool(),
+                use_internal_editor: fields[3].as_bool(),
+                confirm_delete: fields[4].as_bool(),
+            }),
+            FormPurpose::Chmod(p) => Submit::Chmod(p.clone(), self.chmod_mode()),
+            FormPurpose::Chown(p) => Submit::Chown(
+                p.clone(),
+                fields[0].as_text().trim().to_string(),
+                fields[1].as_text().trim().to_string(),
+            ),
+            FormPurpose::Symlink(dir) => {
+                let target = fields[0].as_text().trim().to_string();
+                let name = fields[1].as_text().trim().to_string();
+                if target.is_empty() || name.is_empty() {
+                    return DialogResult::Cancel;
+                }
+                Submit::Symlink {
+                    dir: dir.clone(),
+                    target,
+                    name,
+                }
+            }
+        };
+        DialogResult::Submit(submit)
+    }
+
+    fn render(&self, f: &mut Frame, area: Rect, theme: &Theme) {
+        let n = self.form.fields.len() as u16;
+        let height = n + 4;
+        let w = 60u16.min(area.width.saturating_sub(4));
+        let rect = centered(area, w, height);
+        f.render_widget(Clear, rect);
+        let block = dialog_block(&self.title, theme);
+        let inner = block.inner(rect);
+        f.render_widget(block, rect);
+
+        let base = Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg);
+        let focus_style = Style::default()
+            .fg(theme.dialog_fg)
+            .bg(ratatui::style::Color::Cyan)
+            .add_modifier(Modifier::BOLD);
+
+        let mut caret: Option<Position> = None;
+        for (i, field) in self.form.fields.iter().enumerate() {
+            let y = inner.y + i as u16;
+            if y >= inner.y + inner.height.saturating_sub(1) {
+                break;
+            }
+            let row = Rect {
+                y,
+                height: 1,
+                ..inner
+            };
+            let focused = i == self.form.focus;
+            match field {
+                Field::Text {
+                    label,
+                    value,
+                    cursor,
+                } => {
+                    let label_str = format!("{label}: ");
+                    let style = if focused { focus_style } else { base };
+                    let line = Line::from(vec![
+                        Span::styled(label_str.clone(), style),
+                        Span::styled(
+                            value.clone(),
+                            Style::default()
+                                .fg(theme.dialog_fg)
+                                .bg(ratatui::style::Color::White),
+                        ),
+                    ]);
+                    f.render_widget(Paragraph::new(line), row);
+                    if focused {
+                        let cx = row.x
+                            + label_str.chars().count() as u16
+                            + (*cursor).min(value.chars().count()) as u16;
+                        caret = Some(Position::new(cx.min(row.x + row.width - 1), row.y));
+                    }
+                }
+                Field::Check { label, value } => {
+                    let mark = if *value { "[x]" } else { "[ ]" };
+                    let style = if focused { focus_style } else { base };
+                    f.render_widget(
+                        Paragraph::new(Line::from(Span::styled(format!("{mark} {label}"), style))),
+                        row,
+                    );
+                }
+            }
+        }
+
+        let hint = Rect {
+            y: inner.y + inner.height.saturating_sub(1),
+            height: 1,
+            ..inner
+        };
+        let extra = match &self.purpose {
+            FormPurpose::Chmod(_) => format!("  octal {:03o}", self.chmod_mode()),
+            _ => String::new(),
+        };
+        f.render_widget(
+            Paragraph::new(Line::from(format!(
+                "Tab/↑↓ move  Space toggle  Enter OK  Esc Cancel{extra}"
+            )))
+            .style(base),
+            hint,
+        );
+
+        if let Some(pos) = caret {
+            f.set_cursor_position(pos);
+        }
     }
 }
 

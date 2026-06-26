@@ -53,6 +53,9 @@ async fn run_loop(
                         match state.handle_key(key).await {
                             Flow::Quit => break,
                             Flow::RunCommand(cmd) => run_command(term, state, &cmd).await?,
+                            Flow::RunExternal { program, path } => {
+                                run_external(term, state, &program, &path).await?
+                            }
                             Flow::Continue => {}
                         }
                     }
@@ -91,6 +94,36 @@ async fn run_command(term: &mut Term, state: &mut AppState, cmd: &str) -> Result
     io::stdout().flush().ok();
     let mut line = String::new();
     let _ = io::stdin().read_line(&mut line);
+
+    *term = setup_terminal()?;
+    term.clear()?;
+    state.reload_all().await;
+    Ok(())
+}
+
+/// Suspend the TUI and run an external program (editor/viewer) against a file.
+async fn run_external(
+    term: &mut Term,
+    state: &mut AppState,
+    program: &str,
+    path: &std::path::Path,
+) -> Result<()> {
+    restore_terminal(term)?;
+
+    // Run `program <path>` via the shell so arguments in the command work.
+    let cmd = format!("{program} \"{}\"", path.display());
+    let status = tokio::process::Command::new("sh")
+        .arg("-c")
+        .arg(&cmd)
+        .status()
+        .await;
+    if let Err(e) = status {
+        println!("\n[failed to run external program: {e}]");
+        print!("[Press Enter to continue]");
+        io::stdout().flush().ok();
+        let mut line = String::new();
+        let _ = io::stdin().read_line(&mut line);
+    }
 
     *term = setup_terminal()?;
     term.clear()?;

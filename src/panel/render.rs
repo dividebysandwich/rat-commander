@@ -11,6 +11,9 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
 
+/// The vertical line drawn between columns.
+const COL_SEP: &str = "│";
+
 /// Draw a panel (border, header, listing, mini-status) into `area`.
 pub fn render_panel(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, theme: &Theme) {
     let border_color = if active {
@@ -107,20 +110,19 @@ fn render_full(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, theme
     let time_w = 12usize;
     let name_w = width.saturating_sub(size_w + time_w + 2).max(4);
 
-    // Header row.
-    let header = format!(
-        "{} {} {}",
-        pad_right("Name", name_w),
-        pad_left("Size", size_w),
-        pad_left("Modify time", time_w)
-    );
-    let header_line = Line::from(Span::styled(
-        header,
-        Style::default()
-            .fg(theme.header_fg)
-            .bg(theme.panel_bg)
-            .add_modifier(Modifier::BOLD),
-    ));
+    // Header row, with vertical separators matching the data rows.
+    let header_style = Style::default()
+        .fg(theme.header_fg)
+        .bg(theme.panel_bg)
+        .add_modifier(Modifier::BOLD);
+    let sep_style = Style::default().fg(theme.panel_border).bg(theme.panel_bg);
+    let header_line = Line::from(vec![
+        Span::styled(pad_right("Name", name_w), header_style),
+        Span::styled(COL_SEP, sep_style),
+        Span::styled(pad_left("Size", size_w), header_style),
+        Span::styled(COL_SEP, sep_style),
+        Span::styled(pad_left("Modify time", time_w), header_style),
+    ]);
     let header_area = Rect { height: 1, ..area };
     f.render_widget(Paragraph::new(header_line), header_area);
 
@@ -153,24 +155,22 @@ fn render_full(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, theme
         let time_str = e.mtime.map(format_time).unwrap_or_default();
 
         if is_cursor {
+            // The whole row (separators included) is highlighted.
             let text = format!(
-                "{} {} {}",
+                "{}{COL_SEP}{}{COL_SEP}{}",
                 pad_right(&display_name(e), name_w),
                 pad_left(&size_str, size_w),
                 pad_left(&time_str, time_w)
             );
             lines.push(Line::from(Span::styled(text, cursor_style(active, theme))));
         } else {
+            let normal = Style::default().fg(theme.panel_fg).bg(theme.panel_bg);
             let spans = vec![
                 Span::styled(pad_right(&display_name(e), name_w), name_style(e, marked, theme)),
-                Span::styled(
-                    format!(" {} ", pad_left(&size_str, size_w)),
-                    Style::default().fg(theme.panel_fg).bg(theme.panel_bg),
-                ),
-                Span::styled(
-                    pad_left(&time_str, time_w),
-                    Style::default().fg(theme.panel_fg).bg(theme.panel_bg),
-                ),
+                Span::styled(COL_SEP, sep_style),
+                Span::styled(pad_left(&size_str, size_w), normal),
+                Span::styled(COL_SEP, sep_style),
+                Span::styled(pad_left(&time_str, time_w), normal),
             ];
             lines.push(Line::from(spans));
         }
@@ -186,6 +186,9 @@ fn render_brief(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, them
     }
     let cell_w = 16usize.min(width.max(1));
     let columns = (width / cell_w).max(1);
+    // Each column reserves one cell for a vertical separator between names.
+    let name_w = cell_w.saturating_sub(1).max(1);
+    let sep_style = Style::default().fg(theme.panel_border).bg(theme.panel_bg);
 
     // Keep the cursor's row visible (offset aligned to a row boundary).
     let cursor_row = panel.cursor / columns;
@@ -199,14 +202,14 @@ fn render_brief(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, them
 
     let mut lines: Vec<Line> = Vec::with_capacity(rows);
     for r in 0..rows {
-        let mut spans: Vec<Span> = Vec::with_capacity(columns);
+        let mut spans: Vec<Span> = Vec::with_capacity(columns * 2);
         for c in 0..columns {
             let idx = (first_row + r) * columns + c;
             match panel.entries.get(idx) {
                 Some(e) => {
                     let is_cursor = idx == panel.cursor;
                     let marked = panel.selection.is_marked(&e.name);
-                    let text = pad_right(&display_name(e), cell_w);
+                    let text = pad_right(&display_name(e), name_w);
                     let style = if is_cursor {
                         cursor_style(active, theme)
                     } else {
@@ -215,9 +218,13 @@ fn render_brief(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, them
                     spans.push(Span::styled(text, style));
                 }
                 None => spans.push(Span::styled(
-                    " ".repeat(cell_w),
+                    " ".repeat(name_w),
                     Style::default().bg(theme.panel_bg),
                 )),
+            }
+            // Separator after every column except the last.
+            if c + 1 < columns {
+                spans.push(Span::styled(COL_SEP, sep_style));
             }
         }
         lines.push(Line::from(spans));

@@ -4,6 +4,7 @@ pub mod cmdline;
 pub mod dialog;
 pub mod fkeys;
 pub mod layout;
+pub mod menu;
 pub mod menubar;
 pub mod theme;
 
@@ -30,6 +31,20 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
 
     menubar::render(f, rows[0], &theme);
 
+    // The viewer (when open) takes over the whole body + chrome area.
+    if let Some(v) = state.viewer.as_mut() {
+        let body = Rect {
+            y: rows[0].y + 1,
+            height: area.height.saturating_sub(1),
+            ..area
+        };
+        crate::viewer::render::render(f, body, v, &theme);
+        if let Some(d) = &state.dialog {
+            d.render(f, area, &theme);
+        }
+        return;
+    }
+
     let (left_area, right_area) = split_body(rows[1], state.split);
     let active = state.active;
     render_panel(f, left_area, &mut state.panels[0], active == 0, &theme);
@@ -40,9 +55,14 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
 
     fkeys::render(f, rows[3], &fkeys::PANEL_LABELS, &theme);
 
+    // Pulldown menu overlays the panels (but sits below modal dialogs).
+    if let Some(m) = &state.menu {
+        m.render(f, area, &theme);
+    }
+
     if let Some(d) = &state.dialog {
         d.render(f, area, &theme);
-    } else {
+    } else if state.menu.is_none() {
         f.set_cursor_position(caret);
     }
 }
@@ -99,5 +119,42 @@ mod tests {
         ] {
             assert!(text.contains(needle), "expected UI to contain {needle:?}");
         }
+        // Vertical column separators are drawn.
+        assert!(text.contains('│'), "expected vertical column separators");
+    }
+
+    #[tokio::test]
+    async fn renders_menu_overlay() {
+        let (tx, _rx) = async_bridge::channel();
+        let mut state = AppState::new(tx);
+        state.init().await;
+        state.menu = Some(crate::ui::menu::MenuBarState::new());
+
+        let backend = TestBackend::new(120, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &mut state)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+
+        for needle in ["View", "Chmod", "Symlink", "Quit"] {
+            assert!(text.contains(needle), "menu should contain {needle:?}");
+        }
+    }
+
+    #[test]
+    fn viewer_renders_hex_dump() {
+        use crate::viewer::{ViewMode, ViewerState};
+        let mut v = ViewerState::new("f.bin".into(), b"AB".to_vec());
+        v.mode = ViewMode::Hex;
+        let theme = crate::ui::theme::Theme::mc();
+
+        let backend = TestBackend::new(80, 10);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|f| crate::viewer::render::render(f, f.area(), &mut v, &theme))
+            .unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+
+        assert!(text.contains("41 42"), "hex bytes for 'AB'");
+        assert!(text.contains("|AB|"), "ascii gutter");
     }
 }
