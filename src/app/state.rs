@@ -142,6 +142,28 @@ fn parse_cd(cmd: &str) -> Option<&str> {
     t.strip_prefix("cd ").map(str::trim)
 }
 
+/// Resolve a typed destination string onto the destination panel's backend
+/// (`base`). Absolute paths replace the path; relative ones are joined to the
+/// panel's current directory. The scheme/container of `base` are preserved, so a
+/// remote destination stays on its remote backend instead of becoming local.
+fn resolve_dest_on(dest: &str, base: &VfsPath) -> VfsPath {
+    let p = Path::new(dest);
+    let path = if p.is_absolute() {
+        p.to_path_buf()
+    } else {
+        base.path.join(dest)
+    };
+    if base.scheme == "file" {
+        VfsPath::local(path)
+    } else {
+        VfsPath {
+            scheme: base.scheme.clone(),
+            path,
+            container: base.container.clone(),
+        }
+    }
+}
+
 /// The user's home directory (`$HOME` / `%USERPROFILE%`), or `/` as a fallback.
 fn home_dir() -> PathBuf {
     std::env::var_os("HOME")
@@ -791,24 +813,21 @@ impl AppState {
     }
 
     async fn begin_transfer(&mut self, kind: OpKind, sources: Vec<VfsPath>, dest: &str) {
-        // Resolve the destination directory (absolute, or relative to cwd).
-        let dst_dir = self.resolve_dest(dest);
-        // Ensure the destination directory exists (local backend).
-        if let Err(e) = tokio::fs::create_dir_all(dst_dir.as_path()).await {
+        // The destination is the *other* panel, so the transfer uses that panel's
+        // backend (local, SFTP/SCP/FTP, …) rather than always the local disk.
+        let other = self.other_index();
+        let base = self.panels[other].cwd.clone();
+        let dst_fs = self.panels[other].backend.clone();
+        let dst_dir = resolve_dest_on(dest, &base);
+        // Only the local backend needs (and supports) creating the directory up
+        // front; remote/other backends copy into an existing directory.
+        if dst_dir.scheme == "file"
+            && let Err(e) = tokio::fs::create_dir_all(dst_dir.as_path()).await
+        {
             self.show_error(format!("cannot create destination: {e}"));
             return;
         }
-        let dst_fs = self.registry.local();
         self.start_op(kind, sources, Some(dst_fs), Some(dst_dir));
-    }
-
-    fn resolve_dest(&self, dest: &str) -> VfsPath {
-        let p = std::path::Path::new(dest);
-        if p.is_absolute() {
-            VfsPath::local(p)
-        } else {
-            VfsPath::local(self.panels[self.active].cwd.path.join(dest))
-        }
     }
 
     /// The name of the first surviving entry above the cursor (skipping `..` and
@@ -1119,7 +1138,14 @@ impl AppState {
             self.start_archive_add(kind, sources, dest);
             return;
         }
-        let dest = self.panels[self.other_index()].cwd.display();
+        // Show the destination panel's path (for remote panels this is the
+        // remote path, not the "scheme://" display) so it resolves on that
+        // backend rather than being treated as a local path.
+        let dest = self.panels[self.other_index()]
+            .cwd
+            .path
+            .to_string_lossy()
+            .into_owned();
         let (title, purpose) = match kind {
             OpKind::Copy => ("Copy", InputPurpose::CopyDest(sources)),
             OpKind::Move => ("Move", InputPurpose::MoveDest(sources)),
@@ -2053,6 +2079,28 @@ mod tests {
         // Restore permissions so cleanup can remove the tree.
         std::fs::set_permissions(&secret, std::fs::Permissions::from_mode(0o755)).ok();
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn resolve_dest_preserves_remote_backend() {
+        use std::path::PathBuf;
+        let remote = VfsPath {
+            scheme: "scp-0".to_string(),
+            path: PathBuf::from("/home/user"),
+            container: None,
+        };
+        // The unchanged (absolute) remote path stays on the remote backend.
+        let d = resolve_dest_on("/home/user", &remote);
+        assert_eq!(d.scheme, "scp-0");
+        assert_eq!(d.path, PathBuf::from("/home/user"));
+        // A relative entry joins the remote cwd (still remote).
+        let d = resolve_dest_on("uploads", &remote);
+        assert_eq!(d.scheme, "scp-0");
+        assert_eq!(d.path, PathBuf::from("/home/user/uploads"));
+        // A local base resolves to a local path.
+        let local = VfsPath::local("/a/b");
+        assert_eq!(resolve_dest_on("/c", &local).scheme, "file");
+        assert_eq!(resolve_dest_on("sub", &local).path, PathBuf::from("/a/b/sub"));
     }
 
     #[test]
