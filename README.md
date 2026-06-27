@@ -8,7 +8,7 @@ clients are all built in.
 
 The installed executable is named **`rc`** for quick typing.
 
-<img width="1004" height="519" alt="image" src="https://github.com/user-attachments/assets/82d34088-f3fc-4848-abbe-3c22b4c850cd" />
+<img width="1007" height="520" alt="image" src="https://github.com/user-attachments/assets/217837a9-4e0f-41e5-9018-b82cc4c8db2d" />
 
 <img width="1003" height="519" alt="image" src="https://github.com/user-attachments/assets/848b70d5-88cc-41bd-81f0-51b2b3c5ce27" />
 
