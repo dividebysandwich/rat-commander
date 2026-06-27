@@ -10,6 +10,8 @@ use std::collections::{HashMap, VecDeque};
 
 /// Number of CPU-load samples kept for the line graph.
 pub const CPU_HISTORY: usize = 160;
+/// Number of per-core samples kept for the small per-core graphs.
+pub const CORE_HISTORY: usize = 48;
 
 /// One process row.
 #[derive(Debug, Clone)]
@@ -48,16 +50,22 @@ pub struct ProcView {
     pub sort: ProcSort,
     pub reverse: bool,
     pub ncores: usize,
-    /// Overall CPU-busy percentage history (0..=100), oldest first.
+    /// Current overall CPU-busy percentage (0..=100), updated every refresh.
+    pub cpu_now: f32,
+    /// Overall CPU-busy percentage history (0..=100), oldest first. Advanced at a
+    /// third of the refresh rate so the line graph scrolls at a readable pace.
     pub cpu_history: VecDeque<f32>,
-    /// Per-core busy percentage (0..=100).
+    /// Per-core busy percentage (0..=100), updated every refresh.
     pub cores: Vec<f32>,
+    /// Per-core busy-percentage history (parallel to `cores`).
+    pub core_history: Vec<VecDeque<f32>>,
     pub mem_total: u64,
     pub mem_used: u64,
     /// Visible table rows, set by the renderer for paging math.
     pub view_rows: usize,
 
     // --- sampling state ---
+    refresh_count: u64,
     prev_pid: HashMap<i32, u64>,
     prev_total: u64,
     prev_idle: u64,
@@ -76,11 +84,14 @@ impl ProcView {
             ncores: std::thread::available_parallelism()
                 .map(|n| n.get())
                 .unwrap_or(1),
+            cpu_now: 0.0,
             cpu_history: VecDeque::with_capacity(CPU_HISTORY),
             cores: Vec::new(),
+            core_history: Vec::new(),
             mem_total: 0,
             mem_used: 0,
             view_rows: 1,
+            refresh_count: 0,
             prev_pid: HashMap::new(),
             prev_total: 0,
             prev_idle: 0,
@@ -141,7 +152,7 @@ impl ProcView {
             }
             KeyCode::Char('r') | KeyCode::Char('R') => {
                 self.reverse = !self.reverse;
-                self.sort_procs();
+                self.resort_keep_cursor();
                 ProcSignal::Stay
             }
             // Kill: SIGTERM (k/F8/F9/Delete) or SIGKILL (K).
@@ -181,12 +192,18 @@ impl ProcView {
             // Numeric columns default to descending, names to ascending.
             self.reverse = matches!(key, ProcSort::Cpu | ProcSort::Mem);
         }
-        self.sort_procs();
+        self.resort_keep_cursor();
     }
 
+    /// Re-sort, keeping the cursor on the same process.
+    fn resort_keep_cursor(&mut self) {
+        let pid = self.procs.get(self.cursor).map(|p| p.pid);
+        self.sort_procs();
+        self.restore_cursor(pid);
+    }
+
+    /// Sort the process list by the current key/direction (no cursor handling).
     fn sort_procs(&mut self) {
-        // Keep the cursor on the same process across a re-sort.
-        let pid_at_cursor = self.procs.get(self.cursor).map(|p| p.pid);
         match self.sort {
             ProcSort::Cpu => self
                 .procs
@@ -198,10 +215,16 @@ impl ProcView {
         if self.reverse {
             self.procs.reverse();
         }
-        if let Some(pid) = pid_at_cursor
+    }
+
+    /// Put the cursor back on process `pid`; if it's gone, keep the current row
+    /// index (clamped), so the selection moves only to an adjacent entry.
+    fn restore_cursor(&mut self, pid: Option<i32>) {
+        if let Some(pid) = pid
             && let Some(i) = self.procs.iter().position(|p| p.pid == pid)
         {
             self.cursor = i;
+            return;
         }
         self.clamp_cursor();
     }
@@ -215,7 +238,7 @@ impl ProcView {
     }
 
     pub fn cpu_last(&self) -> f32 {
-        self.cpu_history.back().copied().unwrap_or(0.0)
+        self.cpu_now
     }
 }
 
@@ -232,6 +255,13 @@ fn push_hist(hist: &mut VecDeque<f32>, v: f32) {
     hist.push_back(v);
 }
 
+fn push_core_hist(hist: &mut VecDeque<f32>, v: f32) {
+    if hist.len() >= CORE_HISTORY {
+        hist.pop_front();
+    }
+    hist.push_back(v);
+}
+
 // ---------------------------------------------------------------------------
 // Sampling (Linux /proc)
 // ---------------------------------------------------------------------------
@@ -240,10 +270,27 @@ fn push_hist(hist: &mut VecDeque<f32>, v: f32) {
 impl ProcView {
     /// Re-read CPU, memory and per-process stats and recompute usage deltas.
     pub fn refresh(&mut self) {
+        // Remember which process the cursor is on so it stays put across the
+        // re-sort (and only moves if that process is gone).
+        let anchor = self.procs.get(self.cursor).map(|p| p.pid);
         self.sample_cpu();
         self.sample_mem();
         self.sample_procs();
         self.sort_procs();
+        self.restore_cursor(anchor);
+
+        // Advance the history graphs at a third of the refresh rate.
+        self.refresh_count = self.refresh_count.wrapping_add(1);
+        if self.refresh_count.is_multiple_of(3) {
+            push_hist(&mut self.cpu_history, self.cpu_now);
+            if self.core_history.len() < self.cores.len() {
+                self.core_history
+                    .resize(self.cores.len(), VecDeque::with_capacity(CORE_HISTORY));
+            }
+            for (i, &v) in self.cores.iter().enumerate() {
+                push_core_hist(&mut self.core_history[i], v);
+            }
+        }
     }
 
     fn sample_cpu(&mut self) {
@@ -264,13 +311,8 @@ impl ProcView {
                 let dt = total.saturating_sub(self.prev_total);
                 let di = idle_all.saturating_sub(self.prev_idle);
                 self.last_total_delta = dt;
-                if self.prev_total != 0 {
-                    let busy = if dt > 0 {
-                        100.0 * (1.0 - di as f32 / dt as f32)
-                    } else {
-                        0.0
-                    };
-                    push_hist(&mut self.cpu_history, busy.clamp(0.0, 100.0));
+                if self.prev_total != 0 && dt > 0 {
+                    self.cpu_now = (100.0 * (1.0 - di as f32 / dt as f32)).clamp(0.0, 100.0);
                 }
                 self.prev_total = total;
                 self.prev_idle = idle_all;
@@ -446,6 +488,25 @@ mod tests {
         assert!(!pv.procs.is_empty(), "should see at least this test process");
         assert!(pv.ncores >= 1);
         assert!(pv.mem_total > 0, "memory total should be read");
+    }
+
+    #[test]
+    fn cursor_follows_process_across_resort() {
+        use super::{ProcInfo, ProcView};
+        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mut pv = ProcView::new();
+        pv.procs = vec![
+            ProcInfo { pid: 1, name: "a".into(), cpu: 10.0, rss: 0, mem_pct: 0.0 },
+            ProcInfo { pid: 2, name: "b".into(), cpu: 50.0, rss: 0, mem_pct: 0.0 },
+            ProcInfo { pid: 3, name: "c".into(), cpu: 30.0, rss: 0, mem_pct: 0.0 },
+        ];
+        pv.sort = super::ProcSort::Pid;
+        pv.reverse = false;
+        pv.cursor = 1; // on pid 2
+
+        // Sort by CPU (descending): order becomes 2,3,1 — cursor must stay on pid 2.
+        pv.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
+        assert_eq!(pv.procs[pv.cursor].pid, 2, "cursor stays on the same process");
     }
 
     #[test]

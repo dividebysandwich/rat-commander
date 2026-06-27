@@ -109,6 +109,13 @@ impl Engine {
                     self.check_cancel()?;
                     let dst = dst_dir.join(src.file_name());
 
+                    // Refuse to copy/move something onto itself or into one of
+                    // its own subdirectories (which would truncate the file or
+                    // recurse forever). Skip the source entirely.
+                    if same_backend && is_self_or_descendant(&dst, src) {
+                        continue;
+                    }
+
                     // Fast path: intra-backend move via rename. Skip it when the
                     // destination already exists so the copy path's overwrite
                     // prompt can run instead of silently clobbering/merging.
@@ -395,6 +402,12 @@ impl Engine {
     }
 }
 
+/// Whether `dst` is `src` itself, or a path inside `src` (same backend). Used to
+/// reject copying/moving a file or directory onto/into itself.
+fn is_self_or_descendant(dst: &VfsPath, src: &VfsPath) -> bool {
+    dst.scheme == src.scheme && dst.container == src.container && dst.path.starts_with(&src.path)
+}
+
 /// Count files/bytes of a (possibly already-moved) subtree. Used only to keep
 /// the progress counters consistent after a fast-path rename. Errors are
 /// swallowed because the source may no longer exist.
@@ -532,6 +545,58 @@ mod tests {
             copy_with_conflict(OverwriteDecision::AppendOnce).await,
             b"OLDNEWDATA"
         );
+    }
+
+    #[tokio::test]
+    async fn refuses_copy_and_move_onto_itself() {
+        for kind in [OpKind::Copy, OpKind::Move] {
+            let root = unique_dir("self");
+            let file = root.join("f.txt");
+            std::fs::write(&file, b"DATA").unwrap();
+
+            let fs: Arc<dyn Vfs> = Arc::new(LocalFs::new());
+            let (tx, _rx) = async_bridge::channel();
+            let (_reply_tx, reply_rx) = mpsc::channel(1);
+            // Destination directory is the file's own directory → dst == src.
+            let req = OpRequest {
+                kind,
+                src_fs: fs.clone(),
+                sources: vec![VfsPath::local(&file)],
+                dst_fs: Some(fs.clone()),
+                dst_dir: Some(VfsPath::local(&root)),
+            };
+            let outcome = run(9, req, tx, CancelToken::new(), reply_rx).await;
+            assert!(matches!(outcome, TaskOutcome::Done), "{kind:?}: {outcome:?}");
+            // The file must be untouched (not truncated, not deleted).
+            assert_eq!(std::fs::read(&file).unwrap(), b"DATA", "{kind:?} left file intact");
+
+            std::fs::remove_dir_all(&root).ok();
+        }
+    }
+
+    #[tokio::test]
+    async fn refuses_copy_dir_into_itself() {
+        let root = unique_dir("selfdir");
+        let dir = root.join("d");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("inner.txt"), b"x").unwrap();
+
+        let fs: Arc<dyn Vfs> = Arc::new(LocalFs::new());
+        let (tx, _rx) = async_bridge::channel();
+        let (_reply_tx, reply_rx) = mpsc::channel(1);
+        // Copy d into d → dst d/d would be a descendant of the source.
+        let req = OpRequest {
+            kind: OpKind::Copy,
+            src_fs: fs.clone(),
+            sources: vec![VfsPath::local(&dir)],
+            dst_fs: Some(fs.clone()),
+            dst_dir: Some(VfsPath::local(&dir)),
+        };
+        let outcome = run(10, req, tx, CancelToken::new(), reply_rx).await;
+        assert!(matches!(outcome, TaskOutcome::Done), "{outcome:?}");
+        assert!(!dir.join("d").exists(), "must not recurse into itself");
+
+        std::fs::remove_dir_all(&root).ok();
     }
 
     #[tokio::test]

@@ -104,6 +104,9 @@ pub struct AppState {
     /// The (panel, entry) last toggled by a right-drag paint, so each entry is
     /// inverted only once as the drag passes over it.
     paint_last: Option<(usize, usize)>,
+    /// After a delete completes, place the active panel's cursor on this entry
+    /// (the surviving file just above the deleted one) instead of the top.
+    pending_focus: Option<String>,
 }
 
 /// How long a lone Esc is held, waiting for a digit, before it is delivered as
@@ -212,6 +215,7 @@ impl AppState {
             stashed_progress: None,
             last_area: Rect::new(0, 0, 0, 0),
             paint_last: None,
+            pending_focus: None,
         }
     }
 
@@ -232,9 +236,9 @@ impl AppState {
             self.sampler.sample();
             dirty = true;
         }
-        // Refresh the process explorer roughly once a second.
+        // Refresh the process explorer ~3 times per second (every 3rd 100 ms tick).
         if let Some(pv) = self.procview.as_mut() {
-            if self.tick_count.is_multiple_of(10) {
+            if self.tick_count.is_multiple_of(3) {
                 pv.refresh();
             }
             dirty = true;
@@ -305,6 +309,14 @@ impl AppState {
                     p.selection.clear();
                 }
                 self.reload_all().await;
+                // After a delete, drop the cursor onto the file above the
+                // deleted one rather than letting it snap to the top.
+                if let Some(name) = self.pending_focus.take() {
+                    let p = &mut self.panels[self.active];
+                    if let Some(i) = p.entries.iter().position(|e| e.name == name) {
+                        p.cursor = i;
+                    }
+                }
             }
             AppEvent::FindDone { id, paths } => {
                 self.tasks.remove(&id);
@@ -770,6 +782,17 @@ impl AppState {
         }
     }
 
+    /// The name of the first surviving entry above the cursor (skipping `..` and
+    /// any entry being deleted), used to reposition the cursor after a delete.
+    fn delete_anchor(&self, targets: &[VfsPath]) -> Option<String> {
+        let doomed: HashSet<String> = targets.iter().map(|t| t.file_name()).collect();
+        let p = &self.panels[self.active];
+        (0..p.cursor).rev().find_map(|i| {
+            let name = &p.entries[i].name;
+            (name != ".." && !doomed.contains(name)).then(|| name.clone())
+        })
+    }
+
     fn start_op(
         &mut self,
         kind: OpKind,
@@ -779,6 +802,11 @@ impl AppState {
     ) {
         if sources.is_empty() {
             return;
+        }
+        // For a delete, remember the surviving entry just above the deleted one
+        // so the cursor lands there (not at the top) once the listing reloads.
+        if kind == OpKind::Delete {
+            self.pending_focus = self.delete_anchor(&sources);
         }
         let id = self.next_task_id;
         self.next_task_id += 1;
@@ -2012,6 +2040,33 @@ mod tests {
         })
         .await;
         assert!(st.panels[0].selection.is_marked(&name), "right-click marks the file");
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[tokio::test]
+    async fn delete_anchor_targets_file_above() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("rc_del_{}_{nanos}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        for n in ["a.txt", "b.txt", "c.txt", "d.txt"] {
+            std::fs::write(root.join(n), b"x").unwrap();
+        }
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
+        st.active = 0;
+        st.panels[0].cwd = VfsPath::local(&root);
+        st.panels[0].backend = st.registry.local();
+        st.panels[0].reload().await.unwrap();
+
+        // Cursor on c.txt; deleting it should anchor the cursor on b.txt.
+        let ci = st.panels[0].entries.iter().position(|e| e.name == "c.txt").unwrap();
+        st.panels[0].cursor = ci;
+        let anchor = st.delete_anchor(&[VfsPath::local(root.join("c.txt"))]);
+        assert_eq!(anchor.as_deref(), Some("b.txt"));
 
         std::fs::remove_dir_all(&root).ok();
     }

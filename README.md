@@ -82,9 +82,11 @@ The installed executable is named **`rc`** for quick typing.
 
 **Process explorer** (Command menu → *Process explorer…*)
 - A full-screen list of processes with **CPU% and memory** usage, sortable by
-  **name, CPU, memory or PID**, and **kill** (SIGTERM, or SIGKILL with `K`)
-- An animated **CPU-load line graph**, per-**core** load bars, and a **memory**
-  display — all using truecolor gradients when available (Linux `/proc`)
+  **name, CPU, memory or PID** (the sort hotkey is shown in the column header,
+  e.g. `[C]PU%`), and **kill** (SIGTERM, or SIGKILL with `K`)
+- An animated **CPU-load line graph**, **btop-style per-core meters** (label +
+  recent-load sparkline + percentage), and a **memory bar graph** — all using
+  truecolor load colors when available. Updates ~3×/second (Linux `/proc`)
 
 ---
 
