@@ -1,15 +1,15 @@
 //! FTP backend over suppaftp (tokio). The single control connection is shared
-//! behind an async mutex; transfers buffer through memory (`MemReader` for
-//! reads, `CollectWriter` for writes) since the connection is serial.
+//! behind an async mutex; downloads buffer through memory (`MemReader`) while
+//! uploads stream through a duplex pipe so transfer progress is accurate.
 
 use super::{Connection, RemoteCreds, parse_unix_listing_line};
 use crate::util::{Error, Result};
-use crate::vfs::membuf::{CollectWriter, MemReader};
+use crate::vfs::membuf::{MemReader, pipe_upload};
 use crate::vfs::{BoxRead, BoxWrite, Capabilities, Vfs, VfsEntry, VfsKind, VfsPath, WriteMeta};
 use std::sync::Arc;
 use suppaftp::tokio::AsyncFtpStream;
 use suppaftp::types::FileType;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncReadExt;
 use tokio::sync::Mutex;
 
 pub struct FtpFs {
@@ -152,15 +152,15 @@ impl Vfs for FtpFs {
     async fn open_write(&self, path: &VfsPath, _meta: WriteMeta) -> Result<BoxWrite> {
         let conn = self.conn.clone();
         let path = path_str(path);
-        Ok(Box::new(CollectWriter::new(move |buf| {
-            Box::pin(async move {
-                let mut guard = conn.lock().await;
-                let mut stream = guard.put_with_stream(&path).await.map_err(io_err)?;
-                stream.write_all(&buf).await.map_err(io_err)?;
-                guard.finalize_put_stream(stream).await.map_err(io_err)?;
-                Ok(())
-            })
-        })))
+        // Stream the engine's bytes straight to the FTP data connection; the
+        // write side blocks at network speed, so progress tracks the upload.
+        Ok(pipe_upload(64 * 1024, move |mut rx| async move {
+            let mut guard = conn.lock().await;
+            let mut stream = guard.put_with_stream(&path).await.map_err(io_err)?;
+            tokio::io::copy(&mut rx, &mut stream).await?;
+            guard.finalize_put_stream(stream).await.map_err(io_err)?;
+            Ok(())
+        }))
     }
 
     async fn mkdir(&self, path: &VfsPath) -> Result<()> {

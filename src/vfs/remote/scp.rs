@@ -4,10 +4,11 @@
 
 use super::{Connection, RemoteCreds, SshHandle, parse_unix_listing_line, shell_quote, ssh_connect};
 use crate::util::{Error, Result};
-use crate::vfs::membuf::{CollectWriter, MemReader};
+use crate::vfs::membuf::{MemReader, pipe_upload};
 use crate::vfs::{BoxRead, BoxWrite, Capabilities, Vfs, VfsEntry, VfsKind, VfsPath, WriteMeta};
 use russh::ChannelMsg;
 use std::sync::Arc;
+use tokio::io::AsyncWriteExt;
 
 pub struct ScpFs {
     handle: Arc<SshHandle>,
@@ -51,25 +52,6 @@ async fn exec_capture(handle: &SshHandle, cmd: &str) -> Result<(Vec<u8>, u32)> {
         }
     }
     Ok((out, code))
-}
-
-/// Upload bytes by piping them to `cat > path`.
-async fn upload(handle: &SshHandle, path: &str, buf: &[u8]) -> Result<()> {
-    let mut channel = handle
-        .channel_open_session()
-        .await
-        .map_err(|e| Error::other(format!("channel open failed: {e}")))?;
-    channel
-        .exec(true, format!("cat > {}", shell_quote(path)))
-        .await
-        .map_err(|e| Error::other(format!("exec failed: {e}")))?;
-    channel
-        .data(buf)
-        .await
-        .map_err(|e| Error::other(format!("upload failed: {e}")))?;
-    channel.eof().await.ok();
-    while channel.wait().await.is_some() {}
-    Ok(())
 }
 
 fn path_str(p: &VfsPath) -> String {
@@ -175,13 +157,22 @@ impl Vfs for ScpFs {
     async fn open_write(&self, path: &VfsPath, _meta: WriteMeta) -> Result<BoxWrite> {
         let handle = self.handle.clone();
         let path = path_str(path);
-        Ok(Box::new(CollectWriter::new(move |buf| {
-            Box::pin(async move {
-                upload(&handle, &path, &buf)
-                    .await
-                    .map_err(|e| std::io::Error::other(e.to_string()))
-            })
-        })))
+        // Pipe the engine's bytes to `cat > path` over a fresh channel and stream
+        // them as they arrive, so the progress bar tracks the real upload.
+        Ok(pipe_upload(64 * 1024, move |mut rx| async move {
+            let channel = handle
+                .channel_open_session()
+                .await
+                .map_err(|e| std::io::Error::other(format!("channel open failed: {e}")))?;
+            channel
+                .exec(true, format!("cat > {}", shell_quote(&path)))
+                .await
+                .map_err(|e| std::io::Error::other(format!("exec failed: {e}")))?;
+            let mut stream = channel.into_stream();
+            tokio::io::copy(&mut rx, &mut stream).await?;
+            stream.shutdown().await?;
+            Ok(())
+        }))
     }
 
     async fn mkdir(&self, path: &VfsPath) -> Result<()> {
