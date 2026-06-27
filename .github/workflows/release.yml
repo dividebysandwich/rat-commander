@@ -26,7 +26,10 @@ jobs:
           # ---- Windows (archive + .msi) ----
           - { os: windows-latest, target: x86_64-pc-windows-msvc, kind: windows, deb: false, cross: false }
           # ---- macOS (archive + .pkg) ----
-          - { os: macos-13, target: x86_64-apple-darwin, kind: macos, deb: false, cross: false }   # Intel
+          # Both built on Apple Silicon runners (macos-14); the Intel binary is
+          # cross-compiled (Apple's toolchain emits both arch slices). This
+          # avoids the scarce/retiring Intel `macos-13` runners.
+          - { os: macos-14, target: x86_64-apple-darwin, kind: macos, deb: false, cross: false }   # Intel (cross-compiled)
           - { os: macos-14, target: aarch64-apple-darwin, kind: macos, deb: false, cross: false }  # Apple Silicon
 
     steps:
