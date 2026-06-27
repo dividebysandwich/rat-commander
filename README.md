@@ -39,6 +39,10 @@ The installed executable is named **`rc`** for quick typing.
   **OK/Cancel** (or **Yes/No**) buttons in dialogs
 - **Find File** with a live progress dialog (abortable; partial results kept);
   results are *panelized* into the active panel
+- **Compare directories** (Command menu): mark the files that differ between the
+  two panels — **Quick** (present in one panel only), **Size only** (also marks
+  the larger of two differently-sized files), or **Content** (marks both files
+  whenever their bytes differ)
 
 **Built-in viewer (F3)**
 - Text and **hex** modes, line wrap toggle, and search
@@ -81,7 +85,8 @@ The installed executable is named **`rc`** for quick typing.
 
 **Look & feel**
 - Many color themes (Dracula, Nord, Gruvbox, Solarized, Tokyo Night, Catppuccin,
-  One Dark, …) plus **Monochrome**, **Amber CRT** and **Green CRT**
+  One Dark, …) plus **MidnightCommander Classic** (bright classic-MC look),
+  **Monochrome**, **Amber CRT** and **Green CRT**
 - On truecolor terminals: animated gradient bars/cursor, rounded dialog borders
   and drop shadows
 - Optional **CPU histogram + memory** widget in the menu bar (wide screens)

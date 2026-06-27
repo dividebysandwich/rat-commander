@@ -94,8 +94,13 @@ impl Theme {
         } else {
             p.bright_black
         };
-        let cursor_bg = p.bright_blue;
-        let cursor_fg = best_contrast(cursor_bg, p.bg, p.bright_white);
+        // Classic Midnight Commander uses a cyan selection bar with black text;
+        // other themes use the (gradient-friendly) bright-blue cursor.
+        let (cursor_bg, cursor_fg) = if p.name == "MidnightCommander Classic" {
+            (p.cyan, p.black)
+        } else {
+            (p.bright_blue, best_contrast(p.bright_blue, p.bg, p.bright_white))
+        };
         // Borders/column separators must contrast with the panel background on
         // every theme (e.g. MC's blue border would vanish on its blue bg), so
         // derive them from a bg↔fg mix rather than a palette hue.
@@ -421,6 +426,18 @@ pub static PALETTES: &[Palette] = &[
         bright_yellow: rgb(0xaaffaa), bright_blue: rgb(0x55ff55), bright_magenta: rgb(0x00bb00),
         bright_cyan: rgb(0xaaffcc), bright_white: rgb(0xccffcc),
     },
+    // The classic Midnight Commander look, but with brighter, more saturated
+    // accents. `yellow` is intentionally light so documents render like normal
+    // files (classic MC doesn't tint them); headers/marks use `bright_yellow`.
+    Palette {
+        name: "MidnightCommander Classic",
+        bg: rgb(0x1818d4), fg: rgb(0xe8e8e8),
+        black: rgb(0x000000), red: rgb(0xcc0000), green: rgb(0x00cc00), yellow: rgb(0xe8e8e8),
+        blue: rgb(0x0000cc), magenta: rgb(0xcc44cc), cyan: rgb(0x00c8c8), white: rgb(0xffffff),
+        bright_black: rgb(0x808080), bright_red: rgb(0xff6464), bright_green: rgb(0x4cff4c),
+        bright_yellow: rgb(0xffff44), bright_blue: rgb(0x6c6cff), bright_magenta: rgb(0xff55ff),
+        bright_cyan: rgb(0x4cffff), bright_white: rgb(0xffffff),
+    },
 ];
 
 #[cfg(test)]
@@ -448,6 +465,22 @@ mod tests {
     fn no_truecolor_means_solid_bar() {
         let t = Theme::by_name("Nord", false);
         assert_eq!(t.gradient_at(0, 10), t.gradient_at(9, 10));
+    }
+
+    #[test]
+    fn classic_theme_uses_bright_classic_colors() {
+        assert!(find_palette("MidnightCommander Classic").is_some());
+        let t = Theme::by_name("MidnightCommander Classic", true);
+        assert_eq!(t.name, "MidnightCommander Classic");
+        // Cyan selection bar with black text (classic MC).
+        assert_eq!(t.cursor.bg, Some(rgb(0x00c8c8)));
+        assert_eq!(t.cursor.fg, Some(rgb(0x000000)));
+        // Bright, saturated accents.
+        assert_eq!(t.exec_fg, rgb(0x4cff4c));
+        assert_eq!(t.archive_fg, rgb(0xff55ff));
+        assert_eq!(t.header_fg, rgb(0xffff44));
+        // Documents render like normal files (not tinted) in the classic look.
+        assert_eq!(t.doc_fg, t.panel_fg);
     }
 }
 

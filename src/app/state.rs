@@ -12,9 +12,9 @@ use crate::panel::Panel;
 use crate::proc::{ProcSignal, ProcView};
 use crate::ui::cmdline::CommandLine;
 use crate::ui::dialog::{
-    ConfirmDialog, Dialog, DialogResult, FindDialog, FindParams, FormDialog, InputDialog,
-    InputPurpose, MessageDialog, OverwriteDialog, ProgressDialog, SearchReplaceDialog,
-    SearchReplaceParams, SelectDialog, Submit, UserMenuDialog,
+    CompareDialog, CompareMode, ConfirmDialog, Dialog, DialogResult, FindDialog, FindParams,
+    FormDialog, InputDialog, InputPurpose, MessageDialog, OverwriteDialog, ProgressDialog,
+    SearchReplaceDialog, SearchReplaceParams, SelectDialog, Submit, UserMenuDialog,
 };
 use crate::usermenu::{self, UserMenuEntry};
 use crate::ui::layout::SplitDir;
@@ -162,6 +162,46 @@ fn resolve_dest_on(dest: &str, base: &VfsPath) -> VfsPath {
             container: base.container.clone(),
         }
     }
+}
+
+/// Whether two files differ in content, streaming both (early-exit on the first
+/// mismatch). Unreadable files are treated as differing. Callers should compare
+/// sizes first so this only runs for same-size files.
+async fn files_differ(
+    ba: &std::sync::Arc<dyn Vfs>,
+    pa: &VfsPath,
+    bb: &std::sync::Arc<dyn Vfs>,
+    pb: &VfsPath,
+) -> bool {
+    let (mut ra, mut rb) = match (ba.open_read(pa).await, bb.open_read(pb).await) {
+        (Ok(a), Ok(b)) => (a, b),
+        _ => return true,
+    };
+    let mut bufa = vec![0u8; 64 * 1024];
+    let mut bufb = vec![0u8; 64 * 1024];
+    loop {
+        let na = read_filled(&mut ra, &mut bufa).await;
+        let nb = read_filled(&mut rb, &mut bufb).await;
+        if na != nb || bufa[..na] != bufb[..nb] {
+            return true;
+        }
+        if na == 0 {
+            return false; // both reached EOF in lockstep
+        }
+    }
+}
+
+/// Read until `buf` is full or EOF/error; returns how many bytes were read.
+async fn read_filled<R: tokio::io::AsyncRead + Unpin>(r: &mut R, buf: &mut [u8]) -> usize {
+    use tokio::io::AsyncReadExt;
+    let mut filled = 0;
+    while filled < buf.len() {
+        match r.read(&mut buf[filled..]).await {
+            Ok(0) | Err(_) => break,
+            Ok(n) => filled += n,
+        }
+    }
+    filled
 }
 
 /// The user's home directory (`$HOME` / `%USERPROFILE%`), or `/` as a fallback.
@@ -641,6 +681,7 @@ impl AppState {
             MenuAction::FindFile => self.open_find_dialog(),
             MenuAction::ProcExplorer => self.open_proc_explorer(),
             MenuAction::DiskExplorer => self.open_disk_explorer(),
+            MenuAction::CompareDirs => self.dialog = Some(Dialog::Compare(CompareDialog::new())),
             MenuAction::Connect(side, proto) => {
                 self.dialog = Some(Dialog::Form(FormDialog::connect(
                     proto,
@@ -722,6 +763,7 @@ impl AppState {
             Submit::Connect(side, creds) => self.connect_remote(side, creds).await,
             Submit::UserCommand(tpl) => self.pending_run = Some(self.expand_macros(&tpl)),
             Submit::KillProcess { pid, force } => self.kill_process(pid, force),
+            Submit::CompareDirs(mode) => self.compare_dirs(mode).await,
             Submit::Quit => self.pending_quit = true,
             Submit::EditorSaveQuit => self.save_editor(true).await,
             Submit::EditorDiscardQuit => {
@@ -1057,6 +1099,84 @@ impl AppState {
         }
         if let Some(pv) = self.procview.as_mut() {
             pv.refresh();
+        }
+    }
+
+    /// Compare the two panels' files and mark the differing ones (selection).
+    /// `Quick` marks files missing from the other panel; `Size` additionally
+    /// marks the larger of two differently-sized files; `Content` marks both
+    /// files whenever their bytes differ.
+    async fn compare_dirs(&mut self, mode: CompareMode) {
+        if self.panels[0].is_panelized() || self.panels[1].is_panelized() {
+            return self.show_error("Cannot compare search-result panels");
+        }
+        let files = |p: &Panel| -> Vec<(String, u64)> {
+            p.entries
+                .iter()
+                .filter(|e| e.kind == VfsKind::File && e.name != "..")
+                .map(|e| (e.name.clone(), e.size))
+                .collect()
+        };
+        let a = files(&self.panels[0]);
+        let b = files(&self.panels[1]);
+        let amap: HashMap<&str, u64> = a.iter().map(|(n, s)| (n.as_str(), *s)).collect();
+        let bmap: HashMap<&str, u64> = b.iter().map(|(n, s)| (n.as_str(), *s)).collect();
+
+        let mut mark_a: Vec<String> = Vec::new();
+        let mut mark_b: Vec<String> = Vec::new();
+
+        // Files present in only one panel are always marked there.
+        for (n, _) in &a {
+            if !bmap.contains_key(n.as_str()) {
+                mark_a.push(n.clone());
+            }
+        }
+        for (n, _) in &b {
+            if !amap.contains_key(n.as_str()) {
+                mark_b.push(n.clone());
+            }
+        }
+
+        match mode {
+            CompareMode::Quick => {}
+            CompareMode::Size => {
+                for (n, sa) in &a {
+                    if let Some(sb) = bmap.get(n.as_str()) {
+                        // Mark only the larger of the two.
+                        if sa > sb {
+                            mark_a.push(n.clone());
+                        } else if sb > sa {
+                            mark_b.push(n.clone());
+                        }
+                    }
+                }
+            }
+            CompareMode::Content => {
+                let ba = self.panels[0].backend.clone();
+                let ca = self.panels[0].cwd.clone();
+                let bb = self.panels[1].backend.clone();
+                let cb = self.panels[1].cwd.clone();
+                for (n, sa) in &a {
+                    if let Some(sb) = bmap.get(n.as_str()) {
+                        // Different sizes ⇒ different content (no need to read).
+                        let differ = sa != sb
+                            || files_differ(&ba, &ca.join(n), &bb, &cb.join(n)).await;
+                        if differ {
+                            mark_a.push(n.clone());
+                            mark_b.push(n.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        self.panels[0].selection.clear();
+        self.panels[1].selection.clear();
+        for n in &mark_a {
+            self.panels[0].selection.mark(n);
+        }
+        for n in &mark_b {
+            self.panels[1].selection.mark(n);
         }
     }
 
@@ -2167,6 +2287,62 @@ mod tests {
             }
             _ => panic!("expected a Symlink submit"),
         }
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[tokio::test]
+    async fn compare_dirs_marks_by_mode() {
+        use std::collections::HashSet;
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("rc_cmp_{}_{nanos}", std::process::id()));
+        let da = root.join("a");
+        let db = root.join("b");
+        std::fs::create_dir_all(&da).unwrap();
+        std::fs::create_dir_all(&db).unwrap();
+        std::fs::write(da.join("same.txt"), b"hello").unwrap();
+        std::fs::write(db.join("same.txt"), b"hello").unwrap();
+        std::fs::write(da.join("big.txt"), b"AAAA").unwrap(); // larger in A
+        std::fs::write(db.join("big.txt"), b"AA").unwrap();
+        std::fs::write(da.join("onlyA.txt"), b"x").unwrap();
+        std::fs::write(db.join("onlyB.txt"), b"y").unwrap();
+        std::fs::write(da.join("diff.txt"), b"abc").unwrap(); // same size, diff content
+        std::fs::write(db.join("diff.txt"), b"xyz").unwrap();
+
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
+        st.panels[0].cwd = VfsPath::local(&da);
+        st.panels[0].backend = st.registry.local();
+        st.panels[0].reload().await.unwrap();
+        st.panels[1].cwd = VfsPath::local(&db);
+        st.panels[1].backend = st.registry.local();
+        st.panels[1].reload().await.unwrap();
+
+        let marked = |p: &Panel| -> HashSet<String> {
+            p.entries
+                .iter()
+                .filter(|e| p.selection.is_marked(&e.name))
+                .map(|e| e.name.clone())
+                .collect()
+        };
+        let set = |names: &[&str]| -> HashSet<String> {
+            names.iter().map(|s| s.to_string()).collect()
+        };
+
+        st.compare_dirs(CompareMode::Quick).await;
+        assert_eq!(marked(&st.panels[0]), set(&["onlyA.txt"]));
+        assert_eq!(marked(&st.panels[1]), set(&["onlyB.txt"]));
+
+        st.compare_dirs(CompareMode::Size).await;
+        assert_eq!(marked(&st.panels[0]), set(&["onlyA.txt", "big.txt"]));
+        assert_eq!(marked(&st.panels[1]), set(&["onlyB.txt"]));
+
+        st.compare_dirs(CompareMode::Content).await;
+        assert_eq!(marked(&st.panels[0]), set(&["onlyA.txt", "big.txt", "diff.txt"]));
+        assert_eq!(marked(&st.panels[1]), set(&["onlyB.txt", "big.txt", "diff.txt"]));
+
         std::fs::remove_dir_all(&root).ok();
     }
 
