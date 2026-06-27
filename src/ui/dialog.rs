@@ -879,6 +879,20 @@ impl FormDialog {
         }
     }
 
+    /// The currently-selected theme name in the settings form (for live
+    /// preview), or `None` if this isn't the settings form.
+    pub fn theme_choice(&self) -> Option<&str> {
+        if !matches!(self.purpose, FormPurpose::Settings) {
+            return None;
+        }
+        self.form.fields.iter().find_map(|f| match f {
+            Field::Choice { label, options, idx } if label == "Theme" => {
+                options.get(*idx).map(|s| s.as_str())
+            }
+            _ => None,
+        })
+    }
+
     pub fn connect(protocol: Protocol, side: usize) -> Self {
         let form = Form::new(vec![
             Field::text("Host", ""),

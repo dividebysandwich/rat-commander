@@ -86,13 +86,17 @@ impl Theme {
         };
         let cursor_bg = p.bright_blue;
         let cursor_fg = best_contrast(cursor_bg, p.bg, p.bright_white);
+        // Borders/column separators must contrast with the panel background on
+        // every theme (e.g. MC's blue border would vanish on its blue bg), so
+        // derive them from a bg↔fg mix rather than a palette hue.
+        let border = mix(p.bg, p.fg, 0.45);
 
         Theme {
             name: p.name.to_string(),
             truecolor,
             panel_bg: p.bg,
             panel_fg: p.fg,
-            panel_border: p.blue,
+            panel_border: border,
             panel_border_active: p.bright_cyan,
             header_fg: p.bright_yellow,
             cursor: Style::default()
@@ -119,9 +123,10 @@ impl Theme {
                 .fg(p.bg)
                 .add_modifier(Modifier::BOLD),
             error_fg: p.bright_red,
-            bar_fg: best_contrast(mix(p.blue, p.magenta, 0.5), p.black, p.bright_white),
-            grad_a: to_rgb(p.blue),
-            grad_b: to_rgb(p.magenta),
+            // Vivid gradient endpoints keep the bars/cursor bright and modern.
+            bar_fg: best_contrast(mix(p.bright_blue, p.bright_magenta, 0.5), p.black, p.bright_white),
+            grad_a: to_rgb(p.bright_blue),
+            grad_b: to_rgb(p.bright_magenta),
         }
     }
 
@@ -205,9 +210,9 @@ pub fn palette_names() -> Vec<String> {
 pub static PALETTES: &[Palette] = &[
     Palette {
         name: "Midnight Commander",
-        bg: rgb(0x0000a8), fg: rgb(0xaaaaaa),
+        bg: rgb(0x0000cd), fg: rgb(0xc6c6c6),
         black: rgb(0x000000), red: rgb(0xaa0000), green: rgb(0x00aa00), yellow: rgb(0xaa5500),
-        blue: rgb(0x0000aa), magenta: rgb(0xaa00aa), cyan: rgb(0x00aaaa), white: rgb(0xaaaaaa),
+        blue: rgb(0x0000aa), magenta: rgb(0xaa00aa), cyan: rgb(0x00aaaa), white: rgb(0xc6c6c6),
         bright_black: rgb(0x555555), bright_red: rgb(0xff5555), bright_green: rgb(0x55ff55),
         bright_yellow: rgb(0xffff55), bright_blue: rgb(0x5555ff), bright_magenta: rgb(0xff55ff),
         bright_cyan: rgb(0x55ffff), bright_white: rgb(0xffffff),

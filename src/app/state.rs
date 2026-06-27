@@ -63,6 +63,8 @@ pub struct AppState {
     tx: AppSender,
     /// Whether the terminal supports 24-bit color (for gradients).
     truecolor: bool,
+    /// Theme name to restore if the settings dialog is cancelled (live preview).
+    theme_backup: Option<String>,
     /// Set when a confirmed quit should propagate out as `Flow::Quit`.
     pending_quit: bool,
 }
@@ -101,6 +103,7 @@ impl AppState {
             next_session_id: 0,
             tx,
             truecolor,
+            theme_backup: None,
             pending_quit: false,
         }
     }
@@ -170,6 +173,13 @@ impl AppState {
     pub async fn handle_key(&mut self, key: KeyEvent) -> Flow {
         if self.dialog.is_some() {
             let res = self.dialog.as_mut().unwrap().handle_key(key);
+            // Live theme preview: apply the settings form's current theme choice.
+            if let Some(Dialog::Form(fd)) = &self.dialog
+                && let Some(name) = fd.theme_choice()
+                && name != self.theme.name
+            {
+                self.theme = Theme::by_name(name, self.truecolor);
+            }
             return self.handle_dialog_result(res).await;
         }
         if self.editor.is_some() {
@@ -271,10 +281,15 @@ impl AppState {
             DialogResult::None => Flow::Continue,
             DialogResult::Cancel => {
                 self.dialog = None;
+                // Revert a live theme preview when the settings dialog is cancelled.
+                if let Some(name) = self.theme_backup.take() {
+                    self.theme = Theme::by_name(&name, self.truecolor);
+                }
                 Flow::Continue
             }
             DialogResult::Submit(s) => {
                 self.dialog = None;
+                self.theme_backup = None; // keep any previewed theme
                 self.handle_submit(s).await;
                 if self.pending_quit {
                     Flow::Quit
@@ -640,6 +655,8 @@ impl AppState {
     }
 
     fn open_settings(&mut self) {
+        // Remember the current theme so Esc can revert a live preview.
+        self.theme_backup = Some(self.config.theme.clone());
         self.dialog = Some(Dialog::Form(FormDialog::settings(&self.config)));
     }
 
@@ -1335,6 +1352,20 @@ mod tests {
         assert_eq!(run(&by_content).len(), 2, "two files contain 'hello'");
 
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[tokio::test]
+    async fn theme_preview_applies_and_reverts_on_cancel() {
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
+        let original = st.theme.name.clone();
+        st.open_settings();
+        // The Theme choice is the first (focused) field; Space cycles it.
+        st.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE)).await;
+        assert_ne!(st.theme.name, original, "theme preview should apply live");
+        // Esc cancels → revert to the original theme.
+        st.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).await;
+        assert_eq!(st.theme.name, original, "cancel should revert the preview");
     }
 
     #[tokio::test]
