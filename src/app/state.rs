@@ -6,6 +6,7 @@ use crate::editor::{EditorSignal, EditorState};
 use crate::ops::progress::{ProgressUpdate, TaskOutcome};
 use crate::ops::CancelToken;
 use crate::ops::{OpKind, OpRequest, TaskHandle, TaskId, spawn_op};
+use crate::diff::{DiffSignal, DiffView};
 use crate::disk::{DiskSignal, DiskView};
 use crate::panel::sort::SortKey;
 use crate::panel::Panel;
@@ -71,6 +72,8 @@ pub struct AppState {
     pub procview: Option<ProcView>,
     /// The full-screen disk-usage explorer, when open.
     pub diskview: Option<DiskView>,
+    /// The full-screen side-by-side file comparison view, when open.
+    pub diffview: Option<DiffView>,
     pub theme: Theme,
     pub config: Config,
     pub registry: Registry,
@@ -260,6 +263,7 @@ impl AppState {
             menu: None,
             procview: None,
             diskview: None,
+            diffview: None,
             theme,
             config,
             registry,
@@ -629,6 +633,14 @@ impl AppState {
             }
             return Flow::Continue;
         }
+        if self.diffview.is_some() {
+            match self.diffview.as_mut().unwrap().handle_key(key) {
+                DiffSignal::Stay => {}
+                DiffSignal::Close => self.diffview = None,
+                DiffSignal::Save => self.save_diff().await,
+            }
+            return Flow::Continue;
+        }
         if self.menu.is_some() {
             return self.handle_menu_key(key).await;
         }
@@ -682,6 +694,7 @@ impl AppState {
             MenuAction::ProcExplorer => self.open_proc_explorer(),
             MenuAction::DiskExplorer => self.open_disk_explorer(),
             MenuAction::CompareDirs => self.dialog = Some(Dialog::Compare(CompareDialog::new())),
+            MenuAction::CompareFiles => self.open_compare_files().await,
             MenuAction::Connect(side, proto) => {
                 self.dialog = Some(Dialog::Form(FormDialog::connect(
                     proto,
@@ -1177,6 +1190,62 @@ impl AppState {
         }
         for n in &mark_b {
             self.panels[1].selection.mark(n);
+        }
+    }
+
+    /// Open the side-by-side file comparison view on the files under the cursor
+    /// in the left (panel 0) and right (panel 1) panels.
+    async fn open_compare_files(&mut self) {
+        let pick = |p: &Panel| -> Option<(String, VfsPath)> {
+            p.current_entry()
+                .filter(|e| e.kind == VfsKind::File && e.name != "..")
+                .map(|e| (e.name.clone(), p.cwd.join(&e.name)))
+        };
+        let (Some((ln, lp)), Some((rn, rp))) = (pick(&self.panels[0]), pick(&self.panels[1])) else {
+            return self.show_error("Put the cursor on a file in both panels to compare");
+        };
+        let lback = self.panels[0].backend.clone();
+        let rback = self.panels[1].backend.clone();
+        let ldata = match load_file(&lback, &lp).await {
+            Ok(d) => d,
+            Err(e) => return self.show_error(format!("cannot read {ln}: {e}")),
+        };
+        let rdata = match load_file(&rback, &rp).await {
+            Ok(d) => d,
+            Err(e) => return self.show_error(format!("cannot read {rn}: {e}")),
+        };
+        self.diffview = Some(DiffView::new(ln, lp, &ldata, rn, rp, &rdata));
+    }
+
+    /// Write the diff view's changed buffers back to disk.
+    async fn save_diff(&mut self) {
+        let saves = match self.diffview.as_ref() {
+            Some(dv) => dv.pending_saves(),
+            None => return,
+        };
+        if saves.is_empty() {
+            return;
+        }
+        let mut ok = true;
+        for (path, contents) in saves {
+            match self.registry.resolve(&path) {
+                Ok(backend) => {
+                    if let Err(e) = write_file(&backend, &path, contents.as_bytes()).await {
+                        self.show_error(format!("save failed: {e}"));
+                        ok = false;
+                    }
+                }
+                Err(e) => {
+                    self.show_error(e.to_string());
+                    ok = false;
+                }
+            }
+        }
+        if ok {
+            if let Some(dv) = self.diffview.as_mut() {
+                dv.mark_saved();
+            }
+            self.reload_all().await;
         }
     }
 

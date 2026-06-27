@@ -43,6 +43,12 @@ The installed executable is named **`rc`** for quick typing.
   two panels — **Quick** (present in one panel only), **Size only** (also marks
   the larger of two differently-sized files), or **Content** (marks both files
   whenever their bytes differ)
+- **Compare files** (Command menu): a side-by-side diff of the files under the
+  cursor in each panel. Changed/added blocks are highlighted and connected by
+  gutter guides; **↑/↓** moves through the document and selects the active change,
+  **Ctrl-←** applies the active change from the right file to the left (or deletes
+  a left-only block), **Ctrl-→** applies it the other way. Edits happen in memory;
+  press **F2** to write changed files back to disk, **Esc** to close
 
 **Built-in viewer (F3)**
 - Text and **hex** modes, line wrap toggle, and search

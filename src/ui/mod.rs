@@ -57,6 +57,13 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
         }
         return;
     }
+    if let Some(dv) = state.diffview.as_mut() {
+        crate::diff::render::render(f, area, dv, &theme);
+        if let Some(d) = &mut state.dialog {
+            d.render(f, area, &theme);
+        }
+        return;
+    }
 
     let rows = Layout::default()
         .direction(Direction::Vertical)

@@ -39,6 +39,7 @@ pub enum MenuAction {
     ProcExplorer,
     DiskExplorer,
     CompareDirs,
+    CompareFiles,
     Connect(usize, Protocol),
     Disconnect(usize),
     Settings,
@@ -127,10 +128,11 @@ impl MenuBarState {
         let command = Menu {
             items: vec![
                 item("Find file...", MenuAction::FindFile),
+                item("Compare directories...", MenuAction::CompareDirs),
+                item("Compare files...", MenuAction::CompareFiles),
                 item("Process explorer...", MenuAction::ProcExplorer),
                 item("Disk explorer...", MenuAction::DiskExplorer),
                 sep(),
-                item("Compare directories...", MenuAction::CompareDirs),
                 item("Swap panels", MenuAction::SwapPanels),
                 item("Re-read directories", MenuAction::Refresh),
                 item("Toggle split V/H", MenuAction::ToggleSplit),

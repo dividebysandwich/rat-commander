@@ -5,6 +5,7 @@
 
 mod app;
 mod config;
+mod diff;
 mod disk;
 mod editor;
 mod ops;
