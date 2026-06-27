@@ -227,8 +227,10 @@ impl AppState {
         let mut dirty = false;
         self.tick_count = self.tick_count.wrapping_add(1);
         // Animate gradients when truecolor is on and either animations are
-        // enabled or the (always-animated) process explorer is open.
-        let animate = self.truecolor && (self.config.animation || self.procview.is_some());
+        // enabled, the (always-animated) process explorer is open, or a file
+        // operation is running (so the progress bars pulse).
+        let animate = self.truecolor
+            && (self.config.animation || self.procview.is_some() || !self.tasks.is_empty());
         if animate {
             self.anim_phase = self.anim_phase.wrapping_add(1);
             dirty = true;
@@ -254,6 +256,7 @@ impl AppState {
             || self.config.system_status
             || self.pending_esc.is_some()
             || self.procview.is_some()
+            || !self.tasks.is_empty()
     }
 
     /// Load both panels' directories.

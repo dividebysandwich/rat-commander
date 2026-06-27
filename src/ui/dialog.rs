@@ -19,7 +19,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::symbols;
 use ratatui::widgets::{
-    Axis, Block, BorderType, Borders, Chart, Clear, Dataset, Gauge, GraphType, Paragraph, Wrap,
+    Axis, Block, BorderType, Borders, Chart, Clear, Dataset, GraphType, Paragraph, Wrap,
 };
 
 /// The active modal dialog (only one at a time).
@@ -619,15 +619,14 @@ impl ProgressDialog {
         let name = crate::util::text::ellipsize(&self.current_name, inner.width as usize);
         f.render_widget(Paragraph::new(Line::from(name)).style(base), rows[0]);
 
-        let file_gauge = Gauge::default()
-            .gauge_style(Style::default().fg(theme.exec_fg).bg(theme.dialog_bg))
-            .ratio(Self::ratio(self.file_done, self.file_total))
-            .label(format!(
-                "{} / {}",
-                human_size(self.file_done),
-                human_size(self.file_total)
-            ));
-        f.render_widget(file_gauge, rows[1]);
+        pulse_gauge(
+            f,
+            rows[1],
+            Self::ratio(self.file_done, self.file_total),
+            &format!("{} / {}", human_size(self.file_done), human_size(self.file_total)),
+            theme.exec_fg,
+            theme,
+        );
 
         f.render_widget(
             Paragraph::new(Line::from(format!(
@@ -641,10 +640,15 @@ impl ProgressDialog {
             rows[2],
         );
 
-        let total_gauge = Gauge::default()
-            .gauge_style(Style::default().fg(theme.panel_border_active).bg(theme.dialog_bg))
-            .ratio(Self::ratio(self.total_done, self.total_total));
-        f.render_widget(total_gauge, rows[3]);
+        let total_ratio = Self::ratio(self.total_done, self.total_total);
+        pulse_gauge(
+            f,
+            rows[3],
+            total_ratio,
+            &format!("{:.0}%", total_ratio * 100.0),
+            theme.panel_border_active,
+            theme,
+        );
 
         f.render_widget(
             Paragraph::new(Line::from("Speed (y) over bytes transferred (x):")).style(base),
@@ -1915,6 +1919,74 @@ fn draw_shadow(f: &mut Frame, rect: Rect, _theme: &Theme) {
     };
     f.render_widget(Block::default().style(shadow), bottom);
     f.render_widget(Block::default().style(shadow), right);
+}
+
+/// A progress bar whose filled portion shows a gradient "pulse" sweeping left to
+/// right (truecolor only; otherwise a solid fill). `label` is centered over it.
+fn pulse_gauge(f: &mut Frame, area: Rect, ratio: f64, label: &str, base: ratatui::style::Color, theme: &Theme) {
+    let w = area.width as usize;
+    if w == 0 || area.height == 0 {
+        return;
+    }
+    let filled = (ratio.clamp(0.0, 1.0) * w as f64).round() as usize;
+
+    // Center the label over the bar.
+    let label: Vec<char> = label.chars().take(w).collect();
+    let lstart = (w - label.len()) / 2;
+
+    // The bright pulse position sweeps across and wraps with a trailing gap.
+    let band = (w as f64 * 0.33).max(5.0);
+    let period = w as f64 + band;
+    // The pulse moves as `anim` advances, which the app does while an operation
+    // is running (so the bars pulse during a copy even if animations are off).
+    let pos = if theme.truecolor {
+        (theme.anim as f64 * 1.6) % period
+    } else {
+        f64::NEG_INFINITY
+    };
+
+    let empty_fg = theme.panel_border;
+    let buf = f.buffer_mut();
+    for x in 0..w {
+        let in_label = x >= lstart && x < lstart + label.len();
+        let lc = if in_label { Some(label[x - lstart]) } else { None };
+        if x < filled {
+            let color = if theme.truecolor {
+                let t = (1.0 - (x as f64 - pos).abs() / (band * 0.5)).clamp(0.0, 1.0);
+                pulse_color(base, t)
+            } else {
+                base
+            };
+            let (ch, fg, bg) = match lc {
+                Some(c) => (c, theme.dialog_bg, color),
+                None => ('█', color, theme.dialog_bg),
+            };
+            buf.set_string(area.x + x as u16, area.y, ch.to_string(), Style::default().fg(fg).bg(bg));
+        } else {
+            let (ch, fg) = match lc {
+                Some(c) => (c, theme.dialog_fg),
+                None => ('░', empty_fg),
+            };
+            buf.set_string(
+                area.x + x as u16,
+                area.y,
+                ch.to_string(),
+                Style::default().fg(fg).bg(theme.dialog_bg),
+            );
+        }
+    }
+}
+
+/// Brighten `base` toward a white-hot highlight by pulse intensity `t` (0..1).
+fn pulse_color(base: ratatui::style::Color, t: f64) -> ratatui::style::Color {
+    if let ratatui::style::Color::Rgb(r, g, b) = base {
+        let bright = 0.5 + 0.5 * t; // 0.5×..1.0× brightness
+        let hl = t * t * 110.0; // white highlight near the pulse center
+        let mix = |c: u8| ((c as f64 * bright) + hl).min(255.0) as u8;
+        ratatui::style::Color::Rgb(mix(r), mix(g), mix(b))
+    } else {
+        base
+    }
 }
 
 /// A rectangle of fixed size centered within `area`.

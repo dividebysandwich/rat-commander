@@ -319,6 +319,29 @@ mod tests {
     }
 
     #[test]
+    fn finds_and_replaces_bytes() {
+        let p = tmp(b"abc abc abc");
+        let mut h = HexEditor::open(&p).unwrap();
+        // Forward find from offset 1 lands on the second "abc" at offset 4.
+        assert_eq!(h.find(b"abc", 1, false), Some(4));
+        // Backward find before offset 6 lands on the first "abc".
+        assert_eq!(h.find(b"abc", 6, true), Some(0));
+        // Equal-length replace-all overwrites in place.
+        assert_eq!(h.replace_all(b"abc", b"XYZ"), 3);
+        h.save().unwrap();
+        assert_eq!(std::fs::read(&p).unwrap(), b"XYZ XYZ XYZ");
+        std::fs::remove_file(&p).ok();
+    }
+
+    #[test]
+    fn replace_rejects_length_change() {
+        let p = tmp(b"abcabc");
+        let mut h = HexEditor::open(&p).unwrap();
+        assert_eq!(h.replace_all(b"abc", b"ab"), 0, "different length is refused");
+        std::fs::remove_file(&p).ok();
+    }
+
+    #[test]
     fn window_reads_with_overlay() {
         let p = tmp(b"0123456789");
         let mut h = HexEditor::open(&p).unwrap();

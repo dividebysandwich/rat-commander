@@ -630,7 +630,7 @@ fn order(a: usize, b: usize) -> (usize, usize) {
 /// Parse a hex-byte string like "48 65 6c" or "48656c" into bytes.
 fn parse_hex_bytes(s: &str) -> Option<Vec<u8>> {
     let cleaned: String = s.chars().filter(|c| !c.is_whitespace()).collect();
-    if cleaned.is_empty() || cleaned.len() % 2 != 0 {
+    if cleaned.is_empty() || !cleaned.len().is_multiple_of(2) {
         return None;
     }
     (0..cleaned.len())
@@ -693,6 +693,25 @@ mod tests {
     }
 
     #[test]
+    fn hex_search_and_replace() {
+        let p = tmpfile(b"hello hello hello");
+        let mut e = EditorState::new("h".into(), VfsPath::local(&p), "x");
+        e.handle_key(key(KeyCode::F(9)));
+        // ASCII search moves the cursor to the next match.
+        e.apply_hex_search_replace(false, "hello", "", false, false);
+        // Cursor was at 0; next match starts at offset 6.
+        // (find searches from cursor+1)
+        // Replace-all (equal length) overwrites every occurrence.
+        e.apply_hex_search_replace(true, "hello", "HELLO", false, false);
+        e.flush_hex().unwrap();
+        assert_eq!(std::fs::read(&p).unwrap(), b"HELLO HELLO HELLO");
+
+        // Hex-byte search input ("68 65" = "he") parses and finds.
+        e.apply_hex_search_replace(false, "48 45 4C 4C 4F", "", true, false);
+        std::fs::remove_file(&p).ok();
+    }
+
+    #[test]
     fn hex_toggle_blocked_with_unsaved_text() {
         let p = tmpfile(b"abc");
         let mut e = EditorState::new("h".into(), VfsPath::local(&p), "abc");
@@ -723,6 +742,9 @@ mod tests {
         assert!(s.contains("00000000"), "offset column");
         assert!(s.contains("HEX"), "hex status indicator");
         assert!(s.contains("hello world"), "ascii pane shows content");
+        // The F-key bar (not a mode banner) is shown, with supported functions.
+        assert!(s.contains("Save") && s.contains("Text"), "F-key bar in hex mode");
+        assert!(!s.contains("Hex mode"), "no persistent mode banner");
         std::fs::remove_file(&p).ok();
     }
 

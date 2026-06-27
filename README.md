@@ -51,11 +51,12 @@ The installed executable is named **`rc`** for quick typing.
   only the visible window is read and only changed bytes are written back, so
   arbitrarily large files can be hex-edited (files too big to load as text open
   straight into hex mode). `Tab` switches between the hex and ASCII columns;
-  editing is overwrite-only (length-preserving)
+  editing is overwrite-only (length-preserving), with streaming **search and
+  replace** over hex-byte or text patterns
 
 **File operations**
 - Copy / move / delete with a progress window showing a per-file gauge and a
-  **transfer-speed chart** (speed vs. bytes), plus an **abort** button
+  **transfer-speed chart** (speed vs. bytes)
 - **Overwrite confirmation** when a destination exists: overwrite **Yes/No**, or
   **Append**, or apply a rule to all remaining files (**All**, **Older**,
   **None**, **Smaller**, **Size differs**) with an optional "don't overwrite with
@@ -235,6 +236,8 @@ viewer, and the editor. (A quick `Alt`+digit does the same thing.)
 | `← ↑ ↓ → / PgUp PgDn` | Move | 
 | `Home` / `End` | Start / end of row |
 | `Ctrl-Home` / `Ctrl-End` | Start / end of file |
+| `F7` | Search (hex bytes like `48 65` or text) |
+| `F4` | Replace all (same-length, overwrite-only) |
 | `F2` | Save changed bytes in place |
 | `F9` | Back to text mode |
 | `Esc` / `F10` | Quit (prompts if modified) |
