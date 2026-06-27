@@ -57,9 +57,12 @@ jobs:
           tool: cargo-deb
 
       # ---- Build ----
+      # RAR support pulls in the C++ `unrar` library, whose vendored source does
+      # not compile with the older C++ toolchain in the arm cross images, so it
+      # is disabled (--no-default-features) for the cross targets.
       - name: Build (cross)
         if: matrix.cross
-        run: cross build --locked --release --target ${{ matrix.target }}
+        run: cross build --locked --release --no-default-features --target ${{ matrix.target }}
 
       - name: Build (cargo)
         if: ${{ !matrix.cross }}

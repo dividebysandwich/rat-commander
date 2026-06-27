@@ -8,6 +8,10 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
 
+/// Message used when RAR support was compiled out (`--no-default-features`).
+#[cfg(not(feature = "rar"))]
+const RAR_DISABLED: &str = "RAR support is not compiled into this build";
+
 /// Supported archive formats.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArchiveFormat {
@@ -147,6 +151,12 @@ fn list_7z(container: &Path) -> Result<Vec<RawEntry>> {
         .collect())
 }
 
+#[cfg(not(feature = "rar"))]
+fn list_rar(_container: &Path) -> Result<Vec<RawEntry>> {
+    Err(Error::other(RAR_DISABLED))
+}
+
+#[cfg(feature = "rar")]
 fn list_rar(container: &Path) -> Result<Vec<RawEntry>> {
     let archive = unrar::Archive::new(container)
         .open_for_listing()
@@ -210,21 +220,29 @@ pub fn read_entry(format: ArchiveFormat, container: &Path, inner: &str) -> Resul
                     .map_err(io)?;
             reader.read_file(&name).map_err(io)
         }
-        ArchiveFormat::Rar => {
-            let mut ar = unrar::Archive::new(container)
-                .open_for_processing()
-                .map_err(io)?;
-            while let Some(header) = ar.read_header().map_err(io)? {
-                let name = normalize(&header.entry().filename.to_string_lossy());
-                if name == target {
-                    let (data, _next) = header.read().map_err(io)?;
-                    return Ok(data);
-                }
-                ar = header.skip().map_err(io)?;
-            }
-            Err(Error::NotFound(target))
-        }
+        ArchiveFormat::Rar => read_rar_entry(container, &target),
     }
+}
+
+#[cfg(not(feature = "rar"))]
+fn read_rar_entry(_container: &Path, _target: &str) -> Result<Vec<u8>> {
+    Err(Error::other(RAR_DISABLED))
+}
+
+#[cfg(feature = "rar")]
+fn read_rar_entry(container: &Path, target: &str) -> Result<Vec<u8>> {
+    let mut ar = unrar::Archive::new(container)
+        .open_for_processing()
+        .map_err(io)?;
+    while let Some(header) = ar.read_header().map_err(io)? {
+        let name = normalize(&header.entry().filename.to_string_lossy());
+        if name == target {
+            let (data, _next) = header.read().map_err(io)?;
+            return Ok(data);
+        }
+        ar = header.skip().map_err(io)?;
+    }
+    Err(Error::NotFound(target.to_string()))
 }
 
 // ---------------------------------------------------------------------------
@@ -285,27 +303,35 @@ pub fn read_all(format: ArchiveFormat, container: &Path) -> Result<Vec<FullEntry
             }
             Ok(out)
         }
-        ArchiveFormat::Rar => {
-            let mut ar = unrar::Archive::new(container)
-                .open_for_processing()
-                .map_err(io)?;
-            let mut out = Vec::new();
-            while let Some(header) = ar.read_header().map_err(io)? {
-                let e = header.entry();
-                let path = normalize(&e.filename.to_string_lossy());
-                let is_dir = e.is_directory();
-                if is_dir {
-                    out.push(FullEntry { path, is_dir, data: Vec::new() });
-                    ar = header.skip().map_err(io)?;
-                } else {
-                    let (data, next) = header.read().map_err(io)?;
-                    out.push(FullEntry { path, is_dir, data });
-                    ar = next;
-                }
-            }
-            Ok(out)
+        ArchiveFormat::Rar => read_rar_all(container),
+    }
+}
+
+#[cfg(not(feature = "rar"))]
+fn read_rar_all(_container: &Path) -> Result<Vec<FullEntry>> {
+    Err(Error::other(RAR_DISABLED))
+}
+
+#[cfg(feature = "rar")]
+fn read_rar_all(container: &Path) -> Result<Vec<FullEntry>> {
+    let mut ar = unrar::Archive::new(container)
+        .open_for_processing()
+        .map_err(io)?;
+    let mut out = Vec::new();
+    while let Some(header) = ar.read_header().map_err(io)? {
+        let e = header.entry();
+        let path = normalize(&e.filename.to_string_lossy());
+        let is_dir = e.is_directory();
+        if is_dir {
+            out.push(FullEntry { path, is_dir, data: Vec::new() });
+            ar = header.skip().map_err(io)?;
+        } else {
+            let (data, next) = header.read().map_err(io)?;
+            out.push(FullEntry { path, is_dir, data });
+            ar = next;
         }
     }
+    Ok(out)
 }
 
 // ---------------------------------------------------------------------------

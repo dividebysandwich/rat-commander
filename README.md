@@ -40,6 +40,9 @@ The installed executable is named **`rc`** for quick typing.
   archives and walk into them like folders
 - Copy files in/out, delete from an archive, and **compress** a selection into a
   new archive (RAR is read-only — no tool can create RAR archives)
+- RAR support is an optional build feature (`rar`, on by default); it is omitted
+  from the Raspberry Pi (arm) packages because the C++ `unrar` library doesn't
+  build with those cross toolchains
 
 **Remote filesystems** (each connection mounts into a panel)
 - **SFTP** and **SCP** over SSH, and **FTP/FTPS**
@@ -219,8 +222,9 @@ cargo build --release --target x86_64-unknown-linux-gnu
 cargo deb --no-build --target x86_64-unknown-linux-gnu
 
 # Raspberry Pi (cross-compiled) – needs Docker + `cross`
+# (--no-default-features drops RAR, whose C++ lib won't cross-compile here)
 cargo install cross
-cross build --release --target aarch64-unknown-linux-gnu
+cross build --release --no-default-features --target aarch64-unknown-linux-gnu
 cargo deb --no-build --no-strip --target aarch64-unknown-linux-gnu
 
 # Windows MSI – on Windows with the WiX toolset

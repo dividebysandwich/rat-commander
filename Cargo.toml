@@ -31,6 +31,13 @@ assets = [
     ["README.md", "usr/share/doc/rat-commander/README.md", "644"],
 ]
 
+[features]
+default = ["rar"]
+# RAR read/extract support (pulls in the C++ `unrar` library). Disable it
+# (`--no-default-features`) where a C++ toolchain is unavailable or too old —
+# e.g. the Raspberry Pi cross-compile images.
+rar = ["dep:unrar"]
+
 [dependencies]
 async-trait = "0.1.89"
 bzip2 = "0.6.1"
@@ -54,7 +61,7 @@ tokio = { version = "1.52.3", features = ["full"] }
 tokio-util = { version = "0.7.18", features = ["rt"] }
 toml = "1.1.2"
 unicode-width = "0.2.2"
-unrar = "0.5.8"
+unrar = { version = "0.5.8", optional = true }
 walkdir = "2.5.0"
 xz2 = "0.1.7"
 zip = "8.6.0"
