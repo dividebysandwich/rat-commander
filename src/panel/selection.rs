@@ -1,7 +1,7 @@
 //! Per-panel marked-file set and wildcard select/unselect-group support.
 
 use crate::vfs::VfsEntry;
-use globset::{Glob, GlobSetBuilder};
+use globset::GlobSetBuilder;
 use std::collections::HashSet;
 
 /// The set of marked (tagged) file names within a single directory listing.
@@ -54,14 +54,16 @@ impl Selection {
     }
 
     /// Mark every file (not directories, not `..`) matching `pattern`.
-    /// Returns the number newly marked, or an error if the pattern is invalid.
+    /// `shell` selects shell-wildcard vs regular-expression matching.
     pub fn select_group(
         &mut self,
         entries: &[VfsEntry],
         pattern: &str,
         files_only: bool,
+        case_sensitive: bool,
+        shell: bool,
     ) -> Result<usize, String> {
-        let set = build_globset(pattern)?;
+        let matcher = NameMatcher::build(pattern, case_sensitive, shell)?;
         let mut n = 0;
         for e in entries {
             if e.name == ".." {
@@ -70,7 +72,7 @@ impl Selection {
             if files_only && e.kind.is_dir() {
                 continue;
             }
-            if set.is_match(&e.name) && self.marked.insert(e.name.clone()) {
+            if matcher.is_match(&e.name) && self.marked.insert(e.name.clone()) {
                 n += 1;
             }
         }
@@ -78,11 +80,17 @@ impl Selection {
     }
 
     /// Unmark every entry matching `pattern`. Returns the number removed.
-    pub fn unselect_group(&mut self, entries: &[VfsEntry], pattern: &str) -> Result<usize, String> {
-        let set = build_globset(pattern)?;
+    pub fn unselect_group(
+        &mut self,
+        entries: &[VfsEntry],
+        pattern: &str,
+        case_sensitive: bool,
+        shell: bool,
+    ) -> Result<usize, String> {
+        let matcher = NameMatcher::build(pattern, case_sensitive, shell)?;
         let mut n = 0;
         for e in entries {
-            if set.is_match(&e.name) && self.marked.remove(&e.name) {
+            if matcher.is_match(&e.name) && self.marked.remove(&e.name) {
                 n += 1;
             }
         }
@@ -90,12 +98,43 @@ impl Selection {
     }
 }
 
-/// Build a matcher from one or more `;`/`,`-separated shell wildcards.
-fn build_globset(pattern: &str) -> Result<globset::GlobSet, String> {
+/// A name matcher: shell wildcards (globset) or a regular expression. Shared
+/// by select-group and find-file.
+pub enum NameMatcher {
+    Glob(globset::GlobSet),
+    Re(regex::Regex),
+}
+
+impl NameMatcher {
+    pub fn build(pattern: &str, case_sensitive: bool, shell: bool) -> Result<NameMatcher, String> {
+        if shell {
+            Ok(NameMatcher::Glob(build_globset(pattern, case_sensitive)?))
+        } else {
+            let re = regex::RegexBuilder::new(pattern)
+                .case_insensitive(!case_sensitive)
+                .build()
+                .map_err(|e| e.to_string())?;
+            Ok(NameMatcher::Re(re))
+        }
+    }
+
+    pub fn is_match(&self, name: &str) -> bool {
+        match self {
+            NameMatcher::Glob(g) => g.is_match(name),
+            NameMatcher::Re(r) => r.is_match(name),
+        }
+    }
+}
+
+/// Build a glob matcher from one or more `;`/`,`-separated shell wildcards.
+fn build_globset(pattern: &str, case_sensitive: bool) -> Result<globset::GlobSet, String> {
     let mut builder = GlobSetBuilder::new();
     let mut any = false;
     for part in pattern.split([';', ',']).map(str::trim).filter(|p| !p.is_empty()) {
-        let glob = Glob::new(part).map_err(|e| e.to_string())?;
+        let glob = globset::GlobBuilder::new(part)
+            .case_insensitive(!case_sensitive)
+            .build()
+            .map_err(|e| e.to_string())?;
         builder.add(glob);
         any = true;
     }
@@ -137,7 +176,7 @@ mod tests {
         ];
         let mut sel = Selection::new();
 
-        let n = sel.select_group(&entries, "*.txt", true).unwrap();
+        let n = sel.select_group(&entries, "*.txt", true, false, true).unwrap();
         assert_eq!(n, 2);
         assert!(sel.is_marked("a.txt"));
         assert!(sel.is_marked("b.txt"));
@@ -145,7 +184,7 @@ mod tests {
         // files_only excludes the directory even if it matched.
         assert!(!sel.is_marked("docs"));
 
-        let removed = sel.unselect_group(&entries, "a.*").unwrap();
+        let removed = sel.unselect_group(&entries, "a.*", false, true).unwrap();
         assert_eq!(removed, 1);
         assert!(!sel.is_marked("a.txt"));
         assert!(sel.is_marked("b.txt"));
@@ -155,6 +194,6 @@ mod tests {
     fn invalid_pattern_errors() {
         let entries = vec![ent("x", VfsKind::File)];
         let mut sel = Selection::new();
-        assert!(sel.select_group(&entries, "[", true).is_err());
+        assert!(sel.select_group(&entries, "[", true, false, true).is_err());
     }
 }

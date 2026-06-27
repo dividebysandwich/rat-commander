@@ -2198,6 +2198,7 @@ dependencies = [
  "globset",
  "nix 0.31.3",
  "ratatui",
+ "regex",
  "ropey",
  "russh",
  "russh-sftp",

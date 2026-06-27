@@ -1,6 +1,6 @@
 //! Rendering for the internal editor.
 
-use super::{EditorState, Prompt};
+use super::EditorState;
 use crate::ui::theme::Theme;
 use crate::util::text::{ellipsize, pad_right};
 use ratatui::Frame;
@@ -33,10 +33,7 @@ pub fn render(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) {
     let cursor_pos = render_text(f, text_area, ed, theme);
     render_footer(f, footer, ed, theme);
 
-    // Hardware cursor: in the prompt when prompting, else in the text.
-    if let Some(p) = prompt_cursor(ed, footer) {
-        f.set_cursor_position(p);
-    } else if let Some(p) = cursor_pos {
+    if let Some(p) = cursor_pos {
         f.set_cursor_position(p);
     }
 }
@@ -149,52 +146,16 @@ fn render_text(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) -> Op
 
 fn render_footer(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) {
     let width = area.width as usize;
-    match &ed.prompt {
-        Some(Prompt::Search { buf }) => {
-            f.render_widget(Paragraph::new(prompt_line("Search:", buf, theme)), area);
-        }
-        Some(Prompt::ReplaceFind { buf }) => {
-            f.render_widget(Paragraph::new(prompt_line("Replace - find:", buf, theme)), area);
-        }
-        Some(Prompt::ReplaceWith { buf, .. }) => {
-            f.render_widget(Paragraph::new(prompt_line("Replace - with:", buf, theme)), area);
-        }
-        None if !ed.status.is_empty() => {
-            f.render_widget(
-                Paragraph::new(Line::from(Span::styled(
-                    pad_right(&ed.status, width),
-                    theme.fkey_label,
-                ))),
-                area,
-            );
-        }
-        None => {
-            // Same full-width, number+label styling as the main program.
-            crate::ui::fkeys::render(f, area, &crate::ui::fkeys::EDITOR_LABELS, theme);
-        }
+    if ed.status.is_empty() {
+        // Same full-width, number+label styling as the main program.
+        crate::ui::fkeys::render(f, area, &crate::ui::fkeys::EDITOR_LABELS, theme);
+    } else {
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                pad_right(&ed.status, width),
+                theme.fkey_label,
+            ))),
+            area,
+        );
     }
-}
-
-fn prompt_line<'a>(label: &'a str, buf: &'a str, theme: &Theme) -> Line<'a> {
-    Line::from(vec![
-        Span::styled(
-            format!("{label} "),
-            Style::default().fg(theme.header_fg).add_modifier(Modifier::BOLD),
-        ),
-        Span::raw(buf.to_string()),
-    ])
-}
-
-/// Position the hardware cursor inside the prompt buffer, if prompting.
-fn prompt_cursor(ed: &EditorState, footer: Rect) -> Option<Position> {
-    let (label_len, buf_len) = match &ed.prompt {
-        Some(Prompt::Search { buf }) => ("Search: ".len(), buf.chars().count()),
-        Some(Prompt::ReplaceFind { buf }) => ("Replace - find: ".len(), buf.chars().count()),
-        Some(Prompt::ReplaceWith { buf, .. }) => ("Replace - with: ".len(), buf.chars().count()),
-        _ => return None,
-    };
-    Some(Position::new(
-        footer.x + (label_len + buf_len) as u16,
-        footer.y,
-    ))
 }

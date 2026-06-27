@@ -20,13 +20,20 @@ pub enum EditorSignal {
     /// The buffer is modified and the user asked to quit: the app should show a
     /// modal save/discard/cancel confirmation.
     ConfirmQuit,
+    /// Open the modal search dialog (F7).
+    OpenSearch,
+    /// Open the modal search & replace dialog (F4).
+    OpenReplace,
 }
 
-/// An in-editor prompt occupying the bottom line.
-enum Prompt {
-    Search { buf: String },
-    ReplaceFind { buf: String },
-    ReplaceWith { find: String, buf: String },
+/// Remembered search options for "find next" (`n`).
+#[derive(Default, Clone)]
+struct LastSearch {
+    pattern: String,
+    regex: bool,
+    case_sensitive: bool,
+    whole_words: bool,
+    backwards: bool,
 }
 
 pub struct EditorState {
@@ -45,9 +52,8 @@ pub struct EditorState {
     /// Finalized block (start, end) in char indices.
     block: Option<(usize, usize)>,
     clipboard: String,
-    last_search: String,
+    last_search: LastSearch,
     status: String,
-    prompt: Option<Prompt>,
     view_rows: usize,
     view_cols: usize,
 }
@@ -66,9 +72,8 @@ impl EditorState {
             anchor: None,
             block: None,
             clipboard: String::new(),
-            last_search: String::new(),
+            last_search: LastSearch::default(),
             status: String::new(),
-            prompt: None,
             view_rows: 1,
             view_cols: 1,
         }
@@ -81,10 +86,6 @@ impl EditorState {
     pub fn mark_saved(&mut self) {
         self.dirty = false;
         self.status = "Saved".to_string();
-    }
-
-    pub fn is_prompting(&self) -> bool {
-        self.prompt.is_some()
     }
 
     // -- Geometry helpers --------------------------------------------------
@@ -104,13 +105,6 @@ impl EditorState {
     // -- Key handling ------------------------------------------------------
 
     pub fn handle_key(&mut self, key: KeyEvent) -> EditorSignal {
-        if self.prompt.is_some() {
-            return self.handle_prompt_key(key);
-        }
-        self.handle_edit_key(key)
-    }
-
-    fn handle_edit_key(&mut self, key: KeyEvent) -> EditorSignal {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         self.status.clear();
 
@@ -126,16 +120,8 @@ impl EditorState {
             KeyCode::F(5) => self.copy_block(),
             KeyCode::F(6) => self.move_block(),
             KeyCode::F(8) => self.delete_block(),
-            KeyCode::F(7) => {
-                self.prompt = Some(Prompt::Search {
-                    buf: self.last_search.clone(),
-                })
-            }
-            KeyCode::F(4) => {
-                self.prompt = Some(Prompt::ReplaceFind {
-                    buf: self.last_search.clone(),
-                })
-            }
+            KeyCode::F(7) => return EditorSignal::OpenSearch,
+            KeyCode::F(4) => return EditorSignal::OpenReplace,
             KeyCode::Char('z') if ctrl => {
                 if let Some(c) = self.buf.undo() {
                     self.cursor = c;
@@ -178,55 +164,120 @@ impl EditorState {
         EditorSignal::Stay
     }
 
-    fn handle_prompt_key(&mut self, key: KeyEvent) -> EditorSignal {
-        match key.code {
-            KeyCode::Esc => self.prompt = None,
-            KeyCode::Backspace => {
-                if let Some(b) = self.prompt_buf_mut() {
-                    b.pop();
-                }
-            }
-            KeyCode::Char(c) => {
-                if let Some(b) = self.prompt_buf_mut() {
-                    b.push(c);
-                }
-            }
-            KeyCode::Enter => self.submit_prompt(),
-            _ => {}
+    /// Apply the result of the modal search / search-and-replace dialog.
+    #[allow(clippy::too_many_arguments)]
+    pub fn apply_search_replace(
+        &mut self,
+        replace: bool,
+        search: &str,
+        replacement: &str,
+        regex: bool,
+        case_sensitive: bool,
+        whole_words: bool,
+        backwards: bool,
+    ) {
+        self.last_search = LastSearch {
+            pattern: search.to_string(),
+            regex,
+            case_sensitive,
+            whole_words,
+            backwards,
+        };
+        if replace {
+            let n = self.replace_all(search, replacement, regex, case_sensitive, whole_words);
+            self.status = format!("Replaced {n} occurrence(s)");
+        } else {
+            self.search_next();
         }
-        EditorSignal::Stay
     }
 
-    fn prompt_buf_mut(&mut self) -> Option<&mut String> {
-        match self.prompt.as_mut()? {
-            Prompt::Search { buf } => Some(buf),
-            Prompt::ReplaceFind { buf } => Some(buf),
-            Prompt::ReplaceWith { buf, .. } => Some(buf),
+    /// Build a regex from the given options.
+    fn build_regex(
+        pattern: &str,
+        regex: bool,
+        case_sensitive: bool,
+        whole_words: bool,
+    ) -> Option<regex::Regex> {
+        let mut pat = if regex {
+            pattern.to_string()
+        } else {
+            regex::escape(pattern)
+        };
+        if whole_words {
+            pat = format!(r"\b(?:{pat})\b");
+        }
+        regex::RegexBuilder::new(&pat)
+            .case_insensitive(!case_sensitive)
+            .build()
+            .ok()
+    }
+
+    /// Find the next (or previous) match of the remembered search.
+    fn search_next(&mut self) {
+        let ls = self.last_search.clone();
+        if ls.pattern.is_empty() {
+            return;
+        }
+        let Some(re) = Self::build_regex(&ls.pattern, ls.regex, ls.case_sensitive, ls.whole_words)
+        else {
+            self.status = "Invalid search pattern".to_string();
+            return;
+        };
+        let text = self.buf.text();
+        // Work in byte offsets, then convert to a char index.
+        let cur_byte = char_to_byte(&text, self.cursor);
+        let found = if ls.backwards {
+            re.find_iter(&text)
+                .filter(|m| m.start() < cur_byte)
+                .last()
+                .or_else(|| re.find_iter(&text).last())
+        } else {
+            re.find_at(&text, (cur_byte + 1).min(text.len()))
+                .or_else(|| re.find(&text))
+        };
+        match found {
+            Some(m) => {
+                self.cursor = text[..m.start()].chars().count();
+                self.goal_col = None;
+            }
+            None => self.status = format!("Not found: {}", ls.pattern),
         }
     }
 
-    fn submit_prompt(&mut self) {
-        match self.prompt.take() {
-            Some(Prompt::Search { buf }) => {
-                self.last_search = buf;
-                self.search_next();
-            }
-            Some(Prompt::ReplaceFind { buf }) => {
-                if buf.is_empty() {
-                    return;
-                }
-                self.prompt = Some(Prompt::ReplaceWith {
-                    find: buf,
-                    buf: String::new(),
-                });
-            }
-            Some(Prompt::ReplaceWith { find, buf }) => {
-                self.last_search = find.clone();
-                let n = self.replace_all(&find, &buf);
-                self.status = format!("Replaced {n} occurrence(s)");
-            }
-            _ => {}
+    /// Replace all matches; returns the count. Done as a single buffer edit so
+    /// it is one undo step.
+    fn replace_all(
+        &mut self,
+        search: &str,
+        replacement: &str,
+        regex: bool,
+        case_sensitive: bool,
+        whole_words: bool,
+    ) -> usize {
+        if search.is_empty() {
+            return 0;
         }
+        let Some(re) = Self::build_regex(search, regex, case_sensitive, whole_words) else {
+            self.status = "Invalid search pattern".to_string();
+            return 0;
+        };
+        let text = self.buf.text();
+        let count = re.find_iter(&text).count();
+        if count == 0 {
+            return 0;
+        }
+        // In literal mode replacement is verbatim; in regex mode allow $1 refs.
+        let new_text = if regex {
+            re.replace_all(&text, replacement).into_owned()
+        } else {
+            re.replace_all(&text, regex::NoExpand(replacement)).into_owned()
+        };
+        let len = self.buf.len_chars();
+        self.cursor = self.buf.replace_range(0, len, &new_text).min(new_text.chars().count());
+        self.cursor = self.cursor.min(self.buf.len_chars());
+        self.dirty = true;
+        self.clear_marks();
+        count
     }
 
     // -- Movement ----------------------------------------------------------
@@ -358,48 +409,18 @@ impl EditorState {
         self.clear_marks();
     }
 
-    // -- Search & replace --------------------------------------------------
-
-    fn search_next(&mut self) {
-        if self.last_search.is_empty() {
-            return;
-        }
-        let from = self.cursor + 1;
-        let found = self
-            .buf
-            .find(&self.last_search, from)
-            .or_else(|| self.buf.find(&self.last_search, 0));
-        match found {
-            Some(idx) => {
-                self.cursor = idx;
-                self.goal_col = None;
-            }
-            None => self.status = format!("Not found: {}", self.last_search),
-        }
-    }
-
-    fn replace_all(&mut self, find: &str, with: &str) -> usize {
-        if find.is_empty() {
-            return 0;
-        }
-        let mut count = 0;
-        let mut pos = 0;
-        while let Some(idx) = self.buf.find(find, pos) {
-            self.buf.replace_range(idx, idx + find.chars().count(), with);
-            pos = idx + with.chars().count();
-            count += 1;
-        }
-        if count > 0 {
-            self.dirty = true;
-            self.cursor = self.cursor.min(self.buf.len_chars());
-            self.clear_marks();
-        }
-        count
-    }
 }
 
 fn order(a: usize, b: usize) -> (usize, usize) {
     if a <= b { (a, b) } else { (b, a) }
+}
+
+/// Convert a char index into a byte offset within `text`.
+fn char_to_byte(text: &str, char_idx: usize) -> usize {
+    text.char_indices()
+        .nth(char_idx)
+        .map(|(b, _)| b)
+        .unwrap_or(text.len())
 }
 
 #[cfg(test)]
@@ -454,14 +475,26 @@ mod tests {
     }
 
     #[test]
-    fn search_and_replace_via_prompts() {
+    fn literal_replace_all() {
         let mut e = ed("a b a b");
-        e.handle_key(key(KeyCode::F(4))); // replace
-        e.handle_key(key(KeyCode::Char('a')));
-        e.handle_key(key(KeyCode::Enter)); // find = "a"
-        e.handle_key(key(KeyCode::Char('X')));
-        e.handle_key(key(KeyCode::Enter)); // with = "X"
+        e.apply_search_replace(true, "a", "X", false, false, false, false);
         assert_eq!(e.contents(), "X b X b");
+    }
+
+    #[test]
+    fn regex_replace_with_groups() {
+        let mut e = ed("name: bob");
+        e.apply_search_replace(true, r"(\w+): (\w+)", "$2=$1", true, true, false, false);
+        assert_eq!(e.contents(), "bob=name");
+    }
+
+    #[test]
+    fn case_insensitive_search_moves_cursor() {
+        let mut e = ed("one TWO three");
+        e.apply_search_replace(false, "two", "", false, false, false, false);
+        // Cursor should land on "TWO" (char index 4).
+        assert_eq!(e.cur_line(), 0);
+        assert_eq!(e.cur_col(), 4);
     }
 
     #[test]

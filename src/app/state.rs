@@ -9,8 +9,9 @@ use crate::panel::sort::SortKey;
 use crate::panel::Panel;
 use crate::ui::cmdline::CommandLine;
 use crate::ui::dialog::{
-    ConfirmDialog, Dialog, DialogResult, FormDialog, InputDialog, InputPurpose, MessageDialog,
-    ProgressDialog, Submit,
+    ConfirmDialog, Dialog, DialogResult, FindDialog, FindParams, FormDialog, InputDialog,
+    InputPurpose, MessageDialog, ProgressDialog, SearchReplaceDialog, SearchReplaceParams,
+    SelectDialog, Submit,
 };
 use crate::ui::layout::SplitDir;
 use crate::ui::menu::{MenuAction, MenuBarState, MenuSignal};
@@ -20,7 +21,7 @@ use crate::viewer::{MAX_VIEW_BYTES, ViewerSignal, ViewerState};
 use crate::vfs::Vfs;
 use crate::vfs::archive::{self, formats::ArchiveFormat};
 use crate::vfs::remote::RemoteCreds;
-use crate::vfs::VfsKind;
+use crate::vfs::{VfsEntry, VfsKind};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use crate::vfs::registry::Registry;
@@ -165,6 +166,14 @@ impl AppState {
                         .unwrap_or_default();
                     self.dialog = Some(Dialog::Confirm(ConfirmDialog::editor_quit(&name)));
                 }
+                EditorSignal::OpenSearch => {
+                    self.dialog =
+                        Some(Dialog::SearchReplace(SearchReplaceDialog::new(false, String::new())));
+                }
+                EditorSignal::OpenReplace => {
+                    self.dialog =
+                        Some(Dialog::SearchReplace(SearchReplaceDialog::new(true, String::new())));
+                }
             }
             return Flow::Continue;
         }
@@ -223,10 +232,11 @@ impl AppState {
             MenuAction::SwapPanels => self.panels.swap(0, 1),
             MenuAction::Refresh => self.reload_all().await,
             MenuAction::ToggleSplit => self.split = self.split.toggle(),
-            MenuAction::Connect(proto) => {
-                self.dialog = Some(Dialog::Form(FormDialog::connect(proto)))
+            MenuAction::FindFile => self.open_find_dialog(),
+            MenuAction::Connect(side, proto) => {
+                self.dialog = Some(Dialog::Form(FormDialog::connect(proto, side)))
             }
-            MenuAction::Disconnect => self.disconnect().await,
+            MenuAction::Disconnect(side) => self.disconnect(side).await,
             MenuAction::Settings => self.open_settings(),
             MenuAction::Quit => self.dialog = Some(Dialog::Confirm(ConfirmDialog::quit())),
         }
@@ -281,15 +291,22 @@ impl AppState {
                 }
             }
             Submit::Compress(sources, name) => self.start_compress(sources, name),
-            Submit::Connect(creds) => self.connect_remote(creds).await,
+            Submit::Connect(side, creds) => self.connect_remote(side, creds).await,
             Submit::Quit => self.pending_quit = true,
             Submit::EditorSaveQuit => self.save_editor(true).await,
             Submit::EditorDiscardQuit => {
                 self.editor = None;
                 self.reload_all().await;
             }
-            Submit::SelectGroup(pattern) => self.apply_select_group(&pattern, true),
-            Submit::UnselectGroup(pattern) => self.apply_select_group(&pattern, false),
+            Submit::Select {
+                select,
+                pattern,
+                files_only,
+                case_sensitive,
+                shell,
+            } => self.apply_select(select, &pattern, files_only, case_sensitive, shell),
+            Submit::SearchReplace(p) => self.apply_search_replace(p),
+            Submit::Find(p) => self.start_find(p).await,
             Submit::Chmod(path, mode) => {
                 let backend = self.panels[self.active].backend.clone();
                 match backend.set_permissions(&path, mode).await {
@@ -323,12 +340,21 @@ impl AppState {
         }
     }
 
-    fn apply_select_group(&mut self, pattern: &str, select: bool) {
+    fn apply_select(
+        &mut self,
+        select: bool,
+        pattern: &str,
+        files_only: bool,
+        case_sensitive: bool,
+        shell: bool,
+    ) {
         let p = &mut self.panels[self.active];
         let res = if select {
-            p.selection.select_group(&p.entries, pattern, true)
+            p.selection
+                .select_group(&p.entries, pattern, files_only, case_sensitive, shell)
         } else {
-            p.selection.unselect_group(&p.entries, pattern)
+            p.selection
+                .unselect_group(&p.entries, pattern, case_sensitive, shell)
         };
         if let Err(e) = res {
             self.show_error(format!("invalid pattern: {e}"));
@@ -424,14 +450,14 @@ impl AppState {
             KeyCode::F(10) => self.dialog = Some(Dialog::Confirm(ConfirmDialog::quit())),
             KeyCode::Char('q') if ctrl => return Flow::Quit, // immediate fallback if F10 is intercepted
             KeyCode::F(1) => self.open_help(),
-            KeyCode::F(2) => self.menu = Some(MenuBarState::new()),
+            KeyCode::F(2) => self.open_menu(),
             KeyCode::F(3) => return self.open_view().await,
             KeyCode::F(4) => return self.open_edit().await,
             KeyCode::F(5) => self.open_transfer_dialog(OpKind::Copy),
             KeyCode::F(6) => self.open_transfer_dialog(OpKind::Move),
             KeyCode::F(7) => self.open_mkdir(),
             KeyCode::F(8) => self.open_delete_dialog(),
-            KeyCode::F(9) => self.menu = Some(MenuBarState::new()),
+            KeyCode::F(9) => self.open_menu(),
 
             // -- Panel navigation --
             KeyCode::Up => self.active_panel().move_cursor(-1),
@@ -566,12 +592,7 @@ impl AppState {
     }
 
     fn open_select_group(&mut self, select: bool) {
-        let (title, prompt, purpose) = if select {
-            ("Select group", "Pattern (e.g. *.txt):", InputPurpose::SelectGroup)
-        } else {
-            ("Unselect group", "Pattern (e.g. *.txt):", InputPurpose::UnselectGroup)
-        };
-        self.dialog = Some(Dialog::Input(InputDialog::new(title, prompt, "*", purpose)));
+        self.dialog = Some(Dialog::Select(SelectDialog::new(select)));
     }
 
     fn invert_selection(&mut self) {
@@ -727,7 +748,7 @@ impl AppState {
 
     // -- Remote connections ------------------------------------------------
 
-    async fn connect_remote(&mut self, creds: RemoteCreds) {
+    async fn connect_remote(&mut self, side: usize, creds: RemoteCreds) {
         match crate::vfs::remote::connect(&creds).await {
             Ok(conn) => {
                 let scheme = format!("{}-{}", creds.protocol.scheme_prefix(), self.next_session_id);
@@ -738,7 +759,7 @@ impl AppState {
                     path: PathBuf::from(&conn.root),
                     container: None,
                 };
-                let p = self.active_panel();
+                let p = &mut self.panels[side];
                 p.cwd = cwd;
                 p.backend = conn.backend;
                 p.selection.clear();
@@ -748,16 +769,87 @@ impl AppState {
         }
     }
 
-    async fn disconnect(&mut self) {
-        if self.panels[self.active].cwd.scheme == "file" {
+    async fn disconnect(&mut self, side: usize) {
+        if self.panels[side].cwd.scheme == "file" {
             return;
         }
         let local = self.registry.local();
-        let p = self.active_panel();
+        let p = &mut self.panels[side];
         p.cwd = VfsPath::local_cwd();
         p.backend = local;
         p.selection.clear();
         let _ = p.reload().await;
+    }
+
+    fn open_menu(&mut self) {
+        // F9/F2 opens the menu matching the active panel: Left (0) or Right (4).
+        let active = if self.active == 0 { 0 } else { 4 };
+        self.menu = Some(MenuBarState::new(active));
+    }
+
+    fn open_find_dialog(&mut self) {
+        let start = if self.panels[self.active].cwd.scheme == "file" {
+            self.panels[self.active].cwd.path.to_string_lossy().into_owned()
+        } else {
+            String::new()
+        };
+        self.dialog = Some(Dialog::Find(FindDialog::new(start)));
+    }
+
+    fn apply_search_replace(&mut self, p: SearchReplaceParams) {
+        if let Some(ed) = self.editor.as_mut() {
+            ed.apply_search_replace(
+                p.replace,
+                &p.search,
+                &p.replacement,
+                p.regex,
+                p.case_sensitive,
+                p.whole_words,
+                p.backwards,
+            );
+        }
+    }
+
+    /// Run a find-file search and panelize the results into the active panel.
+    async fn start_find(&mut self, p: FindParams) {
+        let start = if p.start_at.trim().is_empty() {
+            self.panels[self.active].cwd.path.clone()
+        } else {
+            PathBuf::from(&p.start_at)
+        };
+        let found = tokio::task::spawn_blocking(move || find_files(&start, &p)).await;
+        let paths = match found {
+            Ok(Ok(paths)) => paths,
+            Ok(Err(e)) => return self.show_error(e),
+            Err(e) => return self.show_error(e.to_string()),
+        };
+        if paths.is_empty() {
+            return self.show_error("No files found");
+        }
+
+        let mut entries = Vec::new();
+        let mut vpaths = Vec::new();
+        for path in paths {
+            let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            entries.push(VfsEntry {
+                name: path.to_string_lossy().into_owned(),
+                kind: VfsKind::File,
+                size,
+                mtime: None,
+                atime: None,
+                ctime: None,
+                inode: None,
+                mode: None,
+                uid: None,
+                gid: None,
+                symlink_target: None,
+            });
+            vpaths.push(VfsPath::local(path));
+        }
+        let local = self.registry.local();
+        let p = &mut self.panels[self.active];
+        p.backend = local;
+        p.set_results(entries, vpaths);
     }
 
     /// F1: show the help screen (reuses the scrollable text viewer).
@@ -890,6 +982,66 @@ fn archive_target_under_cursor(p: &Panel) -> Option<(VfsPath, Option<String>)> {
     ArchiveFormat::from_name(&e.name)?;
     let file_path = p.cwd.path.join(&e.name);
     Some((VfsPath::archive(file_path, "/"), None))
+}
+
+/// Recursively find files under `start` matching the find parameters.
+fn find_files(start: &Path, p: &FindParams) -> std::result::Result<Vec<PathBuf>, String> {
+    use crate::panel::selection::NameMatcher;
+    const MAX_RESULTS: usize = 10_000;
+
+    let matcher = NameMatcher::build(&p.file_name, p.case_sensitive, p.shell)?;
+    let content_needle = if p.content.is_empty() {
+        None
+    } else if p.case_sensitive {
+        Some(p.content.clone())
+    } else {
+        Some(p.content.to_lowercase())
+    };
+
+    let mut walker = walkdir::WalkDir::new(start);
+    if !p.recursive {
+        walker = walker.max_depth(1);
+    }
+    let mut out = Vec::new();
+    for entry in walker.into_iter().filter_entry(|e| {
+        // Skip hidden files/dirs (but never the start dir itself).
+        !(p.skip_hidden
+            && e.depth() > 0
+            && e.file_name().to_string_lossy().starts_with('.'))
+    }) {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy();
+        if !matcher.is_match(&name) {
+            continue;
+        }
+        if let Some(needle) = &content_needle {
+            match std::fs::read(entry.path()) {
+                Ok(bytes) => {
+                    let hay = String::from_utf8_lossy(&bytes);
+                    let hay = if p.case_sensitive {
+                        hay.into_owned()
+                    } else {
+                        hay.to_lowercase()
+                    };
+                    if !hay.contains(needle.as_str()) {
+                        continue;
+                    }
+                }
+                Err(_) => continue,
+            }
+        }
+        out.push(entry.path().to_path_buf());
+        if out.len() >= MAX_RESULTS {
+            break;
+        }
+    }
+    Ok(out)
 }
 
 /// Remove a local file or directory tree (used after a move-into-archive).
@@ -1040,6 +1192,41 @@ mod tests {
         assert!(names.contains(&"sub".to_string()), "names: {names:?}");
         assert!(names.contains(&"top.txt".to_string()), "names: {names:?}");
         assert!(names.contains(&"..".to_string()), "archive has parent link");
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn find_files_by_name_and_content() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("rc_find_{}_{nanos}", std::process::id()));
+        std::fs::create_dir_all(root.join("sub")).unwrap();
+        std::fs::write(root.join("a.txt"), b"hello there").unwrap();
+        std::fs::write(root.join("sub/b.txt"), b"world").unwrap();
+        std::fs::write(root.join("c.log"), b"hello again").unwrap();
+
+        let by_name = FindParams {
+            start_at: String::new(),
+            file_name: "*.txt".into(),
+            content: String::new(),
+            recursive: true,
+            case_sensitive: false,
+            skip_hidden: true,
+            shell: true,
+        };
+        let r = find_files(&root, &by_name).unwrap();
+        assert_eq!(r.len(), 2, "two .txt files");
+
+        let by_content = FindParams {
+            file_name: "*".into(),
+            content: "HELLO".into(),
+            ..by_name
+        };
+        let r2 = find_files(&root, &by_content).unwrap();
+        assert_eq!(r2.len(), 2, "two files contain 'hello' (case-insensitive)");
 
         std::fs::remove_dir_all(&root).ok();
     }

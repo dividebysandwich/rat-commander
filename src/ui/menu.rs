@@ -35,8 +35,9 @@ pub enum MenuAction {
     SwapPanels,
     Refresh,
     ToggleSplit,
-    Connect(Protocol),
-    Disconnect,
+    FindFile,
+    Connect(usize, Protocol),
+    Disconnect(usize),
     Settings,
     Quit,
 }
@@ -71,7 +72,8 @@ pub struct MenuBarState {
 
 impl MenuBarState {
     /// Build the standard menu set (Left, File, Command, Options, Right).
-    pub fn new() -> Self {
+    /// `active` selects which top menu is initially open (0 = Left, 4 = Right).
+    pub fn new(active: usize) -> Self {
         let panel_menu = |side: usize| Menu {
             items: vec![
                 item("Full view", MenuAction::SetFormat(side, ViewFormat::Full)),
@@ -84,6 +86,11 @@ impl MenuBarState {
                 item("Sort: Unsorted", MenuAction::SetSort(side, SortKey::Unsorted)),
                 sep(),
                 item("Reverse order", MenuAction::ToggleReverse(side)),
+                sep(),
+                item("SFTP connection...", MenuAction::Connect(side, Protocol::Sftp)),
+                item("FTP connection...", MenuAction::Connect(side, Protocol::Ftp)),
+                item("SCP connection...", MenuAction::Connect(side, Protocol::Scp)),
+                item("Disconnect (local)", MenuAction::Disconnect(side)),
             ],
         };
 
@@ -112,14 +119,11 @@ impl MenuBarState {
 
         let command = Menu {
             items: vec![
+                item("Find file...", MenuAction::FindFile),
+                sep(),
                 item("Swap panels", MenuAction::SwapPanels),
                 item("Re-read directories", MenuAction::Refresh),
                 item("Toggle split V/H", MenuAction::ToggleSplit),
-                sep(),
-                item("SFTP connection...", MenuAction::Connect(Protocol::Sftp)),
-                item("FTP connection...", MenuAction::Connect(Protocol::Ftp)),
-                item("SCP connection...", MenuAction::Connect(Protocol::Scp)),
-                item("Disconnect (back to local)", MenuAction::Disconnect),
             ],
         };
 
@@ -127,9 +131,10 @@ impl MenuBarState {
             items: vec![item("Settings...", MenuAction::Settings)],
         };
 
+        let active = active.min(4);
         MenuBarState {
             menus: vec![panel_menu(0), file, command, options, panel_menu(1)],
-            active: 1, // open on "File" by default
+            active,
             item: 0,
         }
     }
@@ -269,7 +274,7 @@ impl MenuBarState {
 
 impl Default for MenuBarState {
     fn default() -> Self {
-        Self::new()
+        Self::new(1)
     }
 }
 

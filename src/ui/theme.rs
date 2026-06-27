@@ -22,6 +22,9 @@ pub struct Theme {
     pub fkey_num: Style,
     pub dialog_bg: Color,
     pub dialog_fg: Color,
+    pub dialog_title: Color,
+    pub input_bg: Color,
+    pub input_fg: Color,
     pub button: Style,
     pub button_focused: Style,
     pub error_fg: Color,
@@ -49,6 +52,9 @@ impl Theme {
             fkey_num: Style::default().bg(Color::Black).fg(Color::White),
             dialog_bg: Color::Gray,
             dialog_fg: Color::Black,
+            dialog_title: Color::Blue,
+            input_bg: Color::Cyan,
+            input_fg: Color::Black,
             button: Style::default().bg(Color::Gray).fg(Color::Black),
             button_focused: Style::default()
                 .bg(Color::Black)

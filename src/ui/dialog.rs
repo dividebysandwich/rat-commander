@@ -24,6 +24,9 @@ pub enum Dialog {
     Progress(ProgressDialog),
     Message(MessageDialog),
     Form(FormDialog),
+    Select(SelectDialog),
+    SearchReplace(SearchReplaceDialog),
+    Find(FindDialog),
 }
 
 /// What the app should do after a dialog handles a key.
@@ -48,8 +51,18 @@ pub enum Submit {
     Quit,
     EditorSaveQuit,
     EditorDiscardQuit,
-    SelectGroup(String),
-    UnselectGroup(String),
+    /// Select/unselect files by pattern with options.
+    Select {
+        select: bool,
+        pattern: String,
+        files_only: bool,
+        case_sensitive: bool,
+        shell: bool,
+    },
+    /// Editor search or search-and-replace.
+    SearchReplace(SearchReplaceParams),
+    /// Find-file request.
+    Find(FindParams),
     Chmod(VfsPath, u32),
     Chown(VfsPath, String, String),
     Symlink {
@@ -60,8 +73,8 @@ pub enum Submit {
     Settings(SettingsValues),
     /// Compress these (local) sources into an archive of the given name.
     Compress(Vec<VfsPath>, String),
-    /// Open a remote connection.
-    Connect(RemoteCreds),
+    /// Open a remote connection on the given panel side.
+    Connect(usize, RemoteCreds),
 }
 
 /// Values collected by the settings form.
@@ -82,6 +95,9 @@ impl Dialog {
             Dialog::Progress(d) => d.handle_key(key),
             Dialog::Message(_) => DialogResult::Cancel, // any key closes
             Dialog::Form(d) => d.handle_key(key),
+            Dialog::Select(d) => d.handle_key(key),
+            Dialog::SearchReplace(d) => d.handle_key(key),
+            Dialog::Find(d) => d.handle_key(key),
         }
     }
 
@@ -92,6 +108,9 @@ impl Dialog {
             Dialog::Progress(d) => d.render(f, area, theme),
             Dialog::Message(d) => d.render(f, area, theme),
             Dialog::Form(d) => d.render(f, area, theme),
+            Dialog::Select(d) => d.render(f, area, theme),
+            Dialog::SearchReplace(d) => d.render(f, area, theme),
+            Dialog::Find(d) => d.render(f, area, theme),
         }
     }
 }
@@ -105,8 +124,6 @@ pub enum InputPurpose {
     MkDir,
     CopyDest(Vec<VfsPath>),
     MoveDest(Vec<VfsPath>),
-    SelectGroup,
-    UnselectGroup,
     Compress(Vec<VfsPath>),
 }
 
@@ -157,8 +174,6 @@ impl InputDialog {
                     InputPurpose::MkDir => Submit::MkDir(text),
                     InputPurpose::CopyDest(s) => Submit::Copy(s.clone(), text),
                     InputPurpose::MoveDest(s) => Submit::Move(s.clone(), text),
-                    InputPurpose::SelectGroup => Submit::SelectGroup(text),
-                    InputPurpose::UnselectGroup => Submit::UnselectGroup(text),
                     InputPurpose::Compress(s) => Submit::Compress(s.clone(), text),
                 };
                 DialogResult::Submit(submit)
@@ -231,24 +246,14 @@ impl InputDialog {
             height: 1,
             ..rows[1]
         };
-        f.render_widget(
-            Paragraph::new(Line::from(self.buffer.clone())).style(
-                Style::default()
-                    .fg(theme.dialog_fg)
-                    .bg(ratatui::style::Color::White),
-            ),
-            field,
-        );
-        // Place the real cursor in the field.
-        let cx = field.x + self.cursor.min(field.width.saturating_sub(1) as usize) as u16;
-        f.set_cursor_position(Position::new(cx, field.y));
+        if let Some(pos) = draw_input_field(f, field, &self.buffer, self.cursor, true, false, theme) {
+            f.set_cursor_position(pos);
+        }
 
         f.render_widget(
-            Paragraph::new(Line::from(Span::styled(
-                "[ Enter=OK  Esc=Cancel ]",
-                Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg),
-            )))
-            .alignment(ratatui::layout::Alignment::Center),
+            Paragraph::new(ok_cancel_line(true, theme))
+                .alignment(ratatui::layout::Alignment::Center)
+                .style(Style::default().bg(theme.dialog_bg)),
             rows[2],
         );
     }
@@ -714,8 +719,8 @@ pub enum FormPurpose {
     Chown(VfsPath),
     /// Create a symlink inside this directory.
     Symlink(VfsPath),
-    /// Open a remote connection of this protocol.
-    Connect(Protocol),
+    /// Open a remote connection of this protocol on the given panel side.
+    Connect(Protocol, usize),
 }
 
 pub struct FormDialog {
@@ -785,7 +790,7 @@ impl FormDialog {
         }
     }
 
-    pub fn connect(protocol: Protocol) -> Self {
+    pub fn connect(protocol: Protocol, side: usize) -> Self {
         let form = Form::new(vec![
             Field::text("Host", ""),
             Field::text("Port", protocol.default_port().to_string()),
@@ -796,7 +801,7 @@ impl FormDialog {
         FormDialog {
             title: format!("{} connection", protocol.scheme_prefix().to_uppercase()),
             form,
-            purpose: FormPurpose::Connect(protocol),
+            purpose: FormPurpose::Connect(protocol, side),
         }
     }
 
@@ -848,7 +853,7 @@ impl FormDialog {
                     name,
                 }
             }
-            FormPurpose::Connect(protocol) => {
+            FormPurpose::Connect(protocol, side) => {
                 let host = fields[0].as_text().trim().to_string();
                 if host.is_empty() {
                     return DialogResult::Cancel;
@@ -858,14 +863,17 @@ impl FormDialog {
                     .trim()
                     .parse::<u16>()
                     .unwrap_or(protocol.default_port());
-                Submit::Connect(RemoteCreds {
-                    protocol: *protocol,
-                    host,
-                    port,
-                    user: fields[2].as_text().trim().to_string(),
-                    password: fields[3].as_text().to_string(),
-                    path: fields[4].as_text().trim().to_string(),
-                })
+                Submit::Connect(
+                    *side,
+                    RemoteCreds {
+                        protocol: *protocol,
+                        host,
+                        port,
+                        user: fields[2].as_text().trim().to_string(),
+                        password: fields[3].as_text().to_string(),
+                        path: fields[4].as_text().trim().to_string(),
+                    },
+                )
             }
         };
         DialogResult::Submit(submit)
@@ -911,28 +919,22 @@ impl FormDialog {
                     cursor,
                 } => {
                     let masked = matches!(field, Field::Password { .. });
-                    let shown = if masked {
-                        "*".repeat(value.chars().count())
-                    } else {
-                        value.clone()
-                    };
                     let label_str = format!("{label}: ");
+                    let lw = (label_str.chars().count() as u16).min(row.width);
                     let style = if focused { focus_style } else { base };
-                    let line = Line::from(vec![
-                        Span::styled(label_str.clone(), style),
-                        Span::styled(
-                            shown,
-                            Style::default()
-                                .fg(theme.dialog_fg)
-                                .bg(ratatui::style::Color::White),
-                        ),
-                    ]);
-                    f.render_widget(Paragraph::new(line), row);
-                    if focused {
-                        let cx = row.x
-                            + label_str.chars().count() as u16
-                            + (*cursor).min(value.chars().count()) as u16;
-                        caret = Some(Position::new(cx.min(row.x + row.width - 1), row.y));
+                    f.render_widget(
+                        Paragraph::new(Span::styled(label_str, style)),
+                        Rect { width: lw, ..row },
+                    );
+                    let field_area = Rect {
+                        x: row.x + lw,
+                        width: row.width.saturating_sub(lw),
+                        ..row
+                    };
+                    if let Some(pos) =
+                        draw_input_field(f, field_area, value, *cursor, focused, masked, theme)
+                    {
+                        caret = Some(pos);
                     }
                 }
                 Field::Check { label, value } => {
@@ -970,6 +972,504 @@ impl FormDialog {
 }
 
 // ---------------------------------------------------------------------------
+// Select / unselect-group dialog
+// ---------------------------------------------------------------------------
+
+pub struct SelectDialog {
+    select: bool,
+    pattern: String,
+    cursor: usize,
+    files_only: bool,
+    case_sensitive: bool,
+    shell: bool,
+    focus: usize, // 0 pattern, 1 files_only, 2 case, 3 shell
+}
+
+impl SelectDialog {
+    pub fn new(select: bool) -> Self {
+        SelectDialog {
+            select,
+            pattern: "*".to_string(),
+            cursor: 1,
+            files_only: false,
+            case_sensitive: true,
+            shell: true,
+            focus: 0,
+        }
+    }
+
+    fn handle_key(&mut self, key: KeyEvent) -> DialogResult {
+        match key.code {
+            KeyCode::Esc => return DialogResult::Cancel,
+            KeyCode::Enter => {
+                if self.pattern.trim().is_empty() {
+                    return DialogResult::Cancel;
+                }
+                return DialogResult::Submit(Submit::Select {
+                    select: self.select,
+                    pattern: self.pattern.clone(),
+                    files_only: self.files_only,
+                    case_sensitive: self.case_sensitive,
+                    shell: self.shell,
+                });
+            }
+            KeyCode::Tab | KeyCode::Down => self.focus = (self.focus + 1) % 4,
+            KeyCode::BackTab | KeyCode::Up => self.focus = (self.focus + 3) % 4,
+            KeyCode::Char(' ') if self.focus > 0 => match self.focus {
+                1 => self.files_only = !self.files_only,
+                2 => self.case_sensitive = !self.case_sensitive,
+                3 => self.shell = !self.shell,
+                _ => {}
+            },
+            _ if self.focus == 0 => edit_text(&mut self.pattern, &mut self.cursor, key),
+            _ => {}
+        }
+        DialogResult::None
+    }
+
+    fn render(&self, f: &mut Frame, area: Rect, theme: &Theme) {
+        let title = if self.select { "Select" } else { "Unselect" };
+        let rect = centered(area, 54u16.min(area.width.saturating_sub(2)), 7);
+        f.render_widget(Clear, rect);
+        let block = dialog_block(title, theme);
+        let inner = block.inner(rect);
+        f.render_widget(block, rect);
+
+        let mut caret = None;
+        let field = Rect { height: 1, ..inner };
+        if let Some(p) =
+            draw_input_field(f, field, &self.pattern, self.cursor, self.focus == 0, false, theme)
+        {
+            caret = Some(p);
+        }
+
+        let half = inner.width / 2;
+        let r1 = Rect { y: inner.y + 2, height: 1, ..inner };
+        f.render_widget(
+            Paragraph::new(Line::from(check_span("Files only", self.files_only, self.focus == 1, theme)))
+                .style(Style::default().bg(theme.dialog_bg)),
+            Rect { width: half, ..r1 },
+        );
+        f.render_widget(
+            Paragraph::new(Line::from(check_span(
+                "Case sensitive",
+                self.case_sensitive,
+                self.focus == 2,
+                theme,
+            )))
+            .style(Style::default().bg(theme.dialog_bg)),
+            Rect { x: inner.x + half, width: inner.width - half, ..r1 },
+        );
+        let r2 = Rect { y: inner.y + 3, height: 1, ..inner };
+        f.render_widget(
+            Paragraph::new(Line::from(check_span(
+                "Using shell patterns",
+                self.shell,
+                self.focus == 3,
+                theme,
+            )))
+            .style(Style::default().bg(theme.dialog_bg)),
+            r2,
+        );
+
+        if let Some(p) = caret {
+            f.set_cursor_position(p);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Search / replace dialog (editor)
+// ---------------------------------------------------------------------------
+
+/// Result of the editor search/replace dialog.
+#[derive(Debug, Clone)]
+pub struct SearchReplaceParams {
+    pub replace: bool,
+    pub search: String,
+    pub replacement: String,
+    pub regex: bool,
+    pub case_sensitive: bool,
+    pub whole_words: bool,
+    pub backwards: bool,
+}
+
+pub struct SearchReplaceDialog {
+    replace: bool,
+    search: String,
+    search_cursor: usize,
+    replacement: String,
+    repl_cursor: usize,
+    mode: usize, // 0 Normal, 1 Regex, 2 Hex, 3 Wildcard
+    case_sensitive: bool,
+    backwards: bool,
+    in_selection: bool,
+    whole_words: bool,
+    all_charsets: bool,
+    focus: usize,
+}
+
+#[derive(Clone, Copy)]
+enum SrFocus {
+    Search,
+    Repl,
+    Mode(usize),
+    Check(usize),
+}
+
+impl SearchReplaceDialog {
+    pub fn new(replace: bool, initial: String) -> Self {
+        let search_cursor = initial.chars().count();
+        SearchReplaceDialog {
+            replace,
+            search: initial,
+            search_cursor,
+            replacement: String::new(),
+            repl_cursor: 0,
+            mode: 0,
+            case_sensitive: false,
+            backwards: false,
+            in_selection: false,
+            whole_words: false,
+            all_charsets: false,
+            focus: 0,
+        }
+    }
+
+    fn items(&self) -> Vec<SrFocus> {
+        let mut v = vec![SrFocus::Search];
+        if self.replace {
+            v.push(SrFocus::Repl);
+        }
+        v.extend([SrFocus::Mode(0), SrFocus::Mode(1), SrFocus::Mode(2), SrFocus::Mode(3)]);
+        v.extend((0..5).map(SrFocus::Check));
+        v
+    }
+
+    fn cur(&self) -> SrFocus {
+        let items = self.items();
+        items[self.focus.min(items.len() - 1)]
+    }
+
+    fn handle_key(&mut self, key: KeyEvent) -> DialogResult {
+        let len = self.items().len();
+        match key.code {
+            KeyCode::Esc => return DialogResult::Cancel,
+            KeyCode::Enter => {
+                if self.search.trim().is_empty() {
+                    return DialogResult::Cancel;
+                }
+                return DialogResult::Submit(Submit::SearchReplace(self.params()));
+            }
+            KeyCode::Tab | KeyCode::Down => self.focus = (self.focus + 1) % len,
+            KeyCode::BackTab | KeyCode::Up => self.focus = (self.focus + len - 1) % len,
+            KeyCode::Char(' ') if !matches!(self.cur(), SrFocus::Search | SrFocus::Repl) => {
+                match self.cur() {
+                    SrFocus::Mode(m) => self.mode = m,
+                    SrFocus::Check(c) => self.toggle_check(c),
+                    _ => {}
+                }
+            }
+            _ => match self.cur() {
+                SrFocus::Search => edit_text(&mut self.search, &mut self.search_cursor, key),
+                SrFocus::Repl => edit_text(&mut self.replacement, &mut self.repl_cursor, key),
+                _ => {}
+            },
+        }
+        DialogResult::None
+    }
+
+    fn toggle_check(&mut self, c: usize) {
+        match c {
+            0 => self.case_sensitive = !self.case_sensitive,
+            1 => self.backwards = !self.backwards,
+            2 => self.in_selection = !self.in_selection,
+            3 => self.whole_words = !self.whole_words,
+            4 => self.all_charsets = !self.all_charsets,
+            _ => {}
+        }
+    }
+
+    fn params(&self) -> SearchReplaceParams {
+        // Map the search mode to a regex flag, converting wildcards.
+        let (search, regex) = match self.mode {
+            1 => (self.search.clone(), true),                // Regular expression
+            3 => (wildcard_to_regex(&self.search), true),    // Wildcard search
+            _ => (self.search.clone(), false),               // Normal / Hex (literal)
+        };
+        SearchReplaceParams {
+            replace: self.replace,
+            search,
+            replacement: self.replacement.clone(),
+            regex,
+            case_sensitive: self.case_sensitive,
+            whole_words: self.whole_words,
+            backwards: self.backwards,
+        }
+    }
+
+    fn render(&self, f: &mut Frame, area: Rect, theme: &Theme) {
+        let title = if self.replace { "Replace" } else { "Search" };
+        let height = if self.replace { 14 } else { 12 };
+        let rect = centered(area, 64u16.min(area.width.saturating_sub(2)), height);
+        f.render_widget(Clear, rect);
+        let block = dialog_block(title, theme);
+        let inner = block.inner(rect);
+        f.render_widget(block, rect);
+
+        let base = Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg);
+        let mut y = inner.y;
+        let mut caret = None;
+        let line_at = |yy: u16| Rect { x: inner.x, y: yy, width: inner.width, height: 1 };
+
+        f.render_widget(Paragraph::new(Span::styled("Enter search string:", base)), line_at(y));
+        y += 1;
+        if let Some(p) = draw_input_field(
+            f, line_at(y), &self.search, self.search_cursor,
+            matches!(self.cur(), SrFocus::Search), false, theme,
+        ) {
+            caret = Some(p);
+        }
+        y += 1;
+        if self.replace {
+            f.render_widget(
+                Paragraph::new(Span::styled("Enter replacement string:", base)),
+                line_at(y),
+            );
+            y += 1;
+            if let Some(p) = draw_input_field(
+                f, line_at(y), &self.replacement, self.repl_cursor,
+                matches!(self.cur(), SrFocus::Repl), false, theme,
+            ) {
+                caret = Some(p);
+            }
+            y += 1;
+        }
+        y += 1; // spacer
+
+        // Options: radios (left) + checkboxes (right).
+        let radios = ["Normal", "Regular expression", "Hexadecimal", "Wildcard search"];
+        let checks = ["Case sensitive", "Backwards", "In selection", "Whole words", "All charsets"];
+        let check_vals = [
+            self.case_sensitive, self.backwards, self.in_selection, self.whole_words, self.all_charsets,
+        ];
+        let half = inner.width / 2;
+        for row in 0..5u16 {
+            let ry = y + row;
+            if ry >= inner.y + inner.height - 1 {
+                break;
+            }
+            if (row as usize) < radios.len() {
+                let focused = matches!(self.cur(), SrFocus::Mode(m) if m == row as usize);
+                f.render_widget(
+                    Paragraph::new(Line::from(radio_span(
+                        radios[row as usize], self.mode == row as usize, focused, theme,
+                    )))
+                    .style(base),
+                    Rect { x: inner.x, y: ry, width: half, height: 1 },
+                );
+            }
+            let focused = matches!(self.cur(), SrFocus::Check(c) if c == row as usize);
+            f.render_widget(
+                Paragraph::new(Line::from(check_span(
+                    checks[row as usize], check_vals[row as usize], focused, theme,
+                )))
+                .style(base),
+                Rect { x: inner.x + half, y: ry, width: inner.width - half, height: 1 },
+            );
+        }
+
+        let by = inner.y + inner.height - 1;
+        f.render_widget(
+            Paragraph::new(ok_cancel_line(true, theme))
+                .alignment(ratatui::layout::Alignment::Center)
+                .style(base),
+            line_at(by),
+        );
+
+        if let Some(p) = caret {
+            f.set_cursor_position(p);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Find-file dialog
+// ---------------------------------------------------------------------------
+
+/// Result of the find-file dialog.
+#[derive(Debug, Clone)]
+pub struct FindParams {
+    pub start_at: String,
+    pub file_name: String,
+    pub content: String,
+    pub recursive: bool,
+    pub case_sensitive: bool,
+    pub skip_hidden: bool,
+    pub shell: bool,
+}
+
+pub struct FindDialog {
+    start_at: String,
+    start_cursor: usize,
+    file_name: String,
+    name_cursor: usize,
+    content: String,
+    content_cursor: usize,
+    recursive: bool,
+    case_sensitive: bool,
+    skip_hidden: bool,
+    shell: bool,
+    focus: usize, // 0 start, 1 name, 2 content, 3..6 checks
+}
+
+impl FindDialog {
+    pub fn new(start_at: String) -> Self {
+        let start_cursor = start_at.chars().count();
+        FindDialog {
+            start_at,
+            start_cursor,
+            file_name: "*".to_string(),
+            name_cursor: 1,
+            content: String::new(),
+            content_cursor: 0,
+            recursive: true,
+            case_sensitive: false,
+            skip_hidden: true,
+            shell: true,
+            focus: 1,
+        }
+    }
+
+    const FOCUS_COUNT: usize = 7;
+
+    fn handle_key(&mut self, key: KeyEvent) -> DialogResult {
+        match key.code {
+            KeyCode::Esc => return DialogResult::Cancel,
+            KeyCode::Enter => {
+                if self.file_name.trim().is_empty() {
+                    return DialogResult::Cancel;
+                }
+                return DialogResult::Submit(Submit::Find(FindParams {
+                    start_at: self.start_at.clone(),
+                    file_name: self.file_name.clone(),
+                    content: self.content.clone(),
+                    recursive: self.recursive,
+                    case_sensitive: self.case_sensitive,
+                    skip_hidden: self.skip_hidden,
+                    shell: self.shell,
+                }));
+            }
+            KeyCode::Tab | KeyCode::Down => self.focus = (self.focus + 1) % Self::FOCUS_COUNT,
+            KeyCode::BackTab | KeyCode::Up => {
+                self.focus = (self.focus + Self::FOCUS_COUNT - 1) % Self::FOCUS_COUNT
+            }
+            KeyCode::Char(' ') if self.focus >= 3 => match self.focus {
+                3 => self.recursive = !self.recursive,
+                4 => self.case_sensitive = !self.case_sensitive,
+                5 => self.skip_hidden = !self.skip_hidden,
+                6 => self.shell = !self.shell,
+                _ => {}
+            },
+            _ => match self.focus {
+                0 => edit_text(&mut self.start_at, &mut self.start_cursor, key),
+                1 => edit_text(&mut self.file_name, &mut self.name_cursor, key),
+                2 => edit_text(&mut self.content, &mut self.content_cursor, key),
+                _ => {}
+            },
+        }
+        DialogResult::None
+    }
+
+    fn render(&self, f: &mut Frame, area: Rect, theme: &Theme) {
+        let rect = centered(area, 66u16.min(area.width.saturating_sub(2)), 13);
+        f.render_widget(Clear, rect);
+        let block = dialog_block("Find File", theme);
+        let inner = block.inner(rect);
+        f.render_widget(block, rect);
+
+        let base = Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg);
+        let line_at = |yy: u16| Rect { x: inner.x, y: yy, width: inner.width, height: 1 };
+        let mut caret = None;
+        let mut y = inner.y;
+
+        f.render_widget(Paragraph::new(Span::styled("Start at:", base)), line_at(y));
+        y += 1;
+        if let Some(p) = draw_input_field(
+            f, line_at(y), &self.start_at, self.start_cursor, self.focus == 0, false, theme,
+        ) {
+            caret = Some(p);
+        }
+        y += 2;
+
+        f.render_widget(Paragraph::new(Span::styled("File name:", base)), line_at(y));
+        y += 1;
+        if let Some(p) = draw_input_field(
+            f, line_at(y), &self.file_name, self.name_cursor, self.focus == 1, false, theme,
+        ) {
+            caret = Some(p);
+        }
+        y += 1;
+        f.render_widget(Paragraph::new(Span::styled("Content:", base)), line_at(y));
+        y += 1;
+        if let Some(p) = draw_input_field(
+            f, line_at(y), &self.content, self.content_cursor, self.focus == 2, false, theme,
+        ) {
+            caret = Some(p);
+        }
+        y += 2;
+
+        // Checkboxes in two columns.
+        let half = inner.width / 2;
+        f.render_widget(
+            Paragraph::new(Line::from(check_span("Find recursively", self.recursive, self.focus == 3, theme))).style(base),
+            Rect { x: inner.x, y, width: half, height: 1 },
+        );
+        f.render_widget(
+            Paragraph::new(Line::from(check_span("Case sensitive", self.case_sensitive, self.focus == 4, theme))).style(base),
+            Rect { x: inner.x + half, y, width: inner.width - half, height: 1 },
+        );
+        f.render_widget(
+            Paragraph::new(Line::from(check_span("Skip hidden", self.skip_hidden, self.focus == 5, theme))).style(base),
+            Rect { x: inner.x, y: y + 1, width: half, height: 1 },
+        );
+        f.render_widget(
+            Paragraph::new(Line::from(check_span("Using shell patterns", self.shell, self.focus == 6, theme))).style(base),
+            Rect { x: inner.x + half, y: y + 1, width: inner.width - half, height: 1 },
+        );
+
+        let by = inner.y + inner.height - 1;
+        f.render_widget(
+            Paragraph::new(ok_cancel_line(true, theme))
+                .alignment(ratatui::layout::Alignment::Center)
+                .style(base),
+            line_at(by),
+        );
+
+        if let Some(p) = caret {
+            f.set_cursor_position(p);
+        }
+    }
+}
+
+/// Convert a shell wildcard to an (unanchored) regular expression.
+fn wildcard_to_regex(pattern: &str) -> String {
+    let mut out = String::new();
+    for ch in pattern.chars() {
+        match ch {
+            '*' => out.push_str(".*"),
+            '?' => out.push('.'),
+            c if ".+()|[]{}^$\\".contains(c) => {
+                out.push('\\');
+                out.push(c);
+            }
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+// ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
 
@@ -990,13 +1490,15 @@ pub fn centered(area: Rect, width: u16, height: u16) -> Rect {
 fn dialog_block(title: &str, theme: &Theme) -> Block<'static> {
     Block::default()
         .borders(Borders::ALL)
+        .border_style(Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg))
         .title(Span::styled(
             format!(" {title} "),
             Style::default()
-                .fg(theme.dialog_fg)
+                .fg(theme.dialog_title)
                 .bg(theme.dialog_bg)
                 .add_modifier(Modifier::BOLD),
         ))
+        .title_alignment(ratatui::layout::Alignment::Center)
         .style(Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg))
 }
 
@@ -1008,4 +1510,98 @@ fn button(text: &str, focused: bool, theme: &Theme) -> Span<'static> {
     };
     Span::styled(text.to_string(), style)
 }
+
+// --- Reusable styled widgets matching the mc dialog look -------------------
+
+/// Draw a turquoise input field with a trailing `[^]` history button. Returns
+/// the caret screen position when `focused`.
+pub(crate) fn draw_input_field(
+    f: &mut Frame,
+    area: Rect,
+    value: &str,
+    cursor: usize,
+    focused: bool,
+    masked: bool,
+    theme: &Theme,
+) -> Option<Position> {
+    let total = area.width as usize;
+    if total < 4 {
+        return None;
+    }
+    let inner_w = total - 3; // leave room for "[^]"
+    let field_style = Style::default().fg(theme.input_fg).bg(theme.input_bg);
+
+    // Horizontal scroll so the caret stays visible.
+    let char_count = value.chars().count();
+    let start = cursor.saturating_sub(inner_w.saturating_sub(1));
+    let shown: String = if masked {
+        "*".repeat(char_count)
+    } else {
+        value.chars().collect()
+    };
+    let shown: String = shown.chars().skip(start).take(inner_w).collect();
+    let mut padded = shown.clone();
+    while padded.chars().count() < inner_w {
+        padded.push(' ');
+    }
+    let line = Line::from(vec![
+        Span::styled(padded, field_style),
+        Span::styled(
+            "[^]",
+            Style::default().fg(theme.dialog_title).bg(theme.input_bg),
+        ),
+    ]);
+    f.render_widget(Paragraph::new(line), area);
+
+    if focused {
+        let cx = area.x + (cursor - start).min(inner_w.saturating_sub(1)) as u16;
+        Some(Position::new(cx, area.y))
+    } else {
+        None
+    }
+}
+
+/// A `(*) Label` / `( ) Label` radio span.
+pub(crate) fn radio_span(label: &str, selected: bool, focused: bool, theme: &Theme) -> Span<'static> {
+    let mark = if selected { "(*) " } else { "( ) " };
+    let style = if focused {
+        Style::default()
+            .fg(theme.dialog_fg)
+            .bg(ratatui::style::Color::Cyan)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg)
+    };
+    Span::styled(format!("{mark}{label}"), style)
+}
+
+/// A `[x] Label` / `[ ] Label` checkbox span.
+pub(crate) fn check_span(label: &str, checked: bool, focused: bool, theme: &Theme) -> Span<'static> {
+    let mark = if checked { "[x] " } else { "[ ] " };
+    let style = if focused {
+        Style::default()
+            .fg(theme.dialog_fg)
+            .bg(ratatui::style::Color::Cyan)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg)
+    };
+    Span::styled(format!("{mark}{label}"), style)
+}
+
+/// The `[< OK >]   [ Cancel ]` button row.
+pub(crate) fn ok_cancel_line(focus_ok: bool, theme: &Theme) -> Line<'static> {
+    let ok = if focus_ok {
+        Span::styled("[< OK >]", theme.button_focused)
+    } else {
+        Span::styled("[  OK  ]", theme.button)
+    };
+    let cancel = if focus_ok {
+        Span::styled("[ Cancel ]", theme.button)
+    } else {
+        Span::styled("[< Cancel >]", theme.button_focused)
+    };
+    Line::from(vec![ok, Span::styled("   ", Style::default().bg(theme.dialog_bg)), cancel])
+}
+
 

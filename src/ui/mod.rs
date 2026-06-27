@@ -19,6 +19,23 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
     let theme = state.theme.clone();
     let area = f.area();
 
+    // The editor and viewer take over the entire screen — no menu bar, so the
+    // file content uses the full height.
+    if let Some(ed) = state.editor.as_mut() {
+        crate::editor::render::render(f, area, ed, &theme);
+        if let Some(d) = &state.dialog {
+            d.render(f, area, &theme);
+        }
+        return;
+    }
+    if let Some(v) = state.viewer.as_mut() {
+        crate::viewer::render::render(f, area, v, &theme);
+        if let Some(d) = &state.dialog {
+            d.render(f, area, &theme);
+        }
+        return;
+    }
+
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -30,34 +47,6 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
         .split(area);
 
     menubar::render(f, rows[0], &theme);
-
-    // The editor (when open) takes over the whole body + chrome area.
-    if let Some(ed) = state.editor.as_mut() {
-        let body = Rect {
-            y: rows[0].y + 1,
-            height: area.height.saturating_sub(1),
-            ..area
-        };
-        crate::editor::render::render(f, body, ed, &theme);
-        if let Some(d) = &state.dialog {
-            d.render(f, area, &theme);
-        }
-        return;
-    }
-
-    // The viewer (when open) takes over the whole body + chrome area.
-    if let Some(v) = state.viewer.as_mut() {
-        let body = Rect {
-            y: rows[0].y + 1,
-            height: area.height.saturating_sub(1),
-            ..area
-        };
-        crate::viewer::render::render(f, body, v, &theme);
-        if let Some(d) = &state.dialog {
-            d.render(f, area, &theme);
-        }
-        return;
-    }
 
     let (left_area, right_area) = split_body(rows[1], state.split);
     let active = state.active;
@@ -142,7 +131,7 @@ mod tests {
         let (tx, _rx) = async_bridge::channel();
         let mut state = AppState::new(tx);
         state.init().await;
-        state.menu = Some(crate::ui::menu::MenuBarState::new());
+        state.menu = Some(crate::ui::menu::MenuBarState::new(1));
 
         let backend = TestBackend::new(120, 30);
         let mut terminal = Terminal::new(backend).unwrap();
@@ -194,5 +183,6 @@ mod tests {
         assert!(text.contains("Save") && text.contains("Quit"), "shortcut bar");
     }
 }
+
 
 

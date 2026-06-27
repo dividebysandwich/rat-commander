@@ -41,6 +41,9 @@ pub struct Panel {
     pub sort: SortConfig,
     /// Last load error, shown in place of the listing.
     pub error: Option<String>,
+    /// When set, the panel shows find-file results (full paths) instead of a
+    /// directory listing. Parallel to `entries`.
+    pub result_paths: Option<Vec<VfsPath>>,
 }
 
 impl Panel {
@@ -55,7 +58,22 @@ impl Panel {
             format: ViewFormat::Full,
             sort: SortConfig::default(),
             error: None,
+            result_paths: None,
         }
+    }
+
+    /// Show an explicit list of result entries (find-file panelization).
+    pub fn set_results(&mut self, entries: Vec<VfsEntry>, paths: Vec<VfsPath>) {
+        self.entries = entries;
+        self.result_paths = Some(paths);
+        self.cursor = 0;
+        self.offset = 0;
+        self.selection.clear();
+        self.error = None;
+    }
+
+    pub fn is_panelized(&self) -> bool {
+        self.result_paths.is_some()
     }
 
     /// Reload the current directory, preserving the cursor on a named entry
@@ -67,6 +85,8 @@ impl Panel {
     /// Reload, then try to place the cursor on `focus_name` (e.g. the directory
     /// we just came up out of).
     pub async fn reload_keeping(&mut self, focus_name: Option<&str>) -> Result<()> {
+        // Reloading leaves any find-file panelization.
+        self.result_paths = None;
         let prev_name = focus_name
             .map(str::to_string)
             .or_else(|| self.current_entry().map(|e| e.name.clone()));
@@ -150,6 +170,19 @@ impl Panel {
     /// The paths an operation should act on: the marked set if non-empty,
     /// otherwise the entry under the cursor (never `..`).
     pub fn operation_targets(&self) -> Vec<VfsPath> {
+        // Find-file results: operate on the stored full paths.
+        if let Some(paths) = &self.result_paths {
+            if !self.selection.is_empty() {
+                return self
+                    .entries
+                    .iter()
+                    .zip(paths)
+                    .filter(|(e, _)| self.selection.is_marked(&e.name))
+                    .map(|(_, p)| p.clone())
+                    .collect();
+            }
+            return paths.get(self.cursor).cloned().into_iter().collect();
+        }
         if !self.selection.is_empty() {
             self.selection
                 .marked_names(&self.entries)
@@ -170,6 +203,12 @@ impl Panel {
     /// Enter the directory (or follow `..`) under the cursor. Returns true if
     /// navigation happened (caller should reload).
     pub fn target_dir_under_cursor(&self) -> Option<(VfsPath, Option<String>)> {
+        // In find-file results, Enter jumps to the file's directory.
+        if let Some(paths) = &self.result_paths {
+            let path = paths.get(self.cursor)?;
+            let parent = path.parent()?;
+            return Some((parent, Some(path.file_name())));
+        }
         let e = self.current_entry()?;
         if e.name == ".." {
             // When stepping out of an archive root, focus the archive file.
