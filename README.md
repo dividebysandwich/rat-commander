@@ -88,6 +88,9 @@ The installed executable is named **`rc`** for quick typing.
   recent-load sparkline + percentage), and a **memory bar graph** — all using
   truecolor load colors when available. Updates ~3×/second (Linux `/proc`)
 
+  <img width="1007" height="514" alt="image" src="https://github.com/user-attachments/assets/3dd795cf-bf59-4f8b-94de-b9d49ad5f989" />
+
+
 ---
 
 ## Installation
