@@ -5,7 +5,7 @@ pub mod selection;
 pub mod sort;
 
 use crate::util::Result;
-use crate::vfs::{Vfs, VfsEntry, VfsKind, VfsPath};
+use crate::vfs::{DiskUsage, Vfs, VfsEntry, VfsKind, VfsPath};
 use selection::Selection;
 use sort::SortConfig;
 use std::sync::Arc;
@@ -44,6 +44,9 @@ pub struct Panel {
     /// When set, the panel shows find-file results (full paths) instead of a
     /// directory listing. Parallel to `entries`.
     pub result_paths: Option<Vec<VfsPath>>,
+    /// Capacity of the volume holding `cwd`, shown on the bottom border. Updated
+    /// on each reload; `None` for backends that can't report it.
+    pub disk: Option<DiskUsage>,
 }
 
 impl Panel {
@@ -59,6 +62,7 @@ impl Panel {
             sort: SortConfig::default(),
             error: None,
             result_paths: None,
+            disk: None,
         }
     }
 
@@ -106,6 +110,9 @@ impl Panel {
                 self.error = Some(e.to_string());
             }
         }
+
+        // Refresh the volume's capacity for the bottom-border readout.
+        self.disk = self.backend.disk_usage(&self.cwd).await.ok().flatten();
 
         // Restore cursor.
         self.cursor = prev_name

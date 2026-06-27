@@ -25,14 +25,14 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
     // file content uses the full height.
     if let Some(ed) = state.editor.as_mut() {
         crate::editor::render::render(f, area, ed, &theme);
-        if let Some(d) = &state.dialog {
+        if let Some(d) = &mut state.dialog {
             d.render(f, area, &theme);
         }
         return;
     }
     if let Some(v) = state.viewer.as_mut() {
         crate::viewer::render::render(f, area, v, &theme);
-        if let Some(d) = &state.dialog {
+        if let Some(d) = &mut state.dialog {
             d.render(f, area, &theme);
         }
         return;
@@ -77,7 +77,7 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
         m.render(f, area, &theme);
     }
 
-    if let Some(d) = &state.dialog {
+    if let Some(d) = &mut state.dialog {
         d.render(f, area, &theme);
     } else if state.menu.is_none() {
         f.set_cursor_position(caret);

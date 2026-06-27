@@ -11,8 +11,8 @@ use crate::panel::Panel;
 use crate::ui::cmdline::CommandLine;
 use crate::ui::dialog::{
     ConfirmDialog, Dialog, DialogResult, FindDialog, FindParams, FormDialog, InputDialog,
-    InputPurpose, MessageDialog, ProgressDialog, SearchReplaceDialog, SearchReplaceParams,
-    SelectDialog, Submit, UserMenuDialog,
+    InputPurpose, MessageDialog, OverwriteDialog, ProgressDialog, SearchReplaceDialog,
+    SearchReplaceParams, SelectDialog, Submit, UserMenuDialog,
 };
 use crate::usermenu::{self, UserMenuEntry};
 use crate::ui::layout::SplitDir;
@@ -81,6 +81,9 @@ pub struct AppState {
     /// When a lone Esc has been pressed and we're waiting to see whether the
     /// next key is a digit (Esc-prefix function-key alias, MC style).
     pending_esc: Option<Instant>,
+    /// The progress dialog set aside while an overwrite prompt is shown; restored
+    /// once the user answers so the operation's progress keeps displaying.
+    stashed_progress: Option<ProgressDialog>,
 }
 
 /// How long a lone Esc is held, waiting for a digit, before it is delivered as
@@ -103,6 +106,44 @@ fn synth_fkey(n: u8) -> KeyEvent {
 
 fn esc_key() -> KeyEvent {
     KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)
+}
+
+/// Parse a command-line `cd` built-in. Returns the (possibly empty) argument
+/// when `cmd` is exactly the `cd` command, or `None` for anything else.
+fn parse_cd(cmd: &str) -> Option<&str> {
+    let t = cmd.trim();
+    if t == "cd" {
+        return Some("");
+    }
+    t.strip_prefix("cd ").map(str::trim)
+}
+
+/// The user's home directory (`$HOME` / `%USERPROFILE%`), or `/` as a fallback.
+fn home_dir() -> PathBuf {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/"))
+}
+
+/// Lexically resolve `.` and `..` components (no filesystem access), so a
+/// `cd ../foo` produces a clean absolute path rather than one littered with `..`.
+fn normalize_path(p: &Path) -> PathBuf {
+    use std::path::Component;
+    let mut out = PathBuf::new();
+    for comp in p.components() {
+        match comp {
+            Component::ParentDir => {
+                out.pop();
+            }
+            Component::CurDir => {}
+            other => out.push(other.as_os_str()),
+        }
+    }
+    if out.as_os_str().is_empty() {
+        out.push("/");
+    }
+    out
 }
 
 /// Detect 24-bit color support from the environment.
@@ -147,6 +188,7 @@ impl AppState {
             pending_run: None,
             pending_quit: false,
             pending_esc: None,
+            stashed_progress: None,
         }
     }
 
@@ -207,6 +249,14 @@ impl AppState {
                 {
                     p.update(&u);
                 }
+            }
+            AppEvent::Conflict(info) => {
+                // The engine is paused awaiting a decision. Stash the progress
+                // dialog and raise the overwrite prompt over it.
+                if let Some(Dialog::Progress(p)) = self.dialog.take() {
+                    self.stashed_progress = Some(p);
+                }
+                self.dialog = Some(Dialog::Overwrite(OverwriteDialog::new(info)));
             }
             AppEvent::TaskDone { id, outcome } => {
                 self.tasks.remove(&id);
@@ -417,6 +467,15 @@ impl AppState {
                     h.cancel.cancel();
                 }
                 // Keep the progress dialog until TaskDone confirms cancellation.
+                Flow::Continue
+            }
+            DialogResult::Overwrite(id, decision) => {
+                // Send the decision back to the paused engine, then restore the
+                // operation's progress dialog. (On Abort, TaskDone will close it.)
+                if let Some(h) = self.tasks.get(&id) {
+                    let _ = h.reply.try_send(decision);
+                }
+                self.dialog = self.stashed_progress.take().map(Dialog::Progress);
                 Flow::Continue
             }
         }
@@ -632,7 +691,14 @@ impl AppState {
             // -- Enter: run command or descend --
             KeyCode::Enter => {
                 if !self.cmd.is_empty() {
-                    return Flow::RunCommand(self.cmd.take());
+                    let cmd = self.cmd.take();
+                    // A built-in `cd` changes the active panel instead of being
+                    // run in a (throwaway) subshell where it would have no effect.
+                    if let Some(arg) = parse_cd(&cmd) {
+                        self.change_dir(arg).await;
+                        return Flow::Continue;
+                    }
+                    return Flow::RunCommand(cmd);
                 }
                 self.enter_dir().await;
             }
@@ -695,6 +761,46 @@ impl AppState {
         self.active_panel()
             .try_enter(newcwd, backend, focus.as_deref())
             .await;
+    }
+
+    /// Handle a `cd` typed at the command line: change the active panel's
+    /// directory. Supports `cd` / `cd ~` (home), `cd /abs`, `cd rel`, and `cd ..`.
+    /// If the target can't be listed, the panel stays put (no blocking error).
+    async fn change_dir(&mut self, arg: &str) {
+        let arg = arg.trim();
+        let cur = self.panels[self.active].cwd.clone();
+
+        let newcwd: VfsPath = if cur.scheme == "file" {
+            let target: PathBuf = if arg.is_empty() || arg == "~" {
+                home_dir()
+            } else if let Some(rest) = arg.strip_prefix("~/") {
+                home_dir().join(rest)
+            } else {
+                let raw = Path::new(arg);
+                if raw.is_absolute() {
+                    raw.to_path_buf()
+                } else {
+                    cur.path.join(raw)
+                }
+            };
+            VfsPath::local(normalize_path(&target))
+        } else {
+            // Inside an archive/remote backend: support `..` and relative joins.
+            match arg {
+                "" | "~" => return,
+                ".." => match cur.parent() {
+                    Some(p) => p,
+                    None => return,
+                },
+                _ => cur.join(arg),
+            }
+        };
+
+        let backend = match self.registry.resolve(&newcwd) {
+            Ok(b) => b,
+            Err(e) => return self.show_error(e.to_string()),
+        };
+        self.active_panel().try_enter(newcwd, backend, None).await;
     }
 
     /// Open the local file under the cursor with the system default program
@@ -1057,11 +1163,15 @@ impl AppState {
         let id = self.next_task_id;
         self.next_task_id += 1;
         let cancel = CancelToken::new();
+        // Find tasks never prompt for overwrite; an unused reply channel keeps
+        // the handle shape uniform.
+        let (reply, _reply_rx) = tokio::sync::mpsc::channel(1);
         self.tasks.insert(
             id,
             TaskHandle {
                 id,
                 cancel: cancel.clone(),
+                reply,
             },
         );
         self.dialog = Some(Dialog::Progress(ProgressDialog::find(id)));

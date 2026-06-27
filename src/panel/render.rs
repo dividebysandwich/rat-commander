@@ -13,6 +13,8 @@ use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
 
 /// The vertical line drawn between columns.
 const COL_SEP: &str = "│";
+/// The horizontal rule drawn between the listing and the mini-status line.
+const COL_SEP_H: &str = "─";
 
 /// Build a horizontal-gradient line for the given text (used for the cursor
 /// bar when truecolor is available).
@@ -57,6 +59,9 @@ pub fn render_panel(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, 
     let inner = block.inner(area);
     f.render_widget(block, area);
 
+    // Volume capacity on the bottom border (used / total), MC-style.
+    render_disk_usage(f, area, panel, border_color, theme);
+
     if inner.height == 0 || inner.width == 0 {
         return;
     }
@@ -70,15 +75,13 @@ pub fn render_panel(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, 
         return;
     }
 
-    // Reserve the last inner row for the mini-status line.
-    let list_height = inner.height.saturating_sub(1);
+    // Reserve the last inner row for the mini-status (selected file name); when
+    // there's room, also reserve a separator rule above it dividing the listing
+    // from the mini-status, like Midnight Commander.
+    let reserve: u16 = if inner.height >= 3 { 2 } else { 1 };
+    let list_height = inner.height.saturating_sub(reserve);
     let list_area = Rect {
         height: list_height,
-        ..inner
-    };
-    let status_area = Rect {
-        y: inner.y + list_height,
-        height: 1,
         ..inner
     };
 
@@ -87,7 +90,59 @@ pub fn render_panel(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, 
         ViewFormat::Brief => render_brief(f, list_area, panel, active, theme),
     }
 
+    let status_y = if reserve == 2 {
+        let sep_y = inner.y + list_height;
+        render_panel_separator(f, area, sep_y, border_color, theme);
+        sep_y + 1
+    } else {
+        inner.y + list_height
+    };
+    let status_area = Rect {
+        y: status_y,
+        height: 1,
+        ..inner
+    };
     render_mini_status(f, status_area, panel, theme);
+}
+
+/// Draw a horizontal rule across the panel's interior at row `y`, joining the
+/// left/right frame with `├`/`┤` — separates the listing from the mini-status.
+fn render_panel_separator(f: &mut Frame, area: Rect, y: u16, border_color: Color, theme: &Theme) {
+    let style = Style::default().fg(border_color).bg(theme.panel_bg);
+    let inner_x = area.x + 1;
+    let inner_w = area.width.saturating_sub(2) as usize;
+    let buf = f.buffer_mut();
+    buf.set_string(inner_x, y, COL_SEP_H.repeat(inner_w), style);
+    buf.set_string(area.x, y, "├", style);
+    buf.set_string(area.x + area.width - 1, y, "┤", style);
+}
+
+/// Write the volume's "used / total (NN%)" onto the bottom border, right-aligned.
+fn render_disk_usage(f: &mut Frame, area: Rect, panel: &Panel, border_color: Color, theme: &Theme) {
+    let Some(du) = panel.disk else {
+        return;
+    };
+    if area.height == 0 || area.width < 24 {
+        return;
+    }
+    let text = format!(
+        " {} / {} ({}%) ",
+        human_size(du.used()),
+        human_size(du.total),
+        du.percent_used()
+    );
+    let w = text.chars().count() as u16;
+    // Keep a column of border on each side of the label.
+    if w + 4 > area.width {
+        return;
+    }
+    let y = area.y + area.height - 1;
+    let x = area.x + area.width - 1 - w - 1;
+    let style = Style::default()
+        .fg(border_color)
+        .bg(theme.panel_bg)
+        .add_modifier(Modifier::BOLD);
+    f.buffer_mut().set_string(x, y, text, style);
 }
 
 /// Foreground color for an entry's name based on its kind/mark.

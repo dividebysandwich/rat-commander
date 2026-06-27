@@ -155,8 +155,16 @@ impl Vfs for LocalFs {
         Ok(Box::new(f))
     }
 
-    async fn open_write(&self, path: &VfsPath, _meta: WriteMeta) -> Result<BoxWrite> {
-        let f = fs::File::create(path.as_path()).await?;
+    async fn open_write(&self, path: &VfsPath, meta: WriteMeta) -> Result<BoxWrite> {
+        let f = if meta.append {
+            fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path.as_path())
+                .await?
+        } else {
+            fs::File::create(path.as_path()).await?
+        };
         Ok(Box::new(f))
     }
 
@@ -238,5 +246,30 @@ impl Vfs for LocalFs {
     async fn read_link(&self, path: &VfsPath) -> Result<String> {
         let t = fs::read_link(path.as_path()).await?;
         Ok(t.to_string_lossy().into_owned())
+    }
+
+    #[cfg(unix)]
+    async fn disk_usage(&self, path: &VfsPath) -> Result<Option<super::DiskUsage>> {
+        let p = path.path.clone();
+        let usage = tokio::task::spawn_blocking(move || {
+            // statvfs the path; fall back to the root if the path is gone.
+            let st = nix::sys::statvfs::statvfs(&p)
+                .or_else(|_| nix::sys::statvfs::statvfs("/"))
+                .ok()?;
+            let frsize = st.fragment_size() as u64;
+            let total = st.blocks() as u64 * frsize;
+            // Blocks available to unprivileged users (matches `df`).
+            let free = st.blocks_available() as u64 * frsize;
+            Some(super::DiskUsage { total, free })
+        })
+        .await
+        .ok()
+        .flatten();
+        Ok(usage)
+    }
+
+    #[cfg(not(unix))]
+    async fn disk_usage(&self, _path: &VfsPath) -> Result<Option<super::DiskUsage>> {
+        Ok(None)
     }
 }

@@ -2,14 +2,17 @@
 //! backends, with progress reporting and cooperative cancellation.
 
 use super::cancel::CancelToken;
-use super::progress::{ProgressUpdate, TaskId, TaskOutcome};
+use super::progress::{
+    ConflictInfo, CopyAction, OverwriteDecision, OverwriteRule, ProgressUpdate, TaskId, TaskOutcome,
+};
 use super::{OpKind, OpRequest};
 use crate::util::async_bridge::AppSender;
 use crate::util::{Error, Result};
-use crate::vfs::{Vfs, VfsKind, VfsPath, WriteMeta};
+use crate::vfs::{Vfs, VfsEntry, VfsKind, VfsPath, WriteMeta};
 use futures::future::BoxFuture;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::sync::mpsc;
 use tokio::time::{Duration, Instant};
 
 const CHUNK: usize = 64 * 1024;
@@ -17,7 +20,13 @@ const EMIT_INTERVAL: Duration = Duration::from_millis(33);
 
 /// Run an operation to completion, returning the outcome. Always emits a final
 /// progress snapshot via the channel before returning.
-pub async fn run(id: TaskId, req: OpRequest, tx: AppSender, cancel: CancelToken) -> TaskOutcome {
+pub async fn run(
+    id: TaskId,
+    req: OpRequest,
+    tx: AppSender,
+    cancel: CancelToken,
+    reply_rx: mpsc::Receiver<OverwriteDecision>,
+) -> TaskOutcome {
     let verb = match req.kind {
         OpKind::Copy => "Copying",
         OpKind::Move => "Moving",
@@ -28,6 +37,9 @@ pub async fn run(id: TaskId, req: OpRequest, tx: AppSender, cancel: CancelToken)
         verb,
         tx,
         cancel,
+        reply_rx,
+        policy: None,
+        skip_empty: false,
         files_total: 0,
         files_done: 0,
         total_total: 0,
@@ -50,6 +62,12 @@ struct Engine {
     verb: &'static str,
     tx: AppSender,
     cancel: CancelToken,
+    /// Receives the user's answer to an overwrite prompt.
+    reply_rx: mpsc::Receiver<OverwriteDecision>,
+    /// Global overwrite rule once the user picks "...all files"; `None` = ask.
+    policy: Option<OverwriteRule>,
+    /// Never overwrite a destination with a zero-length source.
+    skip_empty: bool,
     files_total: u64,
     files_done: u64,
     total_total: u64,
@@ -91,8 +109,11 @@ impl Engine {
                     self.check_cancel()?;
                     let dst = dst_dir.join(src.file_name());
 
-                    // Fast path: intra-backend move via rename.
-                    if is_move && same_backend && dst_fs.capabilities().server_rename {
+                    // Fast path: intra-backend move via rename. Skip it when the
+                    // destination already exists so the copy path's overwrite
+                    // prompt can run instead of silently clobbering/merging.
+                    let dst_exists = dst_fs.stat(&dst).await.is_ok();
+                    if is_move && same_backend && !dst_exists && dst_fs.capabilities().server_rename {
                         // Count the subtree before it is renamed away so the
                         // progress counters stay consistent.
                         let mut files = 0u64;
@@ -171,11 +192,88 @@ impl Engine {
                     self.emit(true);
                     Ok(())
                 }
-                _ => self.copy_file(src_fs, &src, dst_fs, &dst, entry.size, entry.mode).await,
+                _ => {
+                    // Resolve a conflict if the destination file already exists.
+                    let action = match dst_fs.stat(&dst).await {
+                        Ok(dst_entry) => self.resolve_conflict(&src, &entry, &dst, &dst_entry).await?,
+                        Err(_) => CopyAction::Overwrite, // no existing file
+                    };
+                    match action {
+                        CopyAction::Skip => {
+                            // Count it as handled so the totals stay consistent.
+                            self.files_done += 1;
+                            self.total_done += entry.size;
+                            self.emit(true);
+                            Ok(())
+                        }
+                        CopyAction::Overwrite => {
+                            self.copy_file(src_fs, &src, dst_fs, &dst, entry.size, entry.mode, false)
+                                .await
+                        }
+                        CopyAction::Append => {
+                            self.copy_file(src_fs, &src, dst_fs, &dst, entry.size, entry.mode, true)
+                                .await
+                        }
+                    }
+                }
             }
         })
     }
 
+    /// Ask the UI (or apply the standing policy) how to handle an existing
+    /// destination file. Returns `Err(Cancelled)` if the user aborts.
+    async fn resolve_conflict(
+        &mut self,
+        src: &VfsPath,
+        new: &VfsEntry,
+        dst: &VfsPath,
+        old: &VfsEntry,
+    ) -> Result<CopyAction> {
+        let decide = |rule: OverwriteRule, skip_empty: bool| -> CopyAction {
+            if skip_empty && new.size == 0 {
+                CopyAction::Skip
+            } else if rule.should_overwrite(new.size, new.mtime, old.size, old.mtime) {
+                CopyAction::Overwrite
+            } else {
+                CopyAction::Skip
+            }
+        };
+
+        if self.skip_empty && new.size == 0 {
+            return Ok(CopyAction::Skip);
+        }
+        if let Some(rule) = self.policy {
+            return Ok(decide(rule, self.skip_empty));
+        }
+
+        // Pause and ask the UI.
+        let info = ConflictInfo {
+            id: self.id,
+            name: src.file_name(),
+            new_path: src.display(),
+            new_size: new.size,
+            new_mtime: new.mtime,
+            old_path: dst.display(),
+            old_size: old.size,
+            old_mtime: old.mtime,
+        };
+        if self.tx.send(crate::app::event::AppEvent::Conflict(info)).await.is_err() {
+            return Err(Error::Cancelled);
+        }
+        match self.reply_rx.recv().await {
+            Some(OverwriteDecision::OverwriteOnce) => Ok(CopyAction::Overwrite),
+            Some(OverwriteDecision::SkipOnce) => Ok(CopyAction::Skip),
+            Some(OverwriteDecision::AppendOnce) => Ok(CopyAction::Append),
+            Some(OverwriteDecision::Policy { rule, skip_empty }) => {
+                self.policy = Some(rule);
+                self.skip_empty |= skip_empty;
+                Ok(decide(rule, self.skip_empty))
+            }
+            Some(OverwriteDecision::Abort) | None => Err(Error::Cancelled),
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
     async fn copy_file(
         &mut self,
         src_fs: &Arc<dyn Vfs>,
@@ -184,6 +282,7 @@ impl Engine {
         dst: &VfsPath,
         size: u64,
         mode: Option<u32>,
+        append: bool,
     ) -> Result<()> {
         self.current_name = src.file_name();
         self.file_total = size;
@@ -195,6 +294,7 @@ impl Engine {
             size_hint: Some(size),
             mode,
             mtime: None,
+            append,
         };
         let mut writer = match dst_fs.open_write(dst, meta).await {
             Ok(w) => w,
@@ -358,7 +458,8 @@ mod tests {
         // The app would create dst_dir first; mirror that here.
         std::fs::create_dir_all(&dst_dir).unwrap();
 
-        let outcome = run(1, req, tx, CancelToken::new()).await;
+        let (_reply_tx, reply_rx) = mpsc::channel(1);
+        let outcome = run(1, req, tx, CancelToken::new(), reply_rx).await;
         assert!(matches!(outcome, TaskOutcome::Done), "outcome: {outcome:?}");
 
         assert_eq!(
@@ -371,6 +472,66 @@ mod tests {
         );
 
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// Copy a file over an existing destination, answering the overwrite prompt
+    /// with `decision`; returns the destination's resulting bytes.
+    async fn copy_with_conflict(decision: OverwriteDecision) -> Vec<u8> {
+        use crate::app::event::AppEvent;
+        let root = unique_dir("ow");
+        let src = root.join("f.txt");
+        std::fs::write(&src, b"NEWDATA").unwrap();
+        let dst_dir = root.join("dest");
+        std::fs::create_dir_all(&dst_dir).unwrap();
+        std::fs::write(dst_dir.join("f.txt"), b"OLD").unwrap();
+
+        let fs: Arc<dyn Vfs> = Arc::new(LocalFs::new());
+        let (tx, mut rx) = async_bridge::channel();
+        let (reply_tx, reply_rx) = mpsc::channel(1);
+        let req = OpRequest {
+            kind: OpKind::Copy,
+            src_fs: fs.clone(),
+            sources: vec![VfsPath::local(&src)],
+            dst_fs: Some(fs.clone()),
+            dst_dir: Some(VfsPath::local(&dst_dir)),
+        };
+        let handle = tokio::spawn(run(7, req, tx, CancelToken::new(), reply_rx));
+
+        // Drain progress until the conflict prompt arrives, then answer it.
+        while let Some(ev) = rx.recv().await {
+            if let AppEvent::Conflict(info) = ev {
+                assert_eq!(info.name, "f.txt");
+                assert_eq!(info.old_size, 3);
+                assert_eq!(info.new_size, 7);
+                reply_tx.send(decision).await.unwrap();
+                break;
+            }
+        }
+        let _ = handle.await.unwrap();
+        let bytes = std::fs::read(dst_dir.join("f.txt")).unwrap();
+        std::fs::remove_dir_all(&root).ok();
+        bytes
+    }
+
+    #[tokio::test]
+    async fn overwrite_decision_replaces_destination() {
+        assert_eq!(
+            copy_with_conflict(OverwriteDecision::OverwriteOnce).await,
+            b"NEWDATA"
+        );
+    }
+
+    #[tokio::test]
+    async fn skip_decision_keeps_destination() {
+        assert_eq!(copy_with_conflict(OverwriteDecision::SkipOnce).await, b"OLD");
+    }
+
+    #[tokio::test]
+    async fn append_decision_appends_to_destination() {
+        assert_eq!(
+            copy_with_conflict(OverwriteDecision::AppendOnce).await,
+            b"OLDNEWDATA"
+        );
     }
 
     #[tokio::test]
@@ -389,7 +550,8 @@ mod tests {
             dst_fs: None,
             dst_dir: None,
         };
-        let outcome = run(2, req, tx, CancelToken::new()).await;
+        let (_reply_tx, reply_rx) = mpsc::channel(1);
+        let outcome = run(2, req, tx, CancelToken::new(), reply_rx).await;
         assert!(matches!(outcome, TaskOutcome::Done));
         assert!(!victim.exists());
 

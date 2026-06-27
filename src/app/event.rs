@@ -3,12 +3,15 @@
 //! Terminal input is handled separately (read directly in the loop); this
 //! channel carries only asynchronous results so the loop never blocks on I/O.
 
-use crate::ops::progress::{ProgressUpdate, TaskId, TaskOutcome};
+use crate::ops::progress::{ConflictInfo, ProgressUpdate, TaskId, TaskOutcome};
 
 #[derive(Debug, Clone)]
 pub enum AppEvent {
     /// A throttled progress snapshot from the ops engine.
     Progress(ProgressUpdate),
+    /// A copy/move hit an existing destination; the engine is paused awaiting the
+    /// user's overwrite decision (sent back via the task's reply channel).
+    Conflict(ConflictInfo),
     /// A background task finished (success, cancel, or failure).
     TaskDone { id: TaskId, outcome: TaskOutcome },
     /// A find-file task finished (or was aborted); carries the paths collected

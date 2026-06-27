@@ -107,6 +107,32 @@ pub struct WriteMeta {
     pub size_hint: Option<u64>,
     pub mode: Option<u32>,
     pub mtime: Option<SystemTime>,
+    /// Open the destination for appending instead of truncating (used by the
+    /// overwrite dialog's "Append" choice). Backends that can't append ignore it.
+    pub append: bool,
+}
+
+/// Capacity of the filesystem/volume that holds a path. Shown on the panel's
+/// bottom border (used / total, like Midnight Commander).
+#[derive(Debug, Clone, Copy)]
+pub struct DiskUsage {
+    pub total: u64,
+    pub free: u64,
+}
+
+impl DiskUsage {
+    pub fn used(&self) -> u64 {
+        self.total.saturating_sub(self.free)
+    }
+
+    /// Percentage of capacity in use (0..=100).
+    pub fn percent_used(&self) -> u8 {
+        if self.total == 0 {
+            0
+        } else {
+            ((self.used() as u128 * 100) / self.total as u128).min(100) as u8
+        }
+    }
 }
 
 /// Boxed async byte streams returned by the read/write openers.
@@ -149,7 +175,9 @@ pub trait Vfs: Send + Sync {
     async fn read_link(&self, _path: &VfsPath) -> Result<String> {
         Err(crate::util::Error::Unsupported)
     }
-    async fn free_space(&self, _path: &VfsPath) -> Result<Option<u64>> {
+    /// Total/free capacity of the volume holding `path`, if the backend can
+    /// report it (local disk only by default).
+    async fn disk_usage(&self, _path: &VfsPath) -> Result<Option<DiskUsage>> {
         Ok(None)
     }
 }
