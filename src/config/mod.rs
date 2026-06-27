@@ -8,6 +8,37 @@ pub mod paths;
 
 use serde::{Deserialize, Serialize};
 
+/// A previously-used remote connection, remembered for the connect dialog's
+/// dropdown. Passwords are intentionally *not* stored.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemoteHistoryEntry {
+    /// Protocol scheme prefix: `"sftp"`, `"ftp"`, or `"scp"`.
+    pub protocol: String,
+    pub host: String,
+    pub port: u16,
+    #[serde(default)]
+    pub user: String,
+    #[serde(default)]
+    pub path: String,
+}
+
+impl RemoteHistoryEntry {
+    /// One-line label for the dropdown, e.g. `user@host:22  /remote/path`.
+    pub fn label(&self) -> String {
+        let user = if self.user.is_empty() {
+            String::new()
+        } else {
+            format!("{}@", self.user)
+        };
+        let path = if self.path.is_empty() {
+            String::new()
+        } else {
+            format!("  {}", self.path)
+        };
+        format!("{user}{}:{}{path}", self.host, self.port)
+    }
+}
+
 /// User configuration, serialized to `config.toml`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -32,6 +63,10 @@ pub struct Config {
     pub animation: bool,
     /// Show the CPU/memory status widget in the menu bar.
     pub system_status: bool,
+    /// Recently used remote connections (most recent first), for the connect
+    /// dialog's history dropdown.
+    #[serde(default)]
+    pub recent_remotes: Vec<RemoteHistoryEntry>,
 }
 
 impl Default for Config {
@@ -46,6 +81,7 @@ impl Default for Config {
             truecolor: None,
             animation: true,
             system_status: true,
+            recent_remotes: Vec::new(),
         }
     }
 }
@@ -80,5 +116,53 @@ impl Config {
     /// Whether to use the internal editor.
     pub fn wants_internal_editor(&self) -> bool {
         self.use_internal_editor || self.editor.trim().is_empty()
+    }
+
+    /// Record a successful remote connection at the front of the history,
+    /// de-duplicating the same server and capping the list.
+    pub fn add_recent_remote(&mut self, entry: RemoteHistoryEntry) {
+        self.recent_remotes.retain(|e| {
+            !(e.protocol == entry.protocol
+                && e.host == entry.host
+                && e.port == entry.port
+                && e.user == entry.user)
+        });
+        self.recent_remotes.insert(0, entry);
+        self.recent_remotes.truncate(20);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(host: &str, path: &str) -> RemoteHistoryEntry {
+        RemoteHistoryEntry {
+            protocol: "sftp".into(),
+            host: host.into(),
+            port: 22,
+            user: "u".into(),
+            path: path.into(),
+        }
+    }
+
+    #[test]
+    fn add_recent_dedupes_caps_and_orders() {
+        let mut c = Config::default();
+        for i in 0..25 {
+            c.add_recent_remote(entry(&format!("h{i}"), ""));
+        }
+        assert_eq!(c.recent_remotes.len(), 20, "capped at 20");
+        assert_eq!(c.recent_remotes[0].host, "h24", "most recent first");
+
+        // Re-adding an existing server moves it to the front and updates its path.
+        c.add_recent_remote(entry("h10", "/new"));
+        assert_eq!(c.recent_remotes[0].host, "h10");
+        assert_eq!(c.recent_remotes[0].path, "/new");
+        assert_eq!(
+            c.recent_remotes.iter().filter(|e| e.host == "h10").count(),
+            1,
+            "no duplicate"
+        );
     }
 }

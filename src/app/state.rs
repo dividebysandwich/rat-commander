@@ -642,7 +642,11 @@ impl AppState {
             MenuAction::ProcExplorer => self.open_proc_explorer(),
             MenuAction::DiskExplorer => self.open_disk_explorer(),
             MenuAction::Connect(side, proto) => {
-                self.dialog = Some(Dialog::Form(FormDialog::connect(proto, side)))
+                self.dialog = Some(Dialog::Form(FormDialog::connect(
+                    proto,
+                    side,
+                    self.config.recent_remotes.clone(),
+                )))
             }
             MenuAction::Disconnect(side) => self.disconnect(side).await,
             MenuAction::Settings => self.open_settings(),
@@ -1351,6 +1355,16 @@ impl AppState {
                 p.backend = conn.backend;
                 p.selection.clear();
                 let _ = p.reload().await;
+
+                // Remember this server (without the password) for the dropdown.
+                self.config.add_recent_remote(crate::config::RemoteHistoryEntry {
+                    protocol: creds.protocol.scheme_prefix().to_string(),
+                    host: creds.host,
+                    port: creds.port,
+                    user: creds.user,
+                    path: creds.path,
+                });
+                let _ = self.config.save();
             }
             Err(e) => self.show_error(format!("Connection failed: {e}")),
         }

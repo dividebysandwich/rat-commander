@@ -310,6 +310,11 @@ password / remote path, and the panel mounts the server. SSH host keys are
 checked against `~/.ssh/known_hosts` (trust-on-first-use; a changed key is
 rejected). `Disconnect` returns the panel to the local filesystem.
 
+Previously used servers are remembered in `config.toml` (passwords are **not**
+stored). In the connection dialog, pick one from the **history dropdown** — open
+it by clicking the **▼** chevron on the Host field or pressing **↓** while the
+Host field is focused; selecting an entry fills in the host/port/user/path.
+
 ---
 
 ## Building & packaging

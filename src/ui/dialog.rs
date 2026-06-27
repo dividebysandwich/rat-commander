@@ -148,6 +148,12 @@ impl Dialog {
             // The progress dialog is keyboard-aborted (Esc); ignore clicks so a
             // stray click can't cancel a running operation.
             Dialog::Progress(_) => return DialogResult::None,
+            // The connect form's history chevron/dropdown take clicks first.
+            Dialog::Form(d) => {
+                if let Some(res) = d.click_dropdown(col, row) {
+                    return res;
+                }
+            }
             _ => {}
         }
 
@@ -943,6 +949,14 @@ impl Form {
     }
 }
 
+/// Set a text field's value (and place the cursor at the end).
+fn set_text_field(field: &mut Field, val: &str) {
+    if let Field::Text { value, cursor, .. } = field {
+        *value = val.to_string();
+        *cursor = value.chars().count();
+    }
+}
+
 /// Apply a single editing key to a text buffer + char cursor.
 fn edit_text(value: &mut String, cursor: &mut usize, key: KeyEvent) {
     let byte_at = |s: &str, idx: usize| {
@@ -990,10 +1004,23 @@ pub enum FormPurpose {
     Connect(Protocol, usize),
 }
 
+/// Connect-form history dropdown state (recent servers).
+struct ConnectDropdown {
+    history: Vec<crate::config::RemoteHistoryEntry>,
+    open: bool,
+    sel: usize,
+    /// Click geometry recorded at render time: chevron, plus (rect, index) per
+    /// visible dropdown entry.
+    chevron: Option<Rect>,
+    entries: Vec<(Rect, usize)>,
+}
+
 pub struct FormDialog {
     pub title: String,
     pub form: Form,
     pub purpose: FormPurpose,
+    /// Present only for connect forms (drives the recent-servers dropdown).
+    connect: Option<ConnectDropdown>,
 }
 
 impl FormDialog {
@@ -1013,6 +1040,7 @@ impl FormDialog {
             title: "Settings".to_string(),
             form,
             purpose: FormPurpose::Settings,
+            connect: None,
         }
     }
 
@@ -1034,6 +1062,7 @@ impl FormDialog {
             title: format!("Chmod: {}", path.file_name()),
             form,
             purpose: FormPurpose::Chmod(path),
+            connect: None,
         }
     }
 
@@ -1046,6 +1075,7 @@ impl FormDialog {
             title: format!("Chown: {}", path.file_name()),
             form,
             purpose: FormPurpose::Chown(path),
+            connect: None,
         }
     }
 
@@ -1058,6 +1088,7 @@ impl FormDialog {
             title: "Create symlink".to_string(),
             form,
             purpose: FormPurpose::Symlink(dir),
+            connect: None,
         }
     }
 
@@ -1075,7 +1106,11 @@ impl FormDialog {
         })
     }
 
-    pub fn connect(protocol: Protocol, side: usize) -> Self {
+    pub fn connect(
+        protocol: Protocol,
+        side: usize,
+        history: Vec<crate::config::RemoteHistoryEntry>,
+    ) -> Self {
         let form = Form::new(vec![
             Field::text("Host", ""),
             Field::text("Port", protocol.default_port().to_string()),
@@ -1083,11 +1118,64 @@ impl FormDialog {
             Field::password("Password"),
             Field::text("Remote path (blank = home)", ""),
         ]);
+        // Only this protocol's recent connections.
+        let history: Vec<_> = history
+            .into_iter()
+            .filter(|e| e.protocol == protocol.scheme_prefix())
+            .collect();
         FormDialog {
             title: format!("{} connection", protocol.scheme_prefix().to_uppercase()),
             form,
             purpose: FormPurpose::Connect(protocol, side),
+            connect: Some(ConnectDropdown {
+                history,
+                open: false,
+                sel: 0,
+                chevron: None,
+                entries: Vec::new(),
+            }),
         }
+    }
+
+    /// Fill the host/port/user/path fields from history entry `idx` and move the
+    /// focus to the password field.
+    fn apply_history(&mut self, idx: usize) {
+        let entry = match self.connect.as_ref().and_then(|c| c.history.get(idx).cloned()) {
+            Some(e) => e,
+            None => return,
+        };
+        if let Some(c) = self.connect.as_mut() {
+            c.open = false;
+        }
+        set_text_field(&mut self.form.fields[0], &entry.host);
+        set_text_field(&mut self.form.fields[1], &entry.port.to_string());
+        set_text_field(&mut self.form.fields[2], &entry.user);
+        if let Some(field) = self.form.fields.get_mut(4) {
+            set_text_field(field, &entry.path);
+        }
+        self.form.focus = 3; // password
+    }
+
+    /// Route a click for the connect dropdown. Returns `Some` if the click hit
+    /// the chevron or a dropdown entry (or dismissed an open dropdown).
+    fn click_dropdown(&mut self, col: u16, row: u16) -> Option<DialogResult> {
+        let hit = |r: &Rect| col >= r.x && col < r.x + r.width && row >= r.y && row < r.y + r.height;
+        let cd = self.connect.as_ref()?;
+        if cd.chevron.is_some_and(|r| hit(&r)) {
+            let cd = self.connect.as_mut().unwrap();
+            cd.open = !cd.open;
+            cd.sel = 0;
+            return Some(DialogResult::None);
+        }
+        if !cd.open {
+            return None;
+        }
+        let hidx = cd.entries.iter().find(|(r, _)| hit(r)).map(|&(_, i)| i);
+        match hidx {
+            Some(i) => self.apply_history(i),
+            None => self.connect.as_mut().unwrap().open = false,
+        }
+        Some(DialogResult::None)
     }
 
     fn chmod_mode(&self) -> u32 {
@@ -1104,6 +1192,40 @@ impl FormDialog {
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> DialogResult {
+        // Connect-form history dropdown: while open it captures navigation keys;
+        // closed, pressing ↓ on the Host field opens it.
+        let drop_open = self.connect.as_ref().is_some_and(|c| c.open);
+        if drop_open {
+            match key.code {
+                KeyCode::Esc => self.connect.as_mut().unwrap().open = false,
+                KeyCode::Up => {
+                    let c = self.connect.as_mut().unwrap();
+                    c.sel = c.sel.saturating_sub(1);
+                }
+                KeyCode::Down => {
+                    let c = self.connect.as_mut().unwrap();
+                    if c.sel + 1 < c.history.len() {
+                        c.sel += 1;
+                    }
+                }
+                KeyCode::Enter => {
+                    let i = self.connect.as_ref().unwrap().sel;
+                    self.apply_history(i);
+                }
+                _ => {}
+            }
+            return DialogResult::None;
+        }
+        if matches!(key.code, KeyCode::Down)
+            && self.form.focus == 0
+            && self.connect.as_ref().is_some_and(|c| !c.history.is_empty())
+        {
+            let c = self.connect.as_mut().unwrap();
+            c.open = true;
+            c.sel = 0;
+            return DialogResult::None;
+        }
+
         if let KeyCode::Esc = key.code {
             return DialogResult::Cancel;
         }
@@ -1168,7 +1290,7 @@ impl FormDialog {
         DialogResult::Submit(submit)
     }
 
-    fn render(&self, f: &mut Frame, area: Rect, theme: &Theme) {
+    fn render(&mut self, f: &mut Frame, area: Rect, theme: &Theme) {
         let n = self.form.fields.len() as u16;
         let height = n + 4;
         let w = 60u16.min(area.width.saturating_sub(4));
@@ -1184,6 +1306,10 @@ impl FormDialog {
             .fg(theme.dialog_fg)
             .bg(ratatui::style::Color::Cyan)
             .add_modifier(Modifier::BOLD);
+
+        // The Host field of a connect form gets a ▼ chevron to open the history.
+        let connect_host = self.connect.as_ref().is_some_and(|c| !c.history.is_empty());
+        let mut host_chevron: Option<Rect> = None;
 
         let mut caret: Option<Position> = None;
         for (i, field) in self.form.fields.iter().enumerate() {
@@ -1216,11 +1342,17 @@ impl FormDialog {
                         Paragraph::new(Span::styled(label_str, style)),
                         Rect { width: lw, ..row },
                     );
-                    let field_area = Rect {
+                    let mut field_area = Rect {
                         x: row.x + lw,
                         width: row.width.saturating_sub(lw),
                         ..row
                     };
+                    // Reserve room for the chevron on the Host field.
+                    if i == 0 && connect_host && field_area.width > 4 {
+                        let cx = field_area.x + field_area.width - 2;
+                        host_chevron = Some(Rect { x: cx, y, width: 2, height: 1 });
+                        field_area.width -= 2;
+                    }
                     if let Some(pos) =
                         draw_input_field(f, field_area, value, *cursor, focused, masked, theme)
                     {
@@ -1249,6 +1381,20 @@ impl FormDialog {
             }
         }
 
+        // Draw the chevron and (when open) the recent-servers dropdown.
+        if let Some(chev) = host_chevron {
+            let style = base.add_modifier(Modifier::BOLD);
+            f.buffer_mut().set_string(chev.x, chev.y, "▼", style);
+        }
+        let dropdown_open = self.connect.as_ref().is_some_and(|c| c.open);
+        if let Some(c) = self.connect.as_mut() {
+            c.chevron = host_chevron;
+            c.entries.clear();
+        }
+        if dropdown_open {
+            self.render_dropdown(f, inner, theme);
+        }
+
         let hint = Rect {
             y: inner.y + inner.height.saturating_sub(1),
             height: 1,
@@ -1266,8 +1412,75 @@ impl FormDialog {
             hint,
         );
 
-        if let Some(pos) = caret {
+        if let Some(pos) = caret
+            && !dropdown_open
+        {
             f.set_cursor_position(pos);
+        }
+    }
+
+    /// Render the recent-servers list under the Host field and record per-entry
+    /// click rects. Scrolls so the selection stays visible.
+    fn render_dropdown(&mut self, f: &mut Frame, inner: Rect, theme: &Theme) {
+        let Some(c) = self.connect.as_mut() else {
+            return;
+        };
+        if c.history.is_empty() {
+            return;
+        }
+        // The list opens just below the Host row, capped to the dialog interior.
+        let top = inner.y + 1;
+        let avail = (inner.y + inner.height).saturating_sub(top) as usize;
+        let visible = c.history.len().min(avail.saturating_sub(2).max(1));
+        let rect = Rect {
+            x: inner.x,
+            y: top,
+            width: inner.width,
+            height: (visible + 2) as u16,
+        };
+        f.render_widget(Clear, rect);
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(theme.dialog_title).bg(theme.dialog_bg))
+            .title(Span::styled(
+                " Recent ",
+                Style::default().fg(theme.dialog_title).bg(theme.dialog_bg),
+            ))
+            .style(Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg));
+        let list = block.inner(rect);
+        f.render_widget(block, rect);
+
+        // Scroll so the selection is on screen.
+        let offset = if c.sel >= visible {
+            c.sel + 1 - visible
+        } else {
+            0
+        };
+        let normal = Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg);
+        let sel_style = Style::default()
+            .fg(theme.dialog_fg)
+            .bg(ratatui::style::Color::Cyan)
+            .add_modifier(Modifier::BOLD);
+        for vi in 0..visible {
+            let idx = offset + vi;
+            let Some(entry) = c.history.get(idx) else {
+                break;
+            };
+            let row = Rect {
+                x: list.x,
+                y: list.y + vi as u16,
+                width: list.width,
+                height: 1,
+            };
+            let style = if idx == c.sel { sel_style } else { normal };
+            let text = crate::util::text::ellipsize(&entry.label(), list.width as usize);
+            let text = crate::util::text::pad_right(&text, list.width as usize);
+            f.render_widget(
+                Paragraph::new(Line::from(Span::styled(text, style))),
+                row,
+            );
+            c.entries.push((row, idx));
         }
     }
 }
@@ -2420,3 +2633,98 @@ fn ow_center(f: &mut Frame, inner: Rect, y: u16, text: &str, style: Style) {
 
 
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::RemoteHistoryEntry;
+    use crate::vfs::remote::Protocol;
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    #[test]
+    fn connect_history_dropdown_fills_fields() {
+        let history = vec![
+            RemoteHistoryEntry {
+                protocol: "sftp".into(),
+                host: "a.example".into(),
+                port: 2222,
+                user: "alice".into(),
+                path: "/srv".into(),
+            },
+            // A different protocol must be filtered out of the dropdown.
+            RemoteHistoryEntry {
+                protocol: "ftp".into(),
+                host: "nope".into(),
+                port: 21,
+                user: String::new(),
+                path: String::new(),
+            },
+        ];
+        let mut d = FormDialog::connect(Protocol::Sftp, 1, history);
+
+        // ↓ on the Host field opens the dropdown; Enter selects the only entry.
+        assert!(matches!(d.handle_key(key(KeyCode::Down)), DialogResult::None));
+        assert!(matches!(d.handle_key(key(KeyCode::Enter)), DialogResult::None));
+
+        // Submitting now yields the filled-in connection.
+        match d.handle_key(key(KeyCode::Enter)) {
+            DialogResult::Submit(Submit::Connect(side, creds)) => {
+                assert_eq!(side, 1);
+                assert_eq!(creds.host, "a.example");
+                assert_eq!(creds.port, 2222);
+                assert_eq!(creds.user, "alice");
+                assert_eq!(creds.path, "/srv");
+            }
+            _ => panic!("expected a Connect submit"),
+        }
+    }
+
+    #[test]
+    fn down_does_not_open_dropdown_without_history() {
+        let mut d = FormDialog::connect(Protocol::Scp, 0, vec![]);
+        // With no history, ↓ just moves focus to the next field (no dropdown).
+        d.handle_key(key(KeyCode::Down));
+        assert!(d.connect.as_ref().is_some_and(|c| !c.open));
+        assert_eq!(d.form.focus, 1);
+    }
+
+    #[test]
+    fn connect_dialog_renders_chevron_and_dropdown() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let history = vec![RemoteHistoryEntry {
+            protocol: "sftp".into(),
+            host: "host.example".into(),
+            port: 22,
+            user: "bob".into(),
+            path: "/home".into(),
+        }];
+        let mut d = FormDialog::connect(Protocol::Sftp, 0, history);
+        let theme = crate::ui::theme::Theme::mc();
+        let mut t = Terminal::new(TestBackend::new(80, 20)).unwrap();
+
+        let dump = |t: &Terminal<TestBackend>| {
+            let b = t.backend().buffer();
+            let mut s = String::new();
+            for y in 0..b.area.height {
+                for x in 0..b.area.width {
+                    s.push_str(b[(x, y)].symbol());
+                }
+            }
+            s
+        };
+
+        t.draw(|f| d.render(f, f.area(), &theme)).unwrap();
+        assert!(dump(&t).contains('▼'), "chevron shown on the host field");
+
+        d.handle_key(key(KeyCode::Down)); // open the dropdown
+        t.draw(|f| d.render(f, f.area(), &theme)).unwrap();
+        let s = dump(&t);
+        assert!(s.contains("Recent"), "dropdown box title");
+        assert!(s.contains("bob@host.example:22"), "history entry label");
+    }
+}
