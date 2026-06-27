@@ -361,6 +361,35 @@ pub static PALETTES: &[Palette] = &[
         bright_yellow: rgb(0xb08800), bright_blue: rgb(0x005cc5), bright_magenta: rgb(0x5a32a3),
         bright_cyan: rgb(0x3192aa), bright_white: rgb(0xd1d5da),
     },
+    // Single-hue themes: every color is within the hue family so the whole UI
+    // (cursor, bars, gradient) stays monochrome / amber / green.
+    Palette {
+        name: "Monochrome",
+        bg: rgb(0x000000), fg: rgb(0xc6c6c6),
+        black: rgb(0x000000), red: rgb(0x5f5f5f), green: rgb(0x8a8a8a), yellow: rgb(0xa8a8a8),
+        blue: rgb(0x6c6c6c), magenta: rgb(0x949494), cyan: rgb(0xb0b0b0), white: rgb(0xc6c6c6),
+        bright_black: rgb(0x3a3a3a), bright_red: rgb(0x8a8a8a), bright_green: rgb(0xb0b0b0),
+        bright_yellow: rgb(0xffffff), bright_blue: rgb(0xbdbdbd), bright_magenta: rgb(0xf0f0f0),
+        bright_cyan: rgb(0xe0e0e0), bright_white: rgb(0xffffff),
+    },
+    Palette {
+        name: "Amber CRT",
+        bg: rgb(0x160d00), fg: rgb(0xffb000),
+        black: rgb(0x160d00), red: rgb(0xcc7000), green: rgb(0xd98a00), yellow: rgb(0xe0a000),
+        blue: rgb(0xb36b00), magenta: rgb(0xc98200), cyan: rgb(0xe0a040), white: rgb(0xffb000),
+        bright_black: rgb(0x5a3c00), bright_red: rgb(0xff9030), bright_green: rgb(0xffc060),
+        bright_yellow: rgb(0xffd000), bright_blue: rgb(0xffb000), bright_magenta: rgb(0xff8000),
+        bright_cyan: rgb(0xffe0a0), bright_white: rgb(0xfff0d0),
+    },
+    Palette {
+        name: "Green CRT",
+        bg: rgb(0x001000), fg: rgb(0x33ff33),
+        black: rgb(0x001000), red: rgb(0x00aa00), green: rgb(0x11cc11), yellow: rgb(0x66dd33),
+        blue: rgb(0x009900), magenta: rgb(0x22bb22), cyan: rgb(0x55dd55), white: rgb(0x33ff33),
+        bright_black: rgb(0x004d00), bright_red: rgb(0x55ff55), bright_green: rgb(0x88ff88),
+        bright_yellow: rgb(0xaaffaa), bright_blue: rgb(0x55ff55), bright_magenta: rgb(0x00bb00),
+        bright_cyan: rgb(0xaaffcc), bright_white: rgb(0xccffcc),
+    },
 ];
 
 #[cfg(test)]
@@ -390,3 +419,4 @@ mod tests {
         assert_eq!(t.gradient_at(0, 10), t.gradient_at(9, 10));
     }
 }
+
