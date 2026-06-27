@@ -166,7 +166,8 @@ fn render_status(f: &mut Frame, area: Rect, dv: &DiffView, theme: &Theme) {
 
 fn render_footer(f: &mut Frame, area: Rect, dv: &DiffView, theme: &Theme) {
     let hint = if dv.status.is_empty() {
-        "↑↓ move   Ctrl-← apply→left   Ctrl-→ apply→right   F2 save   Esc close".to_string()
+        "↑↓ move   Ctrl-↑↓ delta   Ctrl-← apply→left   Ctrl-→ apply→right   F2 save   Esc close"
+            .to_string()
     } else {
         dv.status.clone()
     };

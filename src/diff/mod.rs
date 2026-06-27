@@ -15,6 +15,8 @@ pub enum DiffSignal {
     Close,
     /// Write the changed buffers back to their files.
     Save,
+    /// Closing with unsaved changes — ask save / discard / cancel.
+    ConfirmQuit,
 }
 
 /// A single aligned display row: a left line, a right line, or one of each.
@@ -51,7 +53,6 @@ pub struct DiffView {
     active: Option<usize>,
     view_rows: usize,
     status: String,
-    confirm_quit: bool,
 }
 
 impl DiffView {
@@ -83,7 +84,6 @@ impl DiffView {
             active: None,
             view_rows: 1,
             status: String::new(),
-            confirm_quit: false,
         };
         v.recompute();
         // Start on the first difference, if any.
@@ -119,17 +119,12 @@ impl DiffView {
 
     pub fn handle_key(&mut self, key: KeyEvent) -> DiffSignal {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-        let prev_confirm = self.confirm_quit;
-        self.confirm_quit = false;
         self.status.clear();
 
         match key.code {
             KeyCode::Esc | KeyCode::F(10) | KeyCode::Char('q') | KeyCode::Char('Q') => {
-                if self.dirty() && !prev_confirm {
-                    self.confirm_quit = true;
-                    self.status =
-                        "Unsaved changes — F2 to save, or press Esc again to discard".to_string();
-                    DiffSignal::Stay
+                if self.dirty() {
+                    DiffSignal::ConfirmQuit
                 } else {
                     DiffSignal::Close
                 }
@@ -141,6 +136,14 @@ impl DiffView {
             }
             KeyCode::Right if ctrl => {
                 self.apply(Side::Right);
+                DiffSignal::Stay
+            }
+            KeyCode::Up if ctrl => {
+                self.step_delta(-1);
+                DiffSignal::Stay
+            }
+            KeyCode::Down if ctrl => {
+                self.step_delta(1);
                 DiffSignal::Stay
             }
             KeyCode::Up => {
@@ -195,6 +198,32 @@ impl DiffView {
         let i = i.min(self.deltas.len() - 1);
         self.active = Some(i);
         self.cursor = self.deltas[i].rows.start;
+    }
+
+    /// Jump to the next (`+1`) or previous (`-1`) change block. If the cursor is
+    /// between deltas, snaps to the nearest one in the requested direction.
+    fn step_delta(&mut self, dir: isize) {
+        if self.deltas.is_empty() {
+            return;
+        }
+        let target = match self.active {
+            Some(i) => (i as isize + dir).clamp(0, self.deltas.len() as isize - 1) as usize,
+            // Not on a delta: find the first one on the requested side of cursor.
+            None => {
+                if dir > 0 {
+                    self.deltas
+                        .iter()
+                        .position(|d| d.rows.start > self.cursor)
+                        .unwrap_or(self.deltas.len() - 1)
+                } else {
+                    self.deltas
+                        .iter()
+                        .rposition(|d| d.rows.start < self.cursor)
+                        .unwrap_or(0)
+                }
+            }
+        };
+        self.move_to_delta(target);
     }
 
     // -- Applying changes --------------------------------------------------
@@ -452,6 +481,38 @@ mod tests {
         if v.rows[v.cursor].delta.is_none() {
             assert_eq!(v.active, None);
         }
+    }
+
+    #[test]
+    fn ctrl_up_down_jumps_between_deltas() {
+        let mut v = view("a\nX\nc\nY\ne\n", "a\nXX\nc\nYY\ne\n");
+        assert_eq!(v.deltas.len(), 2);
+        assert_eq!(v.active, Some(0));
+        v.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::CONTROL));
+        assert_eq!(v.active, Some(1), "Ctrl-Down jumps to the next delta");
+        assert_eq!(v.cursor, v.deltas[1].rows.start);
+        v.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::CONTROL));
+        assert_eq!(v.active, Some(1), "stays on the last delta past the end");
+        v.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::CONTROL));
+        assert_eq!(v.active, Some(0), "Ctrl-Up jumps to the previous delta");
+        assert_eq!(v.cursor, v.deltas[0].rows.start);
+    }
+
+    #[test]
+    fn close_with_unsaved_changes_asks_to_confirm() {
+        let mut v = view("one\ntwo\n", "one\nTWO\n");
+        // No edits yet → Esc closes immediately.
+        assert!(matches!(
+            v.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+            DiffSignal::Close
+        ));
+        // After an edit, Esc asks for confirmation instead of closing.
+        v.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::CONTROL));
+        assert!(v.dirty());
+        assert!(matches!(
+            v.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+            DiffSignal::ConfirmQuit
+        ));
     }
 
     #[test]

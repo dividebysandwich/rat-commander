@@ -66,6 +66,10 @@ pub enum Submit {
     EditorSave,
     /// Confirmed F2 save in the file-comparison view.
     DiffSave,
+    /// Close the file-comparison view, saving changes first.
+    DiffSaveQuit,
+    /// Close the file-comparison view, discarding changes.
+    DiffDiscardQuit,
     /// Select/unselect files by pattern with options.
     Select {
         select: bool,
@@ -469,6 +473,19 @@ impl ConfirmDialog {
             "Save",
             "Cancel",
             None,
+        )
+    }
+
+    /// The diff view's save/discard/cancel modal. Yes = save & close, No =
+    /// discard & close, Esc = cancel (stay in the diff view).
+    pub fn diff_quit() -> Self {
+        Self::yes_no(
+            "Files modified",
+            "Save changes before closing the comparison?".to_string(),
+            Submit::DiffSaveQuit,
+            "Save",
+            "Discard",
+            Some(Submit::DiffDiscardQuit),
         )
     }
 

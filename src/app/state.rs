@@ -651,6 +651,9 @@ impl AppState {
                 DiffSignal::Save => {
                     self.dialog = Some(Dialog::Confirm(ConfirmDialog::save_diff()));
                 }
+                DiffSignal::ConfirmQuit => {
+                    self.dialog = Some(Dialog::Confirm(ConfirmDialog::diff_quit()));
+                }
             }
             return Flow::Continue;
         }
@@ -794,6 +797,11 @@ impl AppState {
             Submit::EditorSaveQuit => self.save_editor(true).await,
             Submit::EditorSave => self.save_editor(false).await,
             Submit::DiffSave => self.save_diff().await,
+            Submit::DiffSaveQuit => {
+                self.save_diff().await;
+                self.diffview = None;
+            }
+            Submit::DiffDiscardQuit => self.diffview = None,
             Submit::EditorDiscardQuit => {
                 self.editor = None;
                 self.reload_all().await;
