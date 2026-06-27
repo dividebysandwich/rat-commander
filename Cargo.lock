@@ -2232,7 +2232,7 @@ checksum = "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69"
 
 [[package]]
 name = "rat-commander"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "bzip2",

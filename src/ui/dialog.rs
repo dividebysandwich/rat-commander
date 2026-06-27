@@ -1079,10 +1079,10 @@ impl FormDialog {
         }
     }
 
-    pub fn symlink(dir: VfsPath) -> Self {
+    pub fn symlink(dir: VfsPath, target: String, name: String) -> Self {
         let form = Form::new(vec![
-            Field::text("Points to (target)", ""),
-            Field::text("Link name", ""),
+            Field::text("Points to (target)", target),
+            Field::text("Link name", name),
         ]);
         FormDialog {
             title: "Create symlink".to_string(),

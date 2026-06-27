@@ -748,13 +748,17 @@ impl AppState {
             }
             Submit::Chown(path, owner, group) => self.apply_chown(path, &owner, &group).await,
             Submit::Symlink { dir, target, name } => {
-                let backend = self.panels[self.active].backend.clone();
-                let link = dir.join(&name);
-                match backend.symlink(&target, &link).await {
-                    Ok(()) => {
-                        let _ = self.panels[self.active].reload_keeping(Some(&name)).await;
+                // The symlink is created in `dir` (the destination panel), so use
+                // that location's backend.
+                match self.registry.resolve(&dir) {
+                    Ok(backend) => {
+                        let link = dir.join(&name);
+                        match backend.symlink(&target, &link).await {
+                            Ok(()) => self.reload_all().await,
+                            Err(e) => self.show_error(format!("symlink failed: {e}")),
+                        }
                     }
-                    Err(e) => self.show_error(format!("symlink failed: {e}")),
+                    Err(e) => self.show_error(e.to_string()),
                 }
             }
             Submit::Settings(v) => {
@@ -1243,12 +1247,22 @@ impl AppState {
     }
 
     fn open_symlink(&mut self) {
-        let p = &self.panels[self.active];
-        if !p.backend.capabilities().symlinks {
+        // The link is created in the *other* panel, pointing at the active
+        // panel's file under the cursor (both prefilled, editable).
+        let other = self.other_index();
+        if !self.panels[other].backend.capabilities().symlinks {
             return self.show_error("This filesystem does not support symlinks");
         }
-        let dir = p.cwd.clone();
-        self.dialog = Some(Dialog::Form(FormDialog::symlink(dir)));
+        let dir = self.panels[other].cwd.clone();
+        let active = &self.panels[self.active];
+        let (target, name) = match active.current_entry() {
+            Some(e) if e.name != ".." => (
+                active.cwd.join(&e.name).path.to_string_lossy().into_owned(),
+                e.name.clone(),
+            ),
+            _ => (String::new(), String::new()),
+        };
+        self.dialog = Some(Dialog::Form(FormDialog::symlink(dir, target, name)));
     }
 
     // -- Archives ----------------------------------------------------------
@@ -2115,6 +2129,45 @@ mod tests {
         let local = VfsPath::local("/a/b");
         assert_eq!(resolve_dest_on("/c", &local).scheme, "file");
         assert_eq!(resolve_dest_on("sub", &local).path, PathBuf::from("/a/b/sub"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn symlink_dialog_prefilled_from_cursor_and_other_panel() {
+        use crate::ui::dialog::{DialogResult, Submit};
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("rc_sym_{}_{nanos}", std::process::id()));
+        let src = root.join("src");
+        let dest = root.join("dest");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::create_dir_all(&dest).unwrap();
+        std::fs::write(src.join("doc.txt"), b"x").unwrap();
+
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
+        st.active = 0;
+        st.panels[0].cwd = VfsPath::local(&src);
+        st.panels[0].backend = st.registry.local();
+        st.panels[0].reload().await.unwrap();
+        st.panels[1].cwd = VfsPath::local(&dest);
+        st.panels[1].backend = st.registry.local();
+        let idx = st.panels[0].entries.iter().position(|e| e.name == "doc.txt").unwrap();
+        st.panels[0].cursor = idx;
+
+        st.open_symlink();
+        let dlg = st.dialog.as_mut().expect("symlink dialog");
+        match dlg.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)) {
+            DialogResult::Submit(Submit::Symlink { dir, target, name }) => {
+                assert_eq!(name, "doc.txt", "link name defaults to the file");
+                assert_eq!(target, src.join("doc.txt").to_string_lossy(), "target = file path");
+                assert_eq!(dir.path, dest, "link is created in the other panel");
+            }
+            _ => panic!("expected a Symlink submit"),
+        }
+        std::fs::remove_dir_all(&root).ok();
     }
 
     #[test]
