@@ -67,7 +67,18 @@ async fn run_loop(
                             Flow::Continue => {}
                         }
                     }
-                    Some(Ok(_)) => {} // resize / mouse / other: redraw next iteration
+                    Some(Ok(Event::Mouse(me))) => {
+                        match state.handle_mouse(me).await {
+                            Flow::Quit => break,
+                            Flow::RunCommand(cmd) => run_command(term, state, &cmd).await?,
+                            Flow::RunExternal { program, path } => {
+                                run_external(term, state, &program, &path).await?
+                            }
+                            Flow::SubShell => toggle_subshell(term, state, &mut subshell).await?,
+                            Flow::Continue => {}
+                        }
+                    }
+                    Some(Ok(_)) => {} // resize / other: redraw next iteration
                     Some(Err(e)) => return Err(e.into()),
                     None => break, // stdin closed
                 }

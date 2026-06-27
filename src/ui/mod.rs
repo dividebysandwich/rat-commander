@@ -20,6 +20,8 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
     theme.anim = state.anim_phase;
     theme.animated = state.config.animation && state.truecolor;
     let area = f.area();
+    // Remember the frame area so mouse clicks can be hit-tested next event.
+    state.last_area = area;
 
     // The editor and viewer take over the entire screen — no menu bar, so the
     // file content uses the full height.
@@ -73,7 +75,7 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
     fkeys::render(f, rows[3], &fkeys::PANEL_LABELS, &theme);
 
     // Pulldown menu overlays the panels (but sits below modal dialogs).
-    if let Some(m) = &state.menu {
+    if let Some(m) = &mut state.menu {
         m.render(f, area, &theme);
     }
 
@@ -241,6 +243,53 @@ mod feature_tests {
         let mut t=Terminal::new(TestBackend::new(70,24)).unwrap();
         t.draw(|f| draw(f,&mut st)).unwrap();
         assert!(!text_of(&t).contains("CPU"), "no status on narrow screen");
+    }
+
+    #[tokio::test]
+    async fn panel_shows_disk_usage_and_separator() {
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
+        st.init().await;
+        st.panels[0].disk = Some(crate::vfs::DiskUsage { total: 1000, free: 900 });
+
+        let mut t = Terminal::new(TestBackend::new(120, 30)).unwrap();
+        t.draw(|f| draw(f, &mut st)).unwrap();
+        let text = text_of(&t);
+        assert!(text.contains("(10%)"), "disk usage percent on the border");
+        assert!(text.contains('├') && text.contains('┤'), "mini-status separator");
+    }
+
+    #[test]
+    fn overwrite_dialog_renders_all_choices() {
+        use crate::ui::dialog::{Dialog, OverwriteDialog};
+        use crate::ops::progress::ConflictInfo;
+        let info = ConflictInfo {
+            id: 1,
+            name: "test.wav".into(),
+            new_path: "~/test.wav".into(),
+            new_size: 2822452,
+            new_mtime: None,
+            old_path: "~/2/test.wav".into(),
+            old_size: 2822452,
+            old_mtime: None,
+        };
+        let mut dlg = Dialog::Overwrite(OverwriteDialog::new(info));
+        let mut t = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        let theme = crate::ui::theme::Theme::mc();
+        t.draw(|f| dlg.render(f, f.area(), &theme)).unwrap();
+        let text = text_of(&t);
+        for needle in [
+            "File exists",
+            "Overwrite this file?",
+            "Yes",
+            "Append",
+            "Overwrite all files?",
+            "Smaller",
+            "Size differs",
+            "Abort",
+        ] {
+            assert!(text.contains(needle), "overwrite dialog should show {needle:?}");
+        }
     }
 
     #[test]

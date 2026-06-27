@@ -68,6 +68,10 @@ pub struct MenuBarState {
     menus: Vec<Menu>,
     active: usize,
     item: usize,
+    /// Screen rect of each top-bar title, recorded at render time.
+    title_rects: Vec<Rect>,
+    /// Screen rect of each dropdown item (with its item index).
+    item_rects: Vec<(usize, Rect)>,
 }
 
 impl MenuBarState {
@@ -136,6 +140,8 @@ impl MenuBarState {
             menus: vec![panel_menu(0), file, command, options, panel_menu(1)],
             active,
             item: 0,
+            title_rects: Vec::new(),
+            item_rects: Vec::new(),
         }
     }
 
@@ -198,7 +204,50 @@ impl MenuBarState {
         from
     }
 
-    pub fn render(&self, f: &mut Frame, area: Rect, theme: &Theme) {
+    /// The top-bar title index at screen column `col` on the menu-bar row, or
+    /// `None`. Mirrors the title layout used by `render`/`menubar::render` so it
+    /// works even before the bar has been drawn (i.e. to open it on click).
+    pub fn title_index_at(area: Rect, col: u16, row: u16) -> Option<usize> {
+        if row != area.y {
+            return None;
+        }
+        let mut x = area.x + 1;
+        for (i, title) in TITLES.iter().enumerate() {
+            let w = title.chars().count() as u16 + 2; // " {title} "
+            if col >= x && col < x + w {
+                return Some(i);
+            }
+            x += w;
+        }
+        None
+    }
+
+    /// Route a left-click to the menu (titles switch/open; items activate;
+    /// anything else closes).
+    pub fn click(&mut self, area: Rect, col: u16, row: u16) -> MenuSignal {
+        // A click on a top-bar title switches to that menu.
+        if let Some(i) = Self::title_index_at(area, col, row) {
+            self.active = i;
+            self.item = self.first_selectable(0, 1);
+            return MenuSignal::Stay;
+        }
+        // A click on a dropdown item activates it.
+        for (idx, rect) in &self.item_rects {
+            if col >= rect.x && col < rect.x + rect.width && row >= rect.y && row < rect.y + rect.height
+            {
+                let action = self.menus[self.active].items[*idx].action;
+                if action.selectable() {
+                    return MenuSignal::Activate(action);
+                }
+                return MenuSignal::Stay;
+            }
+        }
+        MenuSignal::Close
+    }
+
+    pub fn render(&mut self, f: &mut Frame, area: Rect, theme: &Theme) {
+        self.title_rects.clear();
+        self.item_rects.clear();
         // Top bar with the active title highlighted.
         let bar = Rect { height: 1, ..area };
         let mut spans: Vec<Span> = vec![Span::styled(" ", theme.menubar)];
@@ -207,6 +256,12 @@ impl MenuBarState {
         for (i, title) in TITLES.iter().enumerate() {
             let text = format!(" {title} ");
             title_x.push(x);
+            self.title_rects.push(Rect {
+                x,
+                y: area.y,
+                width: text.chars().count() as u16,
+                height: 1,
+            });
             let style = if i == self.active {
                 Style::default()
                     .bg(theme.dialog_bg)
@@ -246,12 +301,19 @@ impl MenuBarState {
 
         let mut lines: Vec<Line> = Vec::with_capacity(menu.items.len());
         for (i, it) in menu.items.iter().enumerate() {
+            let row_y = inner.y + i as u16;
             if matches!(it.action, MenuAction::Separator) {
                 lines.push(Line::from(Span::styled(
                     "─".repeat(inner.width as usize),
                     Style::default().fg(theme.panel_border).bg(theme.dialog_bg),
                 )));
                 continue;
+            }
+            if row_y < inner.y + inner.height {
+                self.item_rects.push((
+                    i,
+                    Rect { x: inner.x, y: row_y, width: inner.width, height: 1 },
+                ));
             }
             let style = if i == self.item {
                 Style::default()

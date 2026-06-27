@@ -21,7 +21,13 @@ The installed executable is named **`rc`** for quick typing.
 - Configurable sort: Unsorted, Name, Extension, Size, Modify/Access/Change time,
   Inode — plus reverse, case-sensitive and executables-first toggles
 - Multi-file selection (tag) and **select/unselect by wildcard or regex**
-- Command line at the bottom; drop to a full-screen shell with **Ctrl-O**
+- Each panel shows the volume's **free / total disk space** on its bottom border,
+  and the selected file on a separated mini-status line
+- Command line at the bottom; type **`cd <dir>`** to change the active panel
+  (supports `~`, `..`, absolute and relative paths); drop to a full-screen shell
+  with **Ctrl-O**
+- **Mouse support**: click the menu bar to open menus and pick items, and click
+  the **OK/Cancel** (or **Yes/No**) buttons in dialogs
 - **Find File** with a live progress dialog (abortable; partial results kept);
   results are *panelized* into the active panel
 
@@ -36,6 +42,10 @@ The installed executable is named **`rc`** for quick typing.
 **File operations**
 - Copy / move / delete with a progress window showing a per-file gauge and a
   **transfer-speed chart** (speed vs. bytes), plus an **abort** button
+- **Overwrite confirmation** when a destination exists: overwrite **Yes/No**, or
+  **Append**, or apply a rule to all remaining files (**All**, **Older**,
+  **None**, **Smaller**, **Size differs**) with an optional "don't overwrite with
+  a zero-length file" guard
 - `chmod`, `chown`, symlink creation, and make-directory dialogs
 
 **Archives — browsed like directories**
@@ -99,7 +109,12 @@ cargo run --release
 Run `rc` in a terminal. The active panel has the highlighted border; **Tab**
 switches panels. Press **Enter** on a directory to enter it, on an archive to
 browse it, or on a file to open it with the system default program. Type a
-command and press **Enter** to run it in the active panel's directory.
+command and press **Enter** to run it in the active panel's directory — except
+**`cd <dir>`**, which changes the active panel itself (so the directory change
+sticks, unlike running `cd` in a subshell).
+
+The **mouse** works too: click a menu-bar title to open it and click an entry to
+run it, and click the **OK/Cancel** / **Yes/No** buttons in dialogs.
 
 For a built-in cheat sheet, press **F1**.
 
@@ -127,6 +142,7 @@ viewer, and the editor. (A quick `Alt`+digit does the same thing.)
 | `Tab` | Switch active panel |
 | `↑ ↓ / PgUp PgDn / Home End` | Move the cursor |
 | `Enter` | Open dir / enter archive / open file / run command line |
+| `cd <dir>` + `Enter` | Change the active panel's directory |
 | `Insert` | Tag file and advance |
 | `+` / `-` / `*` | Select / unselect group (wildcard) / invert selection |
 | `← →` | Move within the command line |
@@ -163,7 +179,8 @@ viewer, and the editor. (A quick `Alt`+digit does the same thing.)
 ### Dialogs
 
 `Tab`/arrows move between fields, `Space` toggles checkboxes and cycles choices,
-`Enter` confirms, `Esc` cancels. Progress dialogs can be aborted with `Esc`.
+`Enter` confirms, `Esc` cancels. Progress dialogs can be aborted with `Esc`. You
+can also **click** the OK/Cancel (or Yes/No) buttons with the mouse.
 
 ---
 

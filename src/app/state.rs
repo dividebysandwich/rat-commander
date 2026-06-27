@@ -29,7 +29,8 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use crate::vfs::registry::Registry;
 use crate::vfs::VfsPath;
-use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+use ratatui::layout::Rect;
 use std::collections::HashMap;
 
 /// What the run loop should do after handling input.
@@ -84,6 +85,9 @@ pub struct AppState {
     /// The progress dialog set aside while an overwrite prompt is shown; restored
     /// once the user answers so the operation's progress keeps displaying.
     stashed_progress: Option<ProgressDialog>,
+    /// The full terminal area from the last render, used to hit-test mouse clicks
+    /// against menus and centered dialogs.
+    pub last_area: Rect,
 }
 
 /// How long a lone Esc is held, waiting for a digit, before it is delivered as
@@ -189,6 +193,7 @@ impl AppState {
             pending_quit: false,
             pending_esc: None,
             stashed_progress: None,
+            last_area: Rect::new(0, 0, 0, 0),
         }
     }
 
@@ -329,6 +334,51 @@ impl AppState {
         {
             self.pending_esc = None;
             return self.route_key(esc_key()).await;
+        }
+        Flow::Continue
+    }
+
+    /// Handle a mouse event. Left-clicks drive the menus and dialogs; other
+    /// buttons/motions are ignored.
+    pub async fn handle_mouse(&mut self, ev: MouseEvent) -> Flow {
+        if !matches!(ev.kind, MouseEventKind::Down(MouseButton::Left)) {
+            return Flow::Continue;
+        }
+        let area = self.last_area;
+        let (col, row) = (ev.column, ev.row);
+
+        // A modal dialog gets first claim on clicks.
+        if self.dialog.is_some() {
+            let res = self.dialog.as_mut().unwrap().handle_click(area, col, row);
+            // Live theme preview, mirroring the keyboard path.
+            if let Some(Dialog::Form(fd)) = &self.dialog
+                && let Some(name) = fd.theme_choice()
+                && name != self.theme.name
+            {
+                self.theme = Theme::by_name(name, self.truecolor);
+            }
+            return self.handle_dialog_result(res).await;
+        }
+
+        // Then the pulldown menu.
+        if self.menu.is_some() {
+            let signal = self.menu.as_mut().unwrap().click(area, col, row);
+            return match signal {
+                MenuSignal::Stay => Flow::Continue,
+                MenuSignal::Close => {
+                    self.menu = None;
+                    Flow::Continue
+                }
+                MenuSignal::Activate(action) => {
+                    self.menu = None;
+                    self.run_menu_action(action).await
+                }
+            };
+        }
+
+        // Otherwise, a click on the menu bar (top row) opens that menu.
+        if let Some(i) = MenuBarState::title_index_at(area, col, row) {
+            self.menu = Some(MenuBarState::new(i));
         }
         Flow::Continue
     }
@@ -1738,6 +1788,67 @@ mod tests {
         // Restore permissions so cleanup can remove the tree.
         std::fs::set_permissions(&secret, std::fs::Permissions::from_mode(0o755)).ok();
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn parse_cd_recognizes_the_builtin() {
+        assert_eq!(parse_cd("cd"), Some(""));
+        assert_eq!(parse_cd("cd /tmp"), Some("/tmp"));
+        assert_eq!(parse_cd("  cd   foo  "), Some("foo"));
+        assert_eq!(parse_cd("cdfoo"), None);
+        assert_eq!(parse_cd("ls"), None);
+    }
+
+    #[test]
+    fn normalize_path_resolves_dotdot() {
+        assert_eq!(normalize_path(Path::new("/a/b/../c")), PathBuf::from("/a/c"));
+        assert_eq!(normalize_path(Path::new("/a/./b")), PathBuf::from("/a/b"));
+    }
+
+    #[tokio::test]
+    async fn cd_changes_active_panel_directory() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("rc_cd_{}_{nanos}", std::process::id()));
+        std::fs::create_dir_all(root.join("child")).unwrap();
+
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
+        st.active = 0;
+        st.panels[0].cwd = VfsPath::local(&root);
+        st.panels[0].backend = st.registry.local();
+        st.panels[0].reload().await.unwrap();
+
+        // Relative cd descends.
+        st.change_dir("child").await;
+        assert_eq!(st.panels[0].cwd.path, root.join("child"));
+        // `cd ..` ascends back.
+        st.change_dir("..").await;
+        assert_eq!(st.panels[0].cwd.path, root);
+        // cd to a non-existent directory leaves the panel where it is.
+        st.change_dir("nope").await;
+        assert_eq!(st.panels[0].cwd.path, root);
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[tokio::test]
+    async fn mouse_click_on_menu_bar_opens_menu() {
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
+        st.last_area = Rect::new(0, 0, 120, 30);
+        assert!(st.menu.is_none());
+        // The "File" title sits a few columns in on the top row.
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 8,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        };
+        st.handle_mouse(click).await;
+        assert!(st.menu.is_some(), "clicking the menu bar should open a menu");
     }
 
     #[test]

@@ -13,7 +13,7 @@ use crate::usermenu::UserMenuEntry;
 use crate::vfs::VfsPath;
 use crate::vfs::remote::{Protocol, RemoteCreds};
 use ratatui::Frame;
-use ratatui::crossterm::event::{KeyCode, KeyEvent};
+use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Constraint, Direction, Layout, Position, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -132,6 +132,63 @@ impl Dialog {
             Dialog::UserMenu(d) => d.render(f, area, theme),
             Dialog::Overwrite(d) => d.render(f, area, theme),
         }
+    }
+
+    /// Route a left-click to the active dialog. Confirmation dialogs map the
+    /// last button row's left half to OK/Yes and right half to Cancel/No; the
+    /// overwrite dialog hit-tests its individual buttons.
+    pub fn handle_click(&mut self, area: Rect, col: u16, row: u16) -> DialogResult {
+        match self {
+            // Precise per-button hit-testing.
+            Dialog::Overwrite(d) => return d.handle_click(col, row),
+            // Any click dismisses a message box.
+            Dialog::Message(_) => return DialogResult::Cancel,
+            // The progress dialog is keyboard-aborted (Esc); ignore clicks so a
+            // stray click can't cancel a running operation.
+            Dialog::Progress(_) => return DialogResult::None,
+            _ => {}
+        }
+
+        let Some(rect) = self.click_bounds(area) else {
+            return DialogResult::None;
+        };
+        // Ignore clicks outside the dialog box.
+        if col < rect.x || col >= rect.x + rect.width || row < rect.y || row >= rect.y + rect.height {
+            return DialogResult::None;
+        }
+        // The action buttons sit on the dialog's last interior row.
+        let last = rect.y + rect.height.saturating_sub(2);
+        if row != last {
+            return DialogResult::None;
+        }
+        let mid = rect.x + rect.width / 2;
+        let primary = col < mid;
+        if let Dialog::Confirm(d) = self {
+            d.focus_yes = primary;
+            return if primary { d.confirm() } else { d.no_action() };
+        }
+        // OK == Enter, Cancel == Esc for the input/form/search/find dialogs.
+        let code = if primary { KeyCode::Enter } else { KeyCode::Esc };
+        self.handle_key(KeyEvent::new(code, KeyModifiers::NONE))
+    }
+
+    /// The centered bounding box of dialogs whose buttons live on the last row.
+    /// `None` for dialogs handled specially or that ignore clicks.
+    fn click_bounds(&self, area: Rect) -> Option<Rect> {
+        let aw = area.width;
+        let r = match self {
+            Dialog::Input(_) => centered(area, 60u16.min(aw.saturating_sub(4)), 7),
+            Dialog::Confirm(_) => centered(area, 54u16.min(aw.saturating_sub(4)), 7),
+            Dialog::Form(d) => {
+                centered(area, 60u16.min(aw.saturating_sub(4)), d.form.field_count() as u16 + 4)
+            }
+            Dialog::SearchReplace(d) => {
+                centered(area, 64u16.min(aw.saturating_sub(2)), if d.replace { 14 } else { 12 })
+            }
+            Dialog::Find(_) => centered(area, 66u16.min(aw.saturating_sub(2)), 13),
+            _ => return None,
+        };
+        Some(r)
     }
 }
 
@@ -271,11 +328,12 @@ impl InputDialog {
             f.set_cursor_position(pos);
         }
 
+        let by = Rect { y: inner.y + inner.height - 1, height: 1, ..inner };
         f.render_widget(
             Paragraph::new(ok_cancel_line(true, theme))
                 .alignment(ratatui::layout::Alignment::Center)
                 .style(Style::default().bg(theme.dialog_bg)),
-            rows[2],
+            by,
         );
     }
 }
@@ -814,6 +872,11 @@ impl Form {
         Form { fields, focus: 0 }
     }
 
+    /// Number of fields (used to compute the dialog height for click geometry).
+    pub fn field_count(&self) -> usize {
+        self.fields.len()
+    }
+
     fn focus_next(&mut self) {
         if !self.fields.is_empty() {
             self.focus = (self.focus + 1) % self.fields.len();
@@ -1178,7 +1241,7 @@ impl FormDialog {
         };
         f.render_widget(
             Paragraph::new(Line::from(format!(
-                "Tab/↑↓ move  Space toggle  Enter OK  Esc Cancel{extra}"
+                "[ OK ]  Tab/↑↓ Space toggle  [ Cancel ]{extra}"
             )))
             .style(base),
             hint,
