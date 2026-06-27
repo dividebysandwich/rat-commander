@@ -5,11 +5,13 @@
 //! async file save when the editor asks for it.
 
 pub mod buffer;
+pub mod hex;
 pub mod render;
 
 use crate::vfs::VfsPath;
 use buffer::EditorBuffer;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use std::path::Path;
 
 /// What the app should do after the editor handles a key.
 pub enum EditorSignal {
@@ -56,7 +58,13 @@ pub struct EditorState {
     status: String,
     view_rows: usize,
     view_cols: usize,
+    /// When `Some`, the editor is in (in-place, file-backed) hex mode.
+    hex: Option<hex::HexEditor>,
 }
+
+/// Above this size a file is opened straight into hex mode (text mode loads the
+/// whole file, so it's reserved for reasonably sized files).
+pub const MAX_TEXT_EDIT: u64 = crate::viewer::MAX_VIEW_BYTES as u64;
 
 impl EditorState {
     pub fn new(name: String, path: VfsPath, text: &str) -> Self {
@@ -76,7 +84,31 @@ impl EditorState {
             status: String::new(),
             view_rows: 1,
             view_cols: 1,
+            hex: None,
         }
+    }
+
+    /// Open a (local) file directly in hex mode without loading it into memory —
+    /// used for files too large to load as text.
+    pub fn new_hex(name: String, path: VfsPath) -> std::io::Result<Self> {
+        let hex = hex::HexEditor::open(&path.path)?;
+        let mut s = Self::new(name, path, "");
+        s.hex = Some(hex);
+        Ok(s)
+    }
+
+    pub fn is_hex(&self) -> bool {
+        self.hex.is_some()
+    }
+
+    /// Flush pending in-place hex edits to the file (the app's save path calls
+    /// this instead of writing the text buffer when in hex mode).
+    pub fn flush_hex(&mut self) -> std::io::Result<()> {
+        if let Some(h) = self.hex.as_mut() {
+            h.save()?;
+        }
+        self.dirty = false;
+        Ok(())
     }
 
     pub fn contents(&self) -> String {
@@ -107,6 +139,15 @@ impl EditorState {
     pub fn handle_key(&mut self, key: KeyEvent) -> EditorSignal {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         self.status.clear();
+
+        // F9 toggles hex mode in either direction.
+        if key.code == KeyCode::F(9) {
+            self.toggle_hex();
+            return EditorSignal::Stay;
+        }
+        if self.hex.is_some() {
+            return self.handle_hex_key(key);
+        }
 
         match key.code {
             KeyCode::F(10) | KeyCode::Esc => {
@@ -160,6 +201,108 @@ impl EditorState {
             KeyCode::Delete => self.delete_forward(),
             KeyCode::Char(c) => self.insert_text(&c.to_string()),
             _ => {}
+        }
+        EditorSignal::Stay
+    }
+
+    /// Toggle between text and hex modes. Switching is only allowed when the
+    /// current mode has no unsaved changes, so the two backing stores can't
+    /// diverge (and the in-place file is never clobbered by stale text).
+    fn toggle_hex(&mut self) {
+        if let Some(h) = self.hex.as_ref() {
+            // Leaving hex mode → text mode.
+            if h.dirty {
+                self.status = "Save (F2) before leaving hex mode".to_string();
+                return;
+            }
+            if h.len > MAX_TEXT_EDIT {
+                self.status = "File too large for text mode".to_string();
+                return;
+            }
+            let reload = h.saved_any;
+            let path = self.path.path.clone();
+            self.hex = None;
+            // Re-read the file so the text view reflects any saved hex edits.
+            if reload && let Ok(data) = std::fs::read(&path) {
+                self.buf = EditorBuffer::from_str(&String::from_utf8_lossy(&data));
+                self.cursor = 0;
+                self.top_line = 0;
+                self.left_col = 0;
+                self.clear_marks();
+            }
+            self.status = "Text mode".to_string();
+        } else {
+            // Entering hex mode (local files only).
+            if self.path.scheme != "file" {
+                self.status = "Hex mode requires a local file".to_string();
+                return;
+            }
+            if self.dirty {
+                self.status = "Save (F2) before switching to hex mode".to_string();
+                return;
+            }
+            match hex::HexEditor::open(Path::new(&self.path.path)) {
+                Ok(h) => {
+                    let ro = h.readonly;
+                    self.hex = Some(h);
+                    self.status = if ro { "Hex mode (read-only)" } else { "Hex mode" }.to_string();
+                }
+                Err(e) => self.status = format!("cannot open for hex: {e}"),
+            }
+        }
+    }
+
+    /// Key handling while in hex mode.
+    fn handle_hex_key(&mut self, key: KeyEvent) -> EditorSignal {
+        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        match key.code {
+            KeyCode::F(10) | KeyCode::Esc => {
+                return if self.dirty {
+                    EditorSignal::ConfirmQuit
+                } else {
+                    EditorSignal::Close
+                };
+            }
+            // Saving routes through the app, which flushes the overlay in place.
+            KeyCode::F(2) => return EditorSignal::Save { close_after: false },
+            _ => {}
+        }
+
+        let rows = self.view_rows.max(1) as i64;
+        let readonly = self.hex.as_ref().map(|h| h.readonly).unwrap_or(true);
+        let mut typed = false;
+        if let Some(h) = self.hex.as_mut() {
+            match key.code {
+                KeyCode::Up => h.move_rows(-1),
+                KeyCode::Down => h.move_rows(1),
+                KeyCode::Left => h.move_by(-1),
+                KeyCode::Right => h.move_by(1),
+                KeyCode::Home if ctrl => h.goto_start(),
+                KeyCode::End if ctrl => h.goto_end(),
+                KeyCode::Home => h.row_start(),
+                KeyCode::End => h.row_end(),
+                KeyCode::PageUp => h.move_rows(-(rows - 1).max(1)),
+                KeyCode::PageDown => h.move_rows((rows - 1).max(1)),
+                KeyCode::Tab => h.toggle_pane(),
+                KeyCode::Backspace => h.move_by(-1),
+                KeyCode::Char(c) => {
+                    typed = true;
+                    if !readonly {
+                        if h.ascii_pane {
+                            h.input_ascii(c);
+                        } else {
+                            let _ = h.input_hex(c);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        if let Some(h) = &self.hex {
+            self.dirty = h.dirty;
+        }
+        if typed && readonly {
+            self.status = "read-only file".to_string();
         }
         EditorSignal::Stay
     }
@@ -433,6 +576,73 @@ mod tests {
 
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    fn tmpfile(bytes: &[u8]) -> std::path::PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let p = std::env::temp_dir().join(format!("rc_edhex_{}_{nanos}", std::process::id()));
+        std::fs::write(&p, bytes).unwrap();
+        p
+    }
+
+    #[test]
+    fn hex_mode_edits_file_in_place() {
+        let p = tmpfile(b"hello");
+        let mut e = EditorState::new("h".into(), VfsPath::local(&p), "hello");
+        e.handle_key(key(KeyCode::F(9))); // enter hex
+        assert!(e.is_hex());
+        // Overwrite first byte 'h' (0x68) with 'H' (0x48).
+        e.handle_key(key(KeyCode::Char('4')));
+        e.handle_key(key(KeyCode::Char('8')));
+        assert!(e.dirty, "byte edit marks dirty");
+        assert_eq!(std::fs::read(&p).unwrap(), b"hello", "not written until save");
+
+        e.flush_hex().unwrap(); // the app's save path calls this
+        assert!(!e.dirty);
+        assert_eq!(std::fs::read(&p).unwrap(), b"Hello", "in-place byte write");
+
+        // Toggle back to text reflects the saved change.
+        e.handle_key(key(KeyCode::F(9)));
+        assert!(!e.is_hex());
+        assert_eq!(e.contents(), "Hello");
+        std::fs::remove_file(&p).ok();
+    }
+
+    #[test]
+    fn hex_toggle_blocked_with_unsaved_text() {
+        let p = tmpfile(b"abc");
+        let mut e = EditorState::new("h".into(), VfsPath::local(&p), "abc");
+        e.handle_key(key(KeyCode::Char('x'))); // dirty text
+        e.handle_key(key(KeyCode::F(9)));
+        assert!(!e.is_hex(), "can't enter hex with unsaved text edits");
+        std::fs::remove_file(&p).ok();
+    }
+
+    #[test]
+    fn hex_view_renders_offset_and_ascii() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let p = tmpfile(b"hello world example bytes 0123456789ABCDEF");
+        let mut e = EditorState::new("h".into(), VfsPath::local(&p), "x");
+        e.handle_key(key(KeyCode::F(9)));
+        let theme = crate::ui::theme::Theme::mc();
+        let mut t = Terminal::new(TestBackend::new(90, 12)).unwrap();
+        t.draw(|f| crate::editor::render::render(f, f.area(), &mut e, &theme))
+            .unwrap();
+        let b = t.backend().buffer();
+        let mut s = String::new();
+        for y in 0..b.area.height {
+            for x in 0..b.area.width {
+                s.push_str(b[(x, y)].symbol());
+            }
+        }
+        assert!(s.contains("00000000"), "offset column");
+        assert!(s.contains("HEX"), "hex status indicator");
+        assert!(s.contains("hello world"), "ascii pane shows content");
+        std::fs::remove_file(&p).ok();
     }
 
     #[test]

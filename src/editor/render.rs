@@ -27,8 +27,18 @@ pub fn render(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) {
 
     ed.view_rows = text_area.height as usize;
     ed.view_cols = text_area.width as usize;
-    ensure_visible(ed);
 
+    if ed.is_hex() {
+        let cursor_pos = render_hex(f, text_area, ed, theme);
+        render_hex_status(f, status, ed, theme);
+        render_hex_footer(f, footer, ed, theme);
+        if let Some(p) = cursor_pos {
+            f.set_cursor_position(p);
+        }
+        return;
+    }
+
+    ensure_visible(ed);
     render_status(f, status, ed, theme);
     let cursor_pos = render_text(f, text_area, ed, theme);
     render_footer(f, footer, ed, theme);
@@ -36,6 +46,145 @@ pub fn render(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) {
     if let Some(p) = cursor_pos {
         f.set_cursor_position(p);
     }
+}
+
+/// Render the hex view (offset | bytes | ascii). Returns the hardware cursor
+/// position on the active nibble/char, if visible.
+fn render_hex(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) -> Option<Position> {
+    let rows = area.height as usize;
+    let bpr = super::hex::BYTES_PER_ROW;
+    let h = ed.hex.as_mut().unwrap();
+    h.view_rows = rows;
+
+    // Scroll so the cursor's row is visible.
+    let cur_row = h.cursor / bpr;
+    let top_row = h.top / bpr;
+    let new_top_row = if cur_row < top_row {
+        cur_row
+    } else if rows > 0 && cur_row >= top_row + rows as u64 {
+        cur_row + 1 - rows as u64
+    } else {
+        top_row
+    };
+    h.top = new_top_row * bpr;
+    let window = h.window(h.top, rows * bpr as usize);
+
+    let normal = Style::default().fg(theme.panel_fg).bg(theme.panel_bg);
+    let offset_style = Style::default().fg(theme.header_fg).bg(theme.panel_bg);
+    let sep = Style::default().fg(theme.panel_border).bg(theme.panel_bg);
+    let active = theme.cursor; // highlighted cell in the focused pane
+    let inactive = Style::default()
+        .fg(theme.panel_bg)
+        .bg(theme.panel_border)
+        .add_modifier(Modifier::BOLD);
+
+    let cell = |off: u64| -> Option<u8> {
+        if off < h.len {
+            Some(window[(off - h.top) as usize])
+        } else {
+            None
+        }
+    };
+
+    let mut lines: Vec<Line> = Vec::with_capacity(rows);
+    for r in 0..rows {
+        let base = h.top + r as u64 * bpr;
+        let mut spans: Vec<Span> = Vec::new();
+        spans.push(Span::styled(format!("{base:08X}"), offset_style));
+        spans.push(Span::styled("  ", sep));
+        for j in 0..bpr {
+            let off = base + j;
+            let txt = match cell(off) {
+                Some(b) => format!("{b:02X}"),
+                None => "  ".to_string(),
+            };
+            let st = if off == h.cursor {
+                if h.ascii_pane { inactive } else { active }
+            } else {
+                normal
+            };
+            spans.push(Span::styled(txt, st));
+            spans.push(Span::styled(if j == 7 { "  " } else { " " }, sep));
+        }
+        spans.push(Span::styled("|", sep));
+        for j in 0..bpr {
+            let off = base + j;
+            let (ch, present) = match cell(off) {
+                Some(b) if (0x20..0x7f).contains(&b) => (b as char, true),
+                Some(_) => ('.', true),
+                None => (' ', false),
+            };
+            let st = if present && off == h.cursor {
+                if h.ascii_pane { active } else { inactive }
+            } else {
+                normal
+            };
+            spans.push(Span::styled(ch.to_string(), st));
+        }
+        spans.push(Span::styled("|", sep));
+        lines.push(Line::from(spans));
+    }
+    f.render_widget(
+        Paragraph::new(lines).style(Style::default().fg(theme.panel_fg).bg(theme.panel_bg)),
+        area,
+    );
+
+    // Hardware cursor on the active nibble / ascii cell.
+    if cur_row >= new_top_row {
+        let rrow = (cur_row - new_top_row) as u16;
+        let j = (h.cursor % bpr) as u16;
+        let x = if h.ascii_pane {
+            60 + j
+        } else {
+            10 + 3 * j + u16::from(j >= 8) + u16::from(h.nibble_low)
+        };
+        if (rrow as usize) < rows && x < area.width {
+            return Some(Position::new(area.x + x, area.y + rrow));
+        }
+    }
+    None
+}
+
+fn render_hex_status(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) {
+    let name = ellipsize(&ed.name, area.width.saturating_sub(56).max(4) as usize);
+    let h = ed.hex.as_mut().unwrap();
+    let cur = h.cursor;
+    let byte = match h.byte_at(cur) {
+        Some(b) => format!("0x{b:02X} {b:>3}"),
+        None => "--".to_string(),
+    };
+    let pane = if h.ascii_pane { "ASCII" } else { "HEX" };
+    let flags = format!(
+        "{}{}",
+        if h.dirty { "[+]" } else { "   " },
+        if h.readonly { " [RO]" } else { "" }
+    );
+    let text = format!(
+        " HEX {flags} {name}  Off 0x{cur:08X}/{:X}  Byte {byte}  pane:{pane} ",
+        h.len
+    );
+    f.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            pad_right(&text, area.width as usize),
+            theme.menubar.add_modifier(Modifier::BOLD),
+        ))),
+        area,
+    );
+}
+
+fn render_hex_footer(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) {
+    let hint = if ed.status.is_empty() {
+        "F2 Save  F9 Text  Tab Hex/ASCII  Ctrl-Home/End File  arrows move  Esc Quit"
+    } else {
+        ed.status.as_str()
+    };
+    f.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            pad_right(hint, area.width as usize),
+            theme.fkey_label,
+        ))),
+        area,
+    );
 }
 
 fn ensure_visible(ed: &mut EditorState) {

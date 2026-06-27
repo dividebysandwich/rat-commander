@@ -47,6 +47,11 @@ The installed executable is named **`rc`** for quick typing.
 - Block mark/copy/move/delete, search, **search & replace** (literal or regex),
   undo/redo, and a status bar showing the byte under the cursor, line/column and
   totals
+- **Hex editor mode** (F9): an offset / hex / ASCII view that edits **in place** —
+  only the visible window is read and only changed bytes are written back, so
+  arbitrarily large files can be hex-edited (files too big to load as text open
+  straight into hex mode). `Tab` switches between the hex and ASCII columns;
+  editing is overwrite-only (length-preserving)
 
 **File operations**
 - Copy / move / delete with a progress window showing a per-file gauge and a
@@ -217,6 +222,21 @@ viewer, and the editor. (A quick `Alt`+digit does the same thing.)
 | `F7` | Search |
 | `Ctrl-V` | Paste |
 | `Ctrl-Z` / `Ctrl-Y` | Undo / redo |
+| `F9` | Toggle hex editor mode (in place) |
+| `Esc` / `F10` | Quit (prompts if modified) |
+
+### Keyboard shortcuts — hex editor (F9 in the editor)
+
+| Key | Action |
+| --- | --- |
+| `0`–`9`, `a`–`f` | Overwrite the current byte's nibble (hex column) |
+| typed character | Overwrite the current byte (ASCII column) |
+| `Tab` | Switch between the hex and ASCII columns |
+| `← ↑ ↓ → / PgUp PgDn` | Move | 
+| `Home` / `End` | Start / end of row |
+| `Ctrl-Home` / `Ctrl-End` | Start / end of file |
+| `F2` | Save changed bytes in place |
+| `F9` | Back to text mode |
 | `Esc` / `F10` | Quit (prompts if modified) |
 
 ### Keyboard shortcuts — process explorer

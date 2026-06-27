@@ -1560,10 +1560,20 @@ impl AppState {
             return Flow::Continue;
         }
         let name = e.name.clone();
+        let size = e.size;
         let path = p.cwd.join(&name);
         let backend = p.backend.clone();
 
         if self.config.wants_internal_editor() {
+            let local = path.scheme == "file";
+            // Files too big to load as text open directly in (in-place) hex mode.
+            if local && size > crate::editor::MAX_TEXT_EDIT {
+                match EditorState::new_hex(name, path) {
+                    Ok(ed) => self.editor = Some(ed),
+                    Err(e) => self.show_error(format!("cannot open file: {e}")),
+                }
+                return Flow::Continue;
+            }
             match load_file(&backend, &path).await {
                 Ok(data) => {
                     let text = String::from_utf8_lossy(&data).into_owned();
@@ -1585,6 +1595,23 @@ impl AppState {
         let Some(ed) = self.editor.as_ref() else {
             return;
         };
+        // Hex mode writes only the changed bytes in place — never rewrite the
+        // whole (possibly huge) file from the text buffer.
+        if ed.is_hex() {
+            let res = self.editor.as_mut().unwrap().flush_hex();
+            match res {
+                Ok(()) => {
+                    if close_after {
+                        self.editor = None;
+                        self.reload_all().await;
+                    } else if let Some(ed) = self.editor.as_mut() {
+                        ed.mark_saved();
+                    }
+                }
+                Err(e) => self.show_error(format!("save failed: {e}")),
+            }
+            return;
+        }
         let contents = ed.contents();
         let path = ed.path.clone();
         let backend = match self.registry.resolve(&path) {
@@ -1884,6 +1911,7 @@ EDITOR (F4)
   F2 save   F3 mark block   F5 copy   F6 move   F8 delete block
   F4 search & replace   F7 search   Ctrl-Z/Ctrl-Y undo/redo
   Ctrl-V paste   Esc/F10 quit (prompts if modified)
+  F9 toggle hex editor (in-place; Tab switches hex/ASCII column)
 
 ARCHIVES
   Enter an archive file (.zip .tar.gz .tar.bz2 .tar.xz .7z .rar) to browse it.

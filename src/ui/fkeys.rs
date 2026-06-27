@@ -14,7 +14,7 @@ pub const PANEL_LABELS: [&str; 10] = [
 
 /// Labels for the internal editor's function-key row (mcedit order).
 pub const EDITOR_LABELS: [&str; 10] = [
-    "Help", "Save", "Mark", "Replac", "Copy", "Move", "Search", "Delete", "", "Quit",
+    "Help", "Save", "Mark", "Replac", "Copy", "Move", "Search", "Delete", "Hex", "Quit",
 ];
 
 /// Render a function-key hint row using the supplied labels. The segments are
