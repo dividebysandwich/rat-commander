@@ -101,6 +101,9 @@ The installed executable is named **`rc`** for quick typing.
   the terminal reports it) exits and points the active file panel at the selected
   directory, **Esc** closes
 
+<img width="1007" height="514" alt="image" src="https://github.com/user-attachments/assets/ace5cf64-b0ac-4b0b-a045-40f95c916ed1" />
+
+
 ---
 
 ## Installation
