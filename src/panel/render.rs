@@ -336,22 +336,23 @@ fn render_full(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, theme
         };
         let time_str = e.mtime.map(format_time).unwrap_or_default();
 
-        if is_cursor {
+        if is_cursor && active {
             // The whole row (separators included) is highlighted; marked entries
-            // keep a yellow foreground so the selection stays visible.
+            // keep a yellow foreground so the selection stays visible. Only the
+            // active panel shows a cursor.
             let text = format!(
                 "{}{COL_SEP}{}{COL_SEP}{}",
                 pad_right(&display_name(e), name_w),
                 pad_left(&size_str, size_w),
                 pad_left(&time_str, time_w)
             );
-            if active && theme.truecolor {
+            if theme.truecolor {
                 let fg = if marked { theme.marked_fg } else { theme.cursor_fg };
                 lines.push(gradient_line(&text, width, fg, theme));
             } else {
                 lines.push(Line::from(Span::styled(
                     text,
-                    cursor_style(active, marked, theme),
+                    cursor_style(true, marked, theme),
                 )));
             }
         } else {
@@ -411,8 +412,9 @@ fn render_brief(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, them
                     let is_cursor = idx == panel.cursor;
                     let marked = panel.selection.is_marked(&e.name);
                     let text = pad_right(&display_name(e), name_w);
-                    let style = if is_cursor {
-                        cursor_style(active, marked, theme)
+                    // Only the active panel shows a cursor highlight.
+                    let style = if is_cursor && active {
+                        cursor_style(true, marked, theme)
                     } else {
                         name_style(e, marked, theme)
                     };
