@@ -30,6 +30,11 @@ impl Selection {
         }
     }
 
+    /// Mark `name` (idempotent) — used by mouse paint-marking.
+    pub fn mark(&mut self, name: &str) {
+        self.marked.insert(name.to_string());
+    }
+
     pub fn count(&self) -> usize {
         self.marked.len()
     }
@@ -162,6 +167,7 @@ mod tests {
             uid: None,
             gid: None,
             symlink_target: None,
+            symlink_broken: false,
         }
     }
 

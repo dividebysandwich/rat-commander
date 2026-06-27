@@ -6,9 +6,51 @@ pub mod sort;
 
 use crate::util::Result;
 use crate::vfs::{DiskUsage, Vfs, VfsEntry, VfsKind, VfsPath};
+use ratatui::layout::Rect;
 use selection::Selection;
 use sort::SortConfig;
 use std::sync::Arc;
+
+/// Geometry recorded at render time so mouse clicks can be mapped to entries.
+#[derive(Clone, Copy)]
+pub struct PanelHit {
+    /// The whole panel rect (including border) — identifies which panel a click
+    /// landed in.
+    pub area: Rect,
+    /// The region in which entry rows are drawn.
+    pub body: Rect,
+    pub brief: bool,
+    pub offset: usize,
+    pub columns: usize,
+    pub cell_w: u16,
+}
+
+impl PanelHit {
+    fn contains(rect: Rect, col: u16, row: u16) -> bool {
+        col >= rect.x && col < rect.x + rect.width && row >= rect.y && row < rect.y + rect.height
+    }
+
+    /// True if (col,row) is anywhere within the panel.
+    pub fn in_panel(&self, col: u16, row: u16) -> bool {
+        Self::contains(self.area, col, row)
+    }
+
+    /// The entry index at screen (col,row), bounded by `len`, if it lands on a row.
+    pub fn index_at(&self, col: u16, row: u16, len: usize) -> Option<usize> {
+        if !Self::contains(self.body, col, row) {
+            return None;
+        }
+        let r = (row - self.body.y) as usize;
+        let idx = if self.brief {
+            let cw = self.cell_w.max(1);
+            let c = ((col - self.body.x) / cw) as usize;
+            self.offset + r * self.columns + c
+        } else {
+            self.offset + r
+        };
+        (idx < len).then_some(idx)
+    }
+}
 
 /// How the listing columns are laid out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,6 +89,8 @@ pub struct Panel {
     /// Capacity of the volume holding `cwd`, shown on the bottom border. Updated
     /// on each reload; `None` for backends that can't report it.
     pub disk: Option<DiskUsage>,
+    /// Layout geometry from the last render, for mapping mouse clicks to entries.
+    pub hit: Option<PanelHit>,
 }
 
 impl Panel {
@@ -63,6 +107,7 @@ impl Panel {
             error: None,
             result_paths: None,
             disk: None,
+            hit: None,
         }
     }
 
@@ -284,5 +329,6 @@ fn parent_entry() -> VfsEntry {
         uid: None,
         gid: None,
         symlink_target: None,
+        symlink_broken: false,
     }
 }

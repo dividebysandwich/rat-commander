@@ -26,7 +26,12 @@ impl Default for LocalFs {
 }
 
 /// Build a [`VfsEntry`] from a file name and its (symlink-level) metadata.
-fn entry_from_meta(name: String, meta: &Metadata, symlink_target: Option<String>) -> VfsEntry {
+fn entry_from_meta(
+    name: String,
+    meta: &Metadata,
+    symlink_target: Option<String>,
+    symlink_broken: bool,
+) -> VfsEntry {
     let kind = if meta.file_type().is_symlink() {
         VfsKind::Symlink
     } else if meta.is_dir() {
@@ -50,6 +55,7 @@ fn entry_from_meta(name: String, meta: &Metadata, symlink_target: Option<String>
         uid: ext.uid,
         gid: ext.gid,
         symlink_target,
+        symlink_broken,
     }
 }
 
@@ -124,30 +130,35 @@ impl Vfs for LocalFs {
                 Ok(m) => m,
                 Err(_) => continue, // racing deletion / permission — skip
             };
-            let target = if meta.file_type().is_symlink() {
-                fs::read_link(de.path())
+            let (target, broken) = if meta.file_type().is_symlink() {
+                let t = fs::read_link(de.path())
                     .await
                     .ok()
-                    .map(|p| p.to_string_lossy().into_owned())
+                    .map(|p| p.to_string_lossy().into_owned());
+                // `metadata` follows the link; an error means it's dangling.
+                let broken = fs::metadata(de.path()).await.is_err();
+                (t, broken)
             } else {
-                None
+                (None, false)
             };
-            out.push(entry_from_meta(name, &meta, target));
+            out.push(entry_from_meta(name, &meta, target, broken));
         }
         Ok(out)
     }
 
     async fn stat(&self, path: &VfsPath) -> Result<VfsEntry> {
         let meta = fs::symlink_metadata(path.as_path()).await?;
-        let target = if meta.file_type().is_symlink() {
-            fs::read_link(path.as_path())
+        let (target, broken) = if meta.file_type().is_symlink() {
+            let t = fs::read_link(path.as_path())
                 .await
                 .ok()
-                .map(|p| p.to_string_lossy().into_owned())
+                .map(|p| p.to_string_lossy().into_owned());
+            let broken = fs::metadata(path.as_path()).await.is_err();
+            (t, broken)
         } else {
-            None
+            (None, false)
         };
-        Ok(entry_from_meta(path.file_name(), &meta, target))
+        Ok(entry_from_meta(path.file_name(), &meta, target, broken))
     }
 
     async fn open_read(&self, path: &VfsPath) -> Result<BoxRead> {

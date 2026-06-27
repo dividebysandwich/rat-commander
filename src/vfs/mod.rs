@@ -51,6 +51,9 @@ pub struct VfsEntry {
     pub gid: Option<u32>,
     /// For symlinks: the raw target, if read.
     pub symlink_target: Option<String>,
+    /// For symlinks: whether the target could not be resolved (dangling link).
+    /// Always `false` for non-symlinks and backends that don't probe targets.
+    pub symlink_broken: bool,
 }
 
 impl VfsEntry {

@@ -62,6 +62,9 @@ pub fn render_panel(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, 
     // Volume capacity on the bottom border (used / total), MC-style.
     render_disk_usage(f, area, panel, border_color, theme);
 
+    // Reset hit geometry; set below once the listing is drawn.
+    panel.hit = None;
+
     if inner.height == 0 || inner.width == 0 {
         return;
     }
@@ -89,6 +92,33 @@ pub fn render_panel(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, 
         ViewFormat::Full => render_full(f, list_area, panel, active, theme),
         ViewFormat::Brief => render_brief(f, list_area, panel, active, theme),
     }
+
+    // Record geometry for mouse hit-testing (offset is now post-render).
+    let (body, brief, columns, cell_w) = match panel.format {
+        ViewFormat::Full => (
+            Rect {
+                y: list_area.y + 1,
+                height: list_area.height.saturating_sub(1),
+                ..list_area
+            },
+            false,
+            1usize,
+            list_area.width,
+        ),
+        ViewFormat::Brief => {
+            let w = list_area.width as usize;
+            let cw = 16usize.min(w.max(1));
+            (list_area, true, (w / cw).max(1), cw as u16)
+        }
+    };
+    panel.hit = Some(crate::panel::PanelHit {
+        area,
+        body,
+        brief,
+        offset: panel.offset,
+        columns,
+        cell_w,
+    });
 
     let status_y = if reserve == 2 {
         let sep_y = inner.y + list_height;
@@ -145,17 +175,37 @@ fn render_disk_usage(f: &mut Frame, area: Rect, panel: &Panel, border_color: Col
     f.buffer_mut().set_string(x, y, text, style);
 }
 
-/// Foreground color for an entry's name based on its kind/mark.
+/// Foreground color for an entry's name based on its kind/mark. Directories use
+/// the same color as ordinary files (they're distinguished by the `/` prefix);
+/// executables and symlinks keep their accent colors.
 fn name_style(e: &VfsEntry, marked: bool, theme: &Theme) -> Style {
     let base = Style::default().bg(theme.panel_bg);
     if marked {
         return base.fg(theme.marked_fg).add_modifier(Modifier::BOLD);
     }
     match e.kind {
-        VfsKind::Dir => base.fg(theme.dir_fg).add_modifier(Modifier::BOLD),
         VfsKind::Symlink => base.fg(theme.symlink_fg),
         VfsKind::File if e.is_executable() => base.fg(theme.exec_fg).add_modifier(Modifier::BOLD),
+        // Directories and plain files share the normal foreground.
         _ => base.fg(theme.panel_fg),
+    }
+}
+
+/// The `ls -F`-style classify character placed before each name so types are
+/// distinguished by symbol (and alignment is preserved) rather than only color:
+/// `/` directory, `*` executable, `@`/`!` valid/broken symlink, ` ` otherwise.
+fn classify_prefix(e: &VfsEntry) -> char {
+    match e.kind {
+        VfsKind::Dir => '/',
+        VfsKind::Symlink => {
+            if e.symlink_broken {
+                '!'
+            } else {
+                '@'
+            }
+        }
+        VfsKind::File if e.is_executable() => '*',
+        _ => ' ',
     }
 }
 
@@ -331,10 +381,10 @@ fn render_brief(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, them
     f.render_widget(Paragraph::new(lines), area);
 }
 
-/// Name as shown in the list: directories get no slash here (mc style keeps
-/// names plain and colors them), `..` shown as-is.
+/// Name as shown in the list: a one-character classify prefix (see
+/// [`classify_prefix`]) followed by the entry name.
 fn display_name(e: &VfsEntry) -> String {
-    e.name.clone()
+    format!("{}{}", classify_prefix(e), e.name)
 }
 
 fn render_mini_status(f: &mut Frame, area: Rect, panel: &Panel, theme: &Theme) {
@@ -367,4 +417,42 @@ fn render_mini_status(f: &mut Frame, area: Rect, panel: &Panel, theme: &Theme) {
             .bg(theme.panel_bg),
     ));
     f.render_widget(Paragraph::new(line), area);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::SystemTime;
+
+    fn entry(name: &str, kind: VfsKind, mode: u32, broken: bool) -> VfsEntry {
+        VfsEntry {
+            name: name.to_string(),
+            kind,
+            size: 0,
+            mtime: Some(SystemTime::UNIX_EPOCH),
+            atime: None,
+            ctime: None,
+            inode: None,
+            mode: Some(mode),
+            uid: None,
+            gid: None,
+            symlink_target: None,
+            symlink_broken: broken,
+        }
+    }
+
+    #[test]
+    fn classify_prefixes_by_type() {
+        assert_eq!(classify_prefix(&entry("d", VfsKind::Dir, 0o755, false)), '/');
+        assert_eq!(classify_prefix(&entry("x", VfsKind::File, 0o755, false)), '*');
+        assert_eq!(classify_prefix(&entry("f", VfsKind::File, 0o644, false)), ' ');
+        assert_eq!(classify_prefix(&entry("l", VfsKind::Symlink, 0o777, false)), '@');
+        assert_eq!(classify_prefix(&entry("l", VfsKind::Symlink, 0o777, true)), '!');
+    }
+
+    #[test]
+    fn display_name_includes_prefix() {
+        assert_eq!(display_name(&entry("dir", VfsKind::Dir, 0o755, false)), "/dir");
+        assert_eq!(display_name(&entry("file", VfsKind::File, 0o644, false)), " file");
+    }
 }

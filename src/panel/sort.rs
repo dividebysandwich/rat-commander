@@ -146,6 +146,7 @@ mod tests {
             uid: None,
             gid: None,
             symlink_target: None,
+            symlink_broken: false,
         }
     }
 

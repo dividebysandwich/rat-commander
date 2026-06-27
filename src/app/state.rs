@@ -47,6 +47,17 @@ pub enum Flow {
 
 const PAGE: isize = 15;
 
+/// What a mouse point/drag on a panel should do to the entry under it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PointAction {
+    /// Move the cursor only (left click / left drag).
+    Cursor,
+    /// Toggle the entry's mark (right click).
+    ToggleMark,
+    /// Mark the entry (right drag — paint marking).
+    PaintMark,
+}
+
 pub struct AppState {
     pub panels: [Panel; 2],
     /// Index of the active panel (0 = left/top, 1 = right/bottom).
@@ -338,49 +349,104 @@ impl AppState {
         Flow::Continue
     }
 
-    /// Handle a mouse event. Left-clicks drive the menus and dialogs; other
-    /// buttons/motions are ignored.
+    /// Handle a mouse event. Left clicks/drags move the cursor and drive the
+    /// menus and dialogs; right clicks/drags mark files.
     pub async fn handle_mouse(&mut self, ev: MouseEvent) -> Flow {
-        if !matches!(ev.kind, MouseEventKind::Down(MouseButton::Left)) {
-            return Flow::Continue;
-        }
         let area = self.last_area;
         let (col, row) = (ev.column, ev.row);
+        let left_down = matches!(ev.kind, MouseEventKind::Down(MouseButton::Left));
 
-        // A modal dialog gets first claim on clicks.
+        // A modal dialog gets first claim on a left click.
         if self.dialog.is_some() {
-            let res = self.dialog.as_mut().unwrap().handle_click(area, col, row);
-            // Live theme preview, mirroring the keyboard path.
-            if let Some(Dialog::Form(fd)) = &self.dialog
-                && let Some(name) = fd.theme_choice()
-                && name != self.theme.name
-            {
-                self.theme = Theme::by_name(name, self.truecolor);
+            if left_down {
+                let res = self.dialog.as_mut().unwrap().handle_click(area, col, row);
+                // Live theme preview, mirroring the keyboard path.
+                if let Some(Dialog::Form(fd)) = &self.dialog
+                    && let Some(name) = fd.theme_choice()
+                    && name != self.theme.name
+                {
+                    self.theme = Theme::by_name(name, self.truecolor);
+                }
+                return self.handle_dialog_result(res).await;
             }
-            return self.handle_dialog_result(res).await;
+            return Flow::Continue;
         }
 
         // Then the pulldown menu.
         if self.menu.is_some() {
-            let signal = self.menu.as_mut().unwrap().click(area, col, row);
-            return match signal {
-                MenuSignal::Stay => Flow::Continue,
-                MenuSignal::Close => {
-                    self.menu = None;
-                    Flow::Continue
-                }
-                MenuSignal::Activate(action) => {
-                    self.menu = None;
-                    self.run_menu_action(action).await
-                }
-            };
+            if left_down {
+                let signal = self.menu.as_mut().unwrap().click(area, col, row);
+                return match signal {
+                    MenuSignal::Stay => Flow::Continue,
+                    MenuSignal::Close => {
+                        self.menu = None;
+                        Flow::Continue
+                    }
+                    MenuSignal::Activate(action) => {
+                        self.menu = None;
+                        self.run_menu_action(action).await
+                    }
+                };
+            }
+            return Flow::Continue;
         }
 
-        // Otherwise, a click on the menu bar (top row) opens that menu.
-        if let Some(i) = MenuBarState::title_index_at(area, col, row) {
-            self.menu = Some(MenuBarState::new(i));
+        // Base mode: the menu bar, then the file panels.
+        match ev.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                // A click on the menu bar (top row) opens that menu.
+                if let Some(i) = MenuBarState::title_index_at(area, col, row) {
+                    self.menu = Some(MenuBarState::new(i));
+                } else {
+                    self.panel_point(col, row, PointAction::Cursor);
+                }
+            }
+            MouseEventKind::Drag(MouseButton::Left) => {
+                self.panel_point(col, row, PointAction::Cursor)
+            }
+            MouseEventKind::Down(MouseButton::Right) => {
+                self.panel_point(col, row, PointAction::ToggleMark)
+            }
+            MouseEventKind::Drag(MouseButton::Right) => {
+                self.panel_point(col, row, PointAction::PaintMark)
+            }
+            _ => {}
         }
         Flow::Continue
+    }
+
+    /// Map a screen point to a panel entry: activate that panel, move the cursor
+    /// onto the entry (every action), and optionally toggle/paint its mark.
+    fn panel_point(&mut self, col: u16, row: u16, action: PointAction) {
+        let pi = if self.panels[0].hit.is_some_and(|h| h.in_panel(col, row)) {
+            0
+        } else if self.panels[1].hit.is_some_and(|h| h.in_panel(col, row)) {
+            1
+        } else {
+            return;
+        };
+        self.active = pi;
+        let p = &mut self.panels[pi];
+        let Some(hit) = p.hit else { return };
+        let Some(idx) = hit.index_at(col, row, p.entries.len()) else {
+            return;
+        };
+        // The cursor follows the pointer for every action (incl. drags).
+        p.cursor = idx;
+        if matches!(action, PointAction::Cursor) {
+            return;
+        }
+        // Selection actions never touch the "..".
+        if let Some(e) = p.entries.get(idx)
+            && e.name != ".."
+        {
+            let name = e.name.clone();
+            match action {
+                PointAction::ToggleMark => p.selection.toggle(&name),
+                PointAction::PaintMark => p.selection.mark(&name),
+                PointAction::Cursor => {}
+            }
+        }
     }
 
     async fn route_key(&mut self, key: KeyEvent) -> Flow {
@@ -1268,6 +1334,7 @@ impl AppState {
             uid: None,
             gid: None,
             symlink_target: None,
+            symlink_broken: false,
         }];
         let mut vpaths = vec![cwd]; // dummy path paired with ".."
         for path in paths {
@@ -1284,6 +1351,7 @@ impl AppState {
                 uid: None,
                 gid: None,
                 symlink_target: None,
+                symlink_broken: false,
             });
             vpaths.push(VfsPath::local(path));
         }
@@ -1830,6 +1898,63 @@ mod tests {
         // cd to a non-existent directory leaves the panel where it is.
         st.change_dir("nope").await;
         assert_eq!(st.panels[0].cwd.path, root);
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[tokio::test]
+    async fn mouse_clicks_move_cursor_and_mark_in_panel() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("rc_mouse_{}_{nanos}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        for n in ["a.txt", "b.txt", "c.txt", "d.txt"] {
+            std::fs::write(root.join(n), b"x").unwrap();
+        }
+
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
+        st.active = 1; // start on the other panel to prove activation switches
+        st.panels[0].cwd = VfsPath::local(&root);
+        st.panels[0].backend = st.registry.local();
+        st.panels[0].reload().await.unwrap();
+
+        // Render once to populate the panel hit geometry.
+        let mut term = Terminal::new(TestBackend::new(120, 30)).unwrap();
+        term.draw(|f| crate::ui::draw(f, &mut st)).unwrap();
+
+        let hit = st.panels[0].hit.expect("panel hit recorded");
+        // Aim at the third visible row.
+        let col = hit.body.x + 1;
+        let row = hit.body.y + 2;
+        let target = hit.index_at(col, row, st.panels[0].entries.len()).unwrap();
+
+        // Left-click moves the cursor there and activates the left panel.
+        st.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: col,
+            row,
+            modifiers: KeyModifiers::NONE,
+        })
+        .await;
+        assert_eq!(st.active, 0, "left panel should become active");
+        assert_eq!(st.panels[0].cursor, target, "cursor should jump to clicked row");
+
+        // Right-click marks the entry under the pointer.
+        let name = st.panels[0].entries[target].name.clone();
+        st.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Right),
+            column: col,
+            row,
+            modifiers: KeyModifiers::NONE,
+        })
+        .await;
+        assert!(st.panels[0].selection.is_marked(&name), "right-click marks the file");
 
         std::fs::remove_dir_all(&root).ok();
     }

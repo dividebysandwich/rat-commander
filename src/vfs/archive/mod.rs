@@ -54,6 +54,7 @@ impl ArchiveTree {
                 uid: None,
                 gid: None,
                 symlink_target: None,
+                symlink_broken: false,
             })
             .collect())
     }
@@ -82,6 +83,7 @@ impl ArchiveTree {
             uid: None,
             gid: None,
             symlink_target: None,
+            symlink_broken: false,
         })
     }
 }
@@ -99,6 +101,7 @@ fn dir_entry(name: &str, mtime: Option<SystemTime>) -> VfsEntry {
         uid: None,
         gid: None,
         symlink_target: None,
+        symlink_broken: false,
     }
 }
 

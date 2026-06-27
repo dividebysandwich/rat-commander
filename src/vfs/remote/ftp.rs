@@ -89,6 +89,7 @@ impl Vfs for FtpFs {
                     uid: None,
                     gid: None,
                     symlink_target: p.symlink_target,
+                    symlink_broken: false,
                 });
             }
         }
@@ -111,6 +112,7 @@ impl Vfs for FtpFs {
                 uid: None,
                 gid: None,
                 symlink_target: None,
+                symlink_broken: false,
             }),
             Err(_) => Ok(VfsEntry {
                 name: path.file_name(),
@@ -124,6 +126,7 @@ impl Vfs for FtpFs {
                 uid: None,
                 gid: None,
                 symlink_target: None,
+                symlink_broken: false,
             }),
         }
     }

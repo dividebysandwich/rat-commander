@@ -21,13 +21,17 @@ The installed executable is named **`rc`** for quick typing.
 - Configurable sort: Unsorted, Name, Extension, Size, Modify/Access/Change time,
   Inode — plus reverse, case-sensitive and executables-first toggles
 - Multi-file selection (tag) and **select/unselect by wildcard or regex**
+- `ls -F`-style **type markers** before each name (so types read by symbol, not
+  just color): `/` directory, `*` executable, `@` symlink, `!` broken symlink,
+  and a leading space for plain files (keeps names aligned)
 - Each panel shows the volume's **free / total disk space** on its bottom border,
   and the selected file on a separated mini-status line
 - Command line at the bottom; type **`cd <dir>`** to change the active panel
   (supports `~`, `..`, absolute and relative paths); drop to a full-screen shell
   with **Ctrl-O**
-- **Mouse support**: click the menu bar to open menus and pick items, and click
-  the **OK/Cancel** (or **Yes/No**) buttons in dialogs
+- **Mouse support**: left-click a file to move the cursor, right-click to mark,
+  drag to carry the cursor (right-drag paint-marks); click the menu bar to open
+  menus and pick items, and click **OK/Cancel** (or **Yes/No**) buttons in dialogs
 - **Find File** with a live progress dialog (abortable; partial results kept);
   results are *panelized* into the active panel
 
@@ -113,8 +117,11 @@ command and press **Enter** to run it in the active panel's directory — except
 **`cd <dir>`**, which changes the active panel itself (so the directory change
 sticks, unlike running `cd` in a subshell).
 
-The **mouse** works too: click a menu-bar title to open it and click an entry to
-run it, and click the **OK/Cancel** / **Yes/No** buttons in dialogs.
+The **mouse** works too: **left-click** a file to move the cursor to it (and
+activate that panel), **right-click** to mark/unmark it, and **drag** to carry
+the cursor along — dragging with the right button **paint-marks** files. Click a
+menu-bar title to open it and click an entry to run it, and click the
+**OK/Cancel** / **Yes/No** buttons in dialogs.
 
 For a built-in cheat sheet, press **F1**.
 
