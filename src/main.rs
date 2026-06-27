@@ -9,6 +9,7 @@ mod editor;
 mod ops;
 mod panel;
 mod ui;
+mod usermenu;
 mod util;
 mod vfs;
 mod viewer;

@@ -12,8 +12,9 @@ use crate::ui::cmdline::CommandLine;
 use crate::ui::dialog::{
     ConfirmDialog, Dialog, DialogResult, FindDialog, FindParams, FormDialog, InputDialog,
     InputPurpose, MessageDialog, ProgressDialog, SearchReplaceDialog, SearchReplaceParams,
-    SelectDialog, Submit,
+    SelectDialog, Submit, UserMenuDialog,
 };
+use crate::usermenu::{self, UserMenuEntry};
 use crate::ui::layout::SplitDir;
 use crate::ui::menu::{MenuAction, MenuBarState, MenuSignal};
 use crate::ui::theme::Theme;
@@ -70,6 +71,10 @@ pub struct AppState {
     pub sampler: crate::util::sysinfo::SysSampler,
     /// Theme name to restore if the settings dialog is cancelled (live preview).
     theme_backup: Option<String>,
+    /// F2 user-menu entries (loaded from the config `menu` file).
+    user_menu: Vec<UserMenuEntry>,
+    /// A user-menu command to run after the dialog closes (expanded).
+    pending_run: Option<String>,
     /// Set when a confirmed quit should propagate out as `Flow::Quit`.
     pending_quit: bool,
 }
@@ -112,6 +117,8 @@ impl AppState {
             tick_count: 0,
             sampler: crate::util::sysinfo::SysSampler::new(),
             theme_backup: None,
+            user_menu: usermenu::load_or_create(),
+            pending_run: None,
             pending_quit: false,
         }
     }
@@ -325,6 +332,8 @@ impl AppState {
                 self.handle_submit(s).await;
                 if self.pending_quit {
                     Flow::Quit
+                } else if let Some(cmd) = self.pending_run.take() {
+                    Flow::RunCommand(cmd)
                 } else {
                     Flow::Continue
                 }
@@ -362,6 +371,7 @@ impl AppState {
             }
             Submit::Compress(sources, name) => self.start_compress(sources, name),
             Submit::Connect(side, creds) => self.connect_remote(side, creds).await,
+            Submit::UserCommand(tpl) => self.pending_run = Some(self.expand_macros(&tpl)),
             Submit::Quit => self.pending_quit = true,
             Submit::EditorSaveQuit => self.save_editor(true).await,
             Submit::EditorDiscardQuit => {
@@ -527,7 +537,7 @@ impl AppState {
             KeyCode::F(10) => self.dialog = Some(Dialog::Confirm(ConfirmDialog::quit())),
             KeyCode::Char('q') if ctrl => return Flow::Quit, // immediate fallback if F10 is intercepted
             KeyCode::F(1) => self.open_help(),
-            KeyCode::F(2) => self.open_menu(),
+            KeyCode::F(2) => self.open_user_menu(),
             KeyCode::F(3) => return self.open_view().await,
             KeyCode::F(4) => return self.open_edit().await,
             KeyCode::F(5) => self.open_transfer_dialog(OpKind::Copy),
@@ -895,9 +905,54 @@ impl AppState {
     }
 
     fn open_menu(&mut self) {
-        // F9/F2 opens the menu matching the active panel: Left (0) or Right (4).
+        // F9 opens the pulldown menu matching the active panel: Left (0)/Right (4).
         let active = if self.active == 0 { 0 } else { 4 };
         self.menu = Some(MenuBarState::new(active));
+    }
+
+    fn open_user_menu(&mut self) {
+        if self.user_menu.is_empty() {
+            return self.show_error("No user-menu entries (see the config 'menu' file)");
+        }
+        self.dialog = Some(Dialog::UserMenu(UserMenuDialog::new(self.user_menu.clone())));
+    }
+
+    /// Expand mc-style menu macros against the active panel.
+    fn expand_macros(&self, tpl: &str) -> String {
+        use crate::vfs::remote::shell_quote;
+        let p = &self.panels[self.active];
+        let cwd = p.cwd.path.to_string_lossy().into_owned();
+        let cur = p.current_entry().map(|e| e.name.clone()).unwrap_or_default();
+        let marked: Vec<String> = p.selection.marked_names(&p.entries).iter().map(|n| shell_quote(n)).collect();
+        let tagged = marked.join(" ");
+        let selected = if marked.is_empty() {
+            shell_quote(&cur)
+        } else {
+            tagged.clone()
+        };
+
+        // Scan for %X macros (%% → literal %).
+        let mut out = String::with_capacity(tpl.len());
+        let mut chars = tpl.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c != '%' {
+                out.push(c);
+                continue;
+            }
+            match chars.next() {
+                Some('%') => out.push('%'),
+                Some('f') | Some('p') => out.push_str(&cur),
+                Some('d') => out.push_str(&cwd),
+                Some('t') => out.push_str(&tagged),
+                Some('s') => out.push_str(&selected),
+                Some(other) => {
+                    out.push('%');
+                    out.push(other);
+                }
+                None => out.push('%'),
+            }
+        }
+        out
     }
 
     fn open_find_dialog(&mut self) {
@@ -1314,7 +1369,7 @@ PANEL NAVIGATION
   Ctrl-T                       toggle vertical / horizontal split
 
 FUNCTION KEYS
-  F1  Help (this screen)       F2  Pulldown menu
+  F1  Help (this screen)       F2  User menu (config 'menu' file)
   F3  View file                F4  Edit file
   F5  Copy                     F6  Rename / move
   F7  Make directory           F8  Delete
