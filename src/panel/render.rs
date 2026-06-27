@@ -314,12 +314,21 @@ fn render_full(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, theme
                 )));
             }
         } else {
+            // Marked rows are highlighted across all columns, not just the name.
+            let data_style = if marked {
+                Style::default()
+                    .fg(theme.marked_fg)
+                    .bg(theme.panel_bg)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                normal
+            };
             let spans = vec![
                 Span::styled(pad_right(&display_name(e), name_w), name_style(e, marked, theme)),
                 Span::styled(COL_SEP, sep_style),
-                Span::styled(pad_left(&size_str, size_w), normal),
+                Span::styled(pad_left(&size_str, size_w), data_style),
                 Span::styled(COL_SEP, sep_style),
-                Span::styled(pad_left(&time_str, time_w), normal),
+                Span::styled(pad_left(&time_str, time_w), data_style),
             ];
             lines.push(Line::from(spans));
         }
