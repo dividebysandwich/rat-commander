@@ -77,6 +77,10 @@ async fn run_loop(
             }
             _ = ticker.tick(), if state.wants_ticks() => {
                 state.on_tick();
+                // Deliver a held Esc once its function-key window has elapsed.
+                if let Flow::Quit = state.flush_expired_esc().await {
+                    break;
+                }
             }
         }
     }

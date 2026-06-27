@@ -100,6 +100,11 @@ command and press **Enter** to run it in the active panel's directory.
 
 For a built-in cheat sheet, press **F1**.
 
+On terminals where the function keys are awkward to reach, every `Fn` shortcut
+also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1`
+… `Esc 9` for `F1`…`F9`, and `Esc 0` for `F10`. This works in the panels, the
+viewer, and the editor. (A quick `Alt`+digit does the same thing.)
+
 ### Keyboard shortcuts — panels
 
 | Key | Action |
@@ -114,6 +119,7 @@ For a built-in cheat sheet, press **F1**.
 | `F8` | Delete |
 | `F9` | Pulldown menu (Left/Right follows the active panel) |
 | `F10` | Quit (confirmation) |
+| `Esc` then `1`…`9` / `0` | Function-key alias for `F1`…`F9` / `F10` (Midnight Commander style) |
 | `Ctrl-Q` | Quit immediately |
 | `Tab` | Switch active panel |
 | `↑ ↓ / PgUp PgDn / Home End` | Move the cursor |

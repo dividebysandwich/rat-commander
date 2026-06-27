@@ -26,6 +26,7 @@ use crate::vfs::remote::RemoteCreds;
 use crate::vfs::{VfsEntry, VfsKind};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 use crate::vfs::registry::Registry;
 use crate::vfs::VfsPath;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -77,6 +78,31 @@ pub struct AppState {
     pending_run: Option<String>,
     /// Set when a confirmed quit should propagate out as `Flow::Quit`.
     pending_quit: bool,
+    /// When a lone Esc has been pressed and we're waiting to see whether the
+    /// next key is a digit (Esc-prefix function-key alias, MC style).
+    pending_esc: Option<Instant>,
+}
+
+/// How long a lone Esc is held, waiting for a digit, before it is delivered as
+/// a plain Esc. Matches Midnight Commander's Esc-as-function-key behavior.
+const ESC_PREFIX_TIMEOUT: Duration = Duration::from_millis(400);
+
+/// Map a key code to a function-key number for the Esc-prefix aliases:
+/// `1`..`9` => F1..F9, `0` => F10.
+fn fkey_for_code(code: KeyCode) -> Option<u8> {
+    match code {
+        KeyCode::Char(c @ '1'..='9') => Some(c as u8 - b'0'),
+        KeyCode::Char('0') => Some(10),
+        _ => None,
+    }
+}
+
+fn synth_fkey(n: u8) -> KeyEvent {
+    KeyEvent::new(KeyCode::F(n), KeyModifiers::NONE)
+}
+
+fn esc_key() -> KeyEvent {
+    KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)
 }
 
 /// Detect 24-bit color support from the environment.
@@ -120,6 +146,7 @@ impl AppState {
             user_menu: usermenu::load_or_create(),
             pending_run: None,
             pending_quit: false,
+            pending_esc: None,
         }
     }
 
@@ -144,7 +171,9 @@ impl AppState {
 
     /// Whether the loop needs periodic ticks at all (animation or stats on).
     pub fn wants_ticks(&self) -> bool {
-        (self.config.animation && self.truecolor) || self.config.system_status
+        (self.config.animation && self.truecolor)
+            || self.config.system_status
+            || self.pending_esc.is_some()
     }
 
     /// Load both panels' directories.
@@ -209,7 +238,52 @@ impl AppState {
 
     // -- Key handling ------------------------------------------------------
 
+    /// Top-level key entry point. Implements Midnight-Commander-style Esc-prefix
+    /// function-key aliases (Esc-1..Esc-9 => F1..F9, Esc-0 => F10) before
+    /// dispatching to the active mode. The aliases are active in the base modes
+    /// (panels, editor, viewer); dialogs and the pulldown menu keep Esc as an
+    /// immediate cancel.
     pub async fn handle_key(&mut self, key: KeyEvent) -> Flow {
+        let prefixable = self.dialog.is_none() && self.menu.is_none();
+        if prefixable {
+            if self.pending_esc.take().is_some() {
+                // The previous key was a lone Esc; this key completes the
+                // sequence. A digit becomes the matching function key.
+                if let Some(n) = fkey_for_code(key.code) {
+                    return self.route_key(synth_fkey(n)).await;
+                }
+                // Otherwise deliver the held Esc, then this key normally.
+                let _ = self.route_key(esc_key()).await;
+                return self.route_key(key).await;
+            }
+            if key.code == KeyCode::Esc && key.modifiers.is_empty() {
+                // Hold the Esc; the next key (or a tick timeout) resolves it.
+                self.pending_esc = Some(Instant::now());
+                return Flow::Continue;
+            }
+            // Fast path: terminals send Esc+digit pressed together as Alt+digit.
+            if key.modifiers.contains(KeyModifiers::ALT)
+                && let Some(n) = fkey_for_code(key.code)
+            {
+                return self.route_key(synth_fkey(n)).await;
+            }
+        }
+        self.route_key(key).await
+    }
+
+    /// Deliver a held Esc once its function-key window has elapsed without a
+    /// following key (called from the event loop's tick).
+    pub async fn flush_expired_esc(&mut self) -> Flow {
+        if let Some(t) = self.pending_esc
+            && t.elapsed() >= ESC_PREFIX_TIMEOUT
+        {
+            self.pending_esc = None;
+            return self.route_key(esc_key()).await;
+        }
+        Flow::Continue
+    }
+
+    async fn route_key(&mut self, key: KeyEvent) -> Flow {
         if self.dialog.is_some() {
             let res = self.dialog.as_mut().unwrap().handle_key(key);
             // Live theme preview: apply the settings form's current theme choice.
@@ -1421,6 +1495,7 @@ FUNCTION KEYS
   F5  Copy                     F6  Rename / move
   F7  Make directory           F8  Delete
   F9  Pulldown menu            F10 Quit
+  Esc then 1..9 / 0            alias for F1..F9 / F10 (works in editor & viewer)
   Ctrl-O                       toggle the persistent subshell (Ctrl-O to return)
   Ctrl-Q                       quit immediately
 
@@ -1566,5 +1641,58 @@ mod tests {
         assert!(st.viewer.is_none());
         st.open_help();
         assert!(st.viewer.is_some(), "F1 should open the help viewer");
+    }
+
+    #[test]
+    fn esc_prefix_maps_digits_to_function_keys() {
+        assert_eq!(fkey_for_code(KeyCode::Char('1')), Some(1));
+        assert_eq!(fkey_for_code(KeyCode::Char('9')), Some(9));
+        assert_eq!(fkey_for_code(KeyCode::Char('0')), Some(10));
+        assert_eq!(fkey_for_code(KeyCode::Char('a')), None);
+        assert_eq!(fkey_for_code(KeyCode::Esc), None);
+    }
+
+    #[tokio::test]
+    async fn esc_then_digit_acts_as_function_key() {
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
+        assert!(st.viewer.is_none());
+        // A lone Esc (no dialog/menu) is held, not acted on immediately.
+        st.handle_key(esc_key()).await;
+        assert!(st.pending_esc.is_some(), "lone Esc should be held");
+        // The following '1' completes Esc-1 => F1 => help viewer.
+        st.handle_key(KeyEvent::new(KeyCode::Char('1'), KeyModifiers::NONE))
+            .await;
+        assert!(st.viewer.is_some(), "Esc-1 should act as F1 (help)");
+        assert!(st.pending_esc.is_none(), "the sequence is resolved");
+    }
+
+    #[tokio::test]
+    async fn alt_digit_acts_as_function_key() {
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
+        assert!(st.viewer.is_none());
+        // Terminals deliver a fast Esc+digit as Alt+digit; that is an F-key too.
+        st.handle_key(KeyEvent::new(KeyCode::Char('1'), KeyModifiers::ALT))
+            .await;
+        assert!(st.viewer.is_some(), "Alt-1 should act as F1 (help)");
+        assert!(st.pending_esc.is_none());
+    }
+
+    #[tokio::test]
+    async fn esc_then_nondigit_delivers_plain_esc() {
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
+        for c in "abc".chars() {
+            st.cmd.insert(c);
+        }
+        st.handle_key(esc_key()).await;
+        assert!(st.pending_esc.is_some());
+        // A non-digit resolves the held Esc as a plain Esc (clears the cmd line)
+        // and then delivers the key itself.
+        st.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE))
+            .await;
+        assert!(st.pending_esc.is_none());
+        assert_eq!(st.cmd.buffer, "x", "Esc cleared the line, then 'x' was typed");
     }
 }
