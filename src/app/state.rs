@@ -523,12 +523,10 @@ impl AppState {
                     self.dialog = Some(Dialog::Confirm(ConfirmDialog::editor_quit(&name)));
                 }
                 EditorSignal::OpenSearch => {
-                    self.dialog =
-                        Some(Dialog::SearchReplace(SearchReplaceDialog::new(false, String::new())));
+                    self.dialog = Some(Dialog::SearchReplace(self.editor_search_dialog(false)));
                 }
                 EditorSignal::OpenReplace => {
-                    self.dialog =
-                        Some(Dialog::SearchReplace(SearchReplaceDialog::new(true, String::new())));
+                    self.dialog = Some(Dialog::SearchReplace(self.editor_search_dialog(true)));
                 }
             }
             return Flow::Continue;
@@ -1401,8 +1399,23 @@ impl AppState {
         self.dialog = Some(Dialog::Find(FindDialog::new(start)));
     }
 
+    /// Build the editor's search/replace dialog — in Hex mode (prefilled with
+    /// the last hex search) when the editor is in hex mode.
+    fn editor_search_dialog(&self, replace: bool) -> SearchReplaceDialog {
+        match self.editor.as_ref() {
+            Some(ed) if ed.is_hex() => {
+                SearchReplaceDialog::new_hex(replace, ed.last_hex_search())
+            }
+            _ => SearchReplaceDialog::new(replace, String::new()),
+        }
+    }
+
     fn apply_search_replace(&mut self, p: SearchReplaceParams) {
         if let Some(ed) = self.editor.as_mut() {
+            if ed.is_hex() {
+                ed.apply_hex_search_replace(p.replace, &p.search, &p.replacement, p.hex, p.backwards);
+                return;
+            }
             ed.apply_search_replace(
                 p.replace,
                 &p.search,

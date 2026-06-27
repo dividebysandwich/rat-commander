@@ -188,6 +188,87 @@ impl HexEditor {
         self.set_byte(self.cursor, code as u8);
         self.move_by(1);
     }
+
+    // -- Search / replace --------------------------------------------------
+
+    /// Find `pattern` at or after `from` (forward) or strictly before `from`
+    /// (backward). Streams the file in overlapping chunks, so it works on huge
+    /// files; the overlay is honored via [`window`].
+    pub fn find(&mut self, pattern: &[u8], from: u64, backwards: bool) -> Option<u64> {
+        let plen = pattern.len() as u64;
+        if plen == 0 || plen > self.len {
+            return None;
+        }
+        const CHUNK: usize = 64 * 1024;
+        let step = CHUNK as u64;
+        if backwards {
+            // Scan forward over [0, from), keeping the last match found.
+            let mut pos = 0u64;
+            let mut last = None;
+            while pos < from {
+                let want = (from - pos).min(step + plen - 1) as usize;
+                let buf = self.window(pos, want);
+                if buf.len() < pattern.len() {
+                    break;
+                }
+                let mut search_from = 0;
+                while let Some(i) = find_sub(&buf[search_from..], pattern) {
+                    let off = pos + (search_from + i) as u64;
+                    if off >= from {
+                        break;
+                    }
+                    last = Some(off);
+                    search_from += i + 1;
+                    if search_from >= buf.len() {
+                        break;
+                    }
+                }
+                pos += (buf.len() - (pattern.len() - 1)) as u64;
+            }
+            last
+        } else {
+            let mut pos = from.min(self.len);
+            while pos < self.len {
+                let want = ((self.len - pos) as usize).min(CHUNK + pattern.len() - 1);
+                let buf = self.window(pos, want);
+                if buf.len() < pattern.len() {
+                    break;
+                }
+                if let Some(i) = find_sub(&buf, pattern) {
+                    return Some(pos + i as u64);
+                }
+                pos += (buf.len() - (pattern.len() - 1)) as u64;
+            }
+            None
+        }
+    }
+
+    /// Overwrite every non-overlapping occurrence of `search` with `replacement`
+    /// (which must be the same length — editing is overwrite-only). Returns the
+    /// number of replacements; the changes go to the overlay (flushed on save).
+    pub fn replace_all(&mut self, search: &[u8], replacement: &[u8]) -> usize {
+        if search.is_empty() || search.len() != replacement.len() || self.readonly {
+            return 0;
+        }
+        let mut count = 0;
+        let mut pos = 0u64;
+        while let Some(off) = self.find(search, pos, false) {
+            for (k, &b) in replacement.iter().enumerate() {
+                self.set_byte(off + k as u64, b);
+            }
+            count += 1;
+            pos = off + search.len() as u64;
+        }
+        count
+    }
+}
+
+/// Index of the first occurrence of `needle` in `hay` (naive).
+fn find_sub(hay: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() || needle.len() > hay.len() {
+        return None;
+    }
+    hay.windows(needle.len()).position(|w| w == needle)
 }
 
 #[cfg(test)]

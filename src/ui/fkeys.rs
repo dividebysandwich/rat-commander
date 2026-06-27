@@ -17,6 +17,11 @@ pub const EDITOR_LABELS: [&str; 10] = [
     "Help", "Save", "Mark", "Replac", "Copy", "Move", "Search", "Delete", "Hex", "Quit",
 ];
 
+/// Labels for the editor's hex mode (only the supported functions are shown).
+pub const HEX_LABELS: [&str; 10] = [
+    "", "Save", "", "Replac", "", "", "Search", "", "Text", "Quit",
+];
+
 /// Render a function-key hint row using the supplied labels. The segments are
 /// distributed so the row spans the full width of `area`. With truecolor, the
 /// bar is drawn as a horizontal gradient; otherwise the classic two-tone look.

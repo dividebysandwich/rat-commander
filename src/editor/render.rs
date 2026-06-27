@@ -173,18 +173,18 @@ fn render_hex_status(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Th
 }
 
 fn render_hex_footer(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) {
-    let hint = if ed.status.is_empty() {
-        "F2 Save  F9 Text  Tab Hex/ASCII  Ctrl-Home/End File  arrows move  Esc Quit"
+    if ed.status.is_empty() {
+        // Same F-key bar as text mode, showing only the supported functions.
+        crate::ui::fkeys::render(f, area, &crate::ui::fkeys::HEX_LABELS, theme);
     } else {
-        ed.status.as_str()
-    };
-    f.render_widget(
-        Paragraph::new(Line::from(Span::styled(
-            pad_right(hint, area.width as usize),
-            theme.fkey_label,
-        ))),
-        area,
-    );
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                pad_right(&ed.status, area.width as usize),
+                theme.fkey_label,
+            ))),
+            area,
+        );
+    }
 }
 
 fn ensure_visible(ed: &mut EditorState) {

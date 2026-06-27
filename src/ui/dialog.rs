@@ -1390,6 +1390,8 @@ pub struct SearchReplaceParams {
     pub case_sensitive: bool,
     pub whole_words: bool,
     pub backwards: bool,
+    /// Hex mode was selected: search/replacement are hex byte strings.
+    pub hex: bool,
 }
 
 pub struct SearchReplaceDialog {
@@ -1432,6 +1434,13 @@ impl SearchReplaceDialog {
             all_charsets: false,
             focus: 0,
         }
+    }
+
+    /// Like `new`, but starting in Hex mode (for the editor's hex search).
+    pub fn new_hex(replace: bool, initial: String) -> Self {
+        let mut d = Self::new(replace, initial);
+        d.mode = 2;
+        d
     }
 
     fn items(&self) -> Vec<SrFocus> {
@@ -1503,6 +1512,7 @@ impl SearchReplaceDialog {
             case_sensitive: self.case_sensitive,
             whole_words: self.whole_words,
             backwards: self.backwards,
+            hex: self.mode == 2,
         }
     }
 

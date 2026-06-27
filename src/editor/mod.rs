@@ -60,6 +60,8 @@ pub struct EditorState {
     view_cols: usize,
     /// When `Some`, the editor is in (in-place, file-backed) hex mode.
     hex: Option<hex::HexEditor>,
+    /// Last hex-mode search string (prefilled into the search dialog).
+    last_hex_search: String,
 }
 
 /// Above this size a file is opened straight into hex mode (text mode loads the
@@ -85,6 +87,7 @@ impl EditorState {
             view_rows: 1,
             view_cols: 1,
             hex: None,
+            last_hex_search: String::new(),
         }
     }
 
@@ -109,6 +112,68 @@ impl EditorState {
         }
         self.dirty = false;
         Ok(())
+    }
+
+    /// The last hex search string (to prefill the dialog).
+    pub fn last_hex_search(&self) -> String {
+        self.last_hex_search.clone()
+    }
+
+    /// Hex-mode search / replace. `hex` ⇒ the strings are hex bytes (e.g.
+    /// "48 65"); otherwise they are literal ASCII bytes. Replace is overwrite-
+    /// only, so the replacement must equal the search length.
+    pub fn apply_hex_search_replace(
+        &mut self,
+        replace: bool,
+        search: &str,
+        replacement: &str,
+        hex: bool,
+        backwards: bool,
+    ) {
+        let parse = |s: &str| -> Option<Vec<u8>> {
+            if hex {
+                parse_hex_bytes(s)
+            } else {
+                Some(s.as_bytes().to_vec())
+            }
+        };
+        let pat = match parse(search) {
+            Some(v) if !v.is_empty() => v,
+            _ => {
+                self.status = "Invalid search bytes".to_string();
+                return;
+            }
+        };
+        self.last_hex_search = search.to_string();
+        let Some(h) = self.hex.as_mut() else {
+            return;
+        };
+        if replace {
+            let rep = match parse(replacement) {
+                Some(v) => v,
+                None => {
+                    self.status = "Invalid replacement bytes".to_string();
+                    return;
+                }
+            };
+            if rep.len() != pat.len() {
+                self.status = "Replacement must be the same length (overwrite-only)".to_string();
+                return;
+            }
+            let n = h.replace_all(&pat, &rep);
+            self.dirty = self.hex.as_ref().unwrap().dirty;
+            self.status = format!("Replaced {n} occurrence(s)");
+        } else {
+            let from = if backwards { h.cursor } else { (h.cursor + 1).min(h.len) };
+            let found = h.find(&pat, from, backwards);
+            match found {
+                Some(off) => {
+                    h.cursor = off;
+                    h.nibble_low = false;
+                }
+                None => self.status = "Not found".to_string(),
+            }
+        }
     }
 
     pub fn contents(&self) -> String {
@@ -230,7 +295,6 @@ impl EditorState {
                 self.left_col = 0;
                 self.clear_marks();
             }
-            self.status = "Text mode".to_string();
         } else {
             // Entering hex mode (local files only).
             if self.path.scheme != "file" {
@@ -245,7 +309,10 @@ impl EditorState {
                 Ok(h) => {
                     let ro = h.readonly;
                     self.hex = Some(h);
-                    self.status = if ro { "Hex mode (read-only)" } else { "Hex mode" }.to_string();
+                    // No persistent banner; only note the read-only case.
+                    if ro {
+                        self.status = "read-only file".to_string();
+                    }
                 }
                 Err(e) => self.status = format!("cannot open for hex: {e}"),
             }
@@ -265,6 +332,8 @@ impl EditorState {
             }
             // Saving routes through the app, which flushes the overlay in place.
             KeyCode::F(2) => return EditorSignal::Save { close_after: false },
+            KeyCode::F(7) => return EditorSignal::OpenSearch,
+            KeyCode::F(4) => return EditorSignal::OpenReplace,
             _ => {}
         }
 
@@ -556,6 +625,18 @@ impl EditorState {
 
 fn order(a: usize, b: usize) -> (usize, usize) {
     if a <= b { (a, b) } else { (b, a) }
+}
+
+/// Parse a hex-byte string like "48 65 6c" or "48656c" into bytes.
+fn parse_hex_bytes(s: &str) -> Option<Vec<u8>> {
+    let cleaned: String = s.chars().filter(|c| !c.is_whitespace()).collect();
+    if cleaned.is_empty() || cleaned.len() % 2 != 0 {
+        return None;
+    }
+    (0..cleaned.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&cleaned[i..i + 2], 16).ok())
+        .collect()
 }
 
 /// Convert a char index into a byte offset within `text`.
