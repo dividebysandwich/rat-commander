@@ -14,7 +14,7 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Constraint, Direction, Layout, Position, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Gauge, Paragraph, Wrap};
+use ratatui::widgets::{Block, BorderType, Borders, Clear, Gauge, Paragraph, Wrap};
 
 /// The active modal dialog (only one at a time).
 #[allow(clippy::large_enum_variant)]
@@ -85,6 +85,7 @@ pub struct SettingsValues {
     pub use_internal_viewer: bool,
     pub use_internal_editor: bool,
     pub confirm_delete: bool,
+    pub theme: String,
 }
 
 impl Dialog {
@@ -649,6 +650,12 @@ pub enum Field {
         label: String,
         value: bool,
     },
+    /// A cycle-through choice (Space / ←→ to change).
+    Choice {
+        label: String,
+        options: Vec<String>,
+        idx: usize,
+    },
 }
 
 impl Field {
@@ -677,9 +684,19 @@ impl Field {
         }
     }
 
+    pub fn choice(label: &str, options: Vec<String>, selected: &str) -> Self {
+        let idx = options.iter().position(|o| o == selected).unwrap_or(0);
+        Field::Choice {
+            label: label.to_string(),
+            options,
+            idx,
+        }
+    }
+
     fn as_text(&self) -> &str {
         match self {
             Field::Text { value, .. } | Field::Password { value, .. } => value,
+            Field::Choice { options, idx, .. } => options.get(*idx).map(|s| s.as_str()).unwrap_or(""),
             Field::Check { .. } => "",
         }
     }
@@ -722,6 +739,19 @@ impl Form {
             KeyCode::Char(' ') if matches!(self.fields.get(self.focus), Some(Field::Check { .. })) => {
                 if let Some(Field::Check { value, .. }) = self.fields.get_mut(self.focus) {
                     *value = !*value;
+                }
+            }
+            KeyCode::Char(' ') | KeyCode::Right | KeyCode::Left
+                if matches!(self.fields.get(self.focus), Some(Field::Choice { .. })) =>
+            {
+                let back = key.code == KeyCode::Left;
+                if let Some(Field::Choice { options, idx, .. }) = self.fields.get_mut(self.focus) {
+                    let n = options.len().max(1);
+                    *idx = if back {
+                        (*idx + n - 1) % n
+                    } else {
+                        (*idx + 1) % n
+                    };
                 }
             }
             _ => match self.fields.get_mut(self.focus) {
@@ -790,6 +820,7 @@ pub struct FormDialog {
 impl FormDialog {
     pub fn settings(cfg: &crate::config::Config) -> Self {
         let form = Form::new(vec![
+            Field::choice("Theme", crate::ui::theme::palette_names(), &cfg.theme),
             Field::text("External editor", cfg.editor.clone()),
             Field::text("External viewer", cfg.viewer.clone()),
             Field::check("Use internal viewer", cfg.use_internal_viewer),
@@ -887,11 +918,12 @@ impl FormDialog {
         let fields = &self.form.fields;
         let submit = match &self.purpose {
             FormPurpose::Settings => Submit::Settings(SettingsValues {
-                editor: fields[0].as_text().trim().to_string(),
-                viewer: fields[1].as_text().trim().to_string(),
-                use_internal_viewer: fields[2].as_bool(),
-                use_internal_editor: fields[3].as_bool(),
-                confirm_delete: fields[4].as_bool(),
+                theme: fields[0].as_text().to_string(),
+                editor: fields[1].as_text().trim().to_string(),
+                viewer: fields[2].as_text().trim().to_string(),
+                use_internal_viewer: fields[3].as_bool(),
+                use_internal_editor: fields[4].as_bool(),
+                confirm_delete: fields[5].as_bool(),
             }),
             FormPurpose::Chmod(p) => Submit::Chmod(p.clone(), self.chmod_mode()),
             FormPurpose::Chown(p) => Submit::Chown(
@@ -1000,6 +1032,17 @@ impl FormDialog {
                     let style = if focused { focus_style } else { base };
                     f.render_widget(
                         Paragraph::new(Line::from(Span::styled(format!("{mark} {label}"), style))),
+                        row,
+                    );
+                }
+                Field::Choice { label, options, idx } => {
+                    let style = if focused { focus_style } else { base };
+                    let val = options.get(*idx).map(|s| s.as_str()).unwrap_or("");
+                    f.render_widget(
+                        Paragraph::new(Line::from(Span::styled(
+                            format!("{label}: ◂ {val} ▸"),
+                            style,
+                        ))),
                         row,
                     );
                 }
@@ -1548,7 +1591,8 @@ pub fn centered(area: Rect, width: u16, height: u16) -> Rect {
 fn dialog_block(title: &str, theme: &Theme) -> Block<'static> {
     Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg))
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(theme.dialog_title).bg(theme.dialog_bg))
         .title(Span::styled(
             format!(" {title} "),
             Style::default()

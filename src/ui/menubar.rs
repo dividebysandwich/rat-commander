@@ -4,24 +4,40 @@
 use crate::ui::theme::Theme;
 use ratatui::Frame;
 use ratatui::layout::Rect;
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
 pub const TITLES: [&str; 5] = ["Left", "File", "Command", "Options", "Right"];
 
 pub fn render(f: &mut Frame, area: Rect, theme: &Theme) {
-    let mut spans: Vec<Span> = Vec::new();
-    spans.push(Span::styled(" ", theme.menubar));
+    let width = area.width as usize;
+    let mut text = String::from(" ");
     for title in TITLES {
-        spans.push(Span::styled(format!(" {title} "), theme.menubar));
+        text.push_str(&format!(" {title} "));
     }
-    // Fill the rest of the bar.
-    let used: usize = spans.iter().map(|s| s.content.chars().count()).sum();
-    if (used as u16) < area.width {
-        spans.push(Span::styled(
-            " ".repeat(area.width as usize - used),
-            theme.menubar,
-        ));
+    while text.chars().count() < width {
+        text.push(' ');
     }
-    f.render_widget(Paragraph::new(Line::from(spans)), area);
+
+    if theme.truecolor {
+        // A horizontal gradient bar with readable text on top.
+        let spans: Vec<Span> = text
+            .chars()
+            .take(width)
+            .enumerate()
+            .map(|(i, ch)| {
+                Span::styled(
+                    ch.to_string(),
+                    Style::default().bg(theme.gradient_at(i, width)).fg(theme.bar_fg),
+                )
+            })
+            .collect();
+        f.render_widget(Paragraph::new(Line::from(spans)), area);
+    } else {
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(text, theme.menubar))),
+            area,
+        );
+    }
 }

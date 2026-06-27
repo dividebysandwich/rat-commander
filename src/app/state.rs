@@ -61,8 +61,17 @@ pub struct AppState {
     next_task_id: TaskId,
     next_session_id: usize,
     tx: AppSender,
+    /// Whether the terminal supports 24-bit color (for gradients).
+    truecolor: bool,
     /// Set when a confirmed quit should propagate out as `Flow::Quit`.
     pending_quit: bool,
+}
+
+/// Detect 24-bit color support from the environment.
+fn detect_truecolor() -> bool {
+    std::env::var("COLORTERM")
+        .map(|v| v.contains("truecolor") || v.contains("24bit"))
+        .unwrap_or(false)
 }
 
 impl AppState {
@@ -72,6 +81,9 @@ impl AppState {
         let cwd = VfsPath::local_cwd();
         let left = Panel::new(local.clone(), cwd.clone());
         let right = Panel::new(local, cwd);
+        let config = Config::load();
+        let truecolor = detect_truecolor();
+        let theme = Theme::by_name(&config.theme, truecolor);
         AppState {
             panels: [left, right],
             active: 0,
@@ -81,13 +93,14 @@ impl AppState {
             viewer: None,
             editor: None,
             menu: None,
-            theme: Theme::mc(),
-            config: Config::load(),
+            theme,
+            config,
             registry,
             tasks: HashMap::new(),
             next_task_id: 1,
             next_session_id: 0,
             tx,
+            truecolor,
             pending_quit: false,
         }
     }
@@ -343,6 +356,9 @@ impl AppState {
                 self.config.use_internal_viewer = v.use_internal_viewer;
                 self.config.use_internal_editor = v.use_internal_editor;
                 self.config.confirm_delete = v.confirm_delete;
+                self.config.theme = v.theme;
+                // Re-theme the running UI immediately.
+                self.theme = Theme::by_name(&self.config.theme, self.truecolor);
                 if let Err(e) = self.config.save() {
                     self.show_error(format!("could not save settings: {e}"));
                 }
@@ -1219,8 +1235,14 @@ REMOTE (F9 -> Command)
   the active panel. Disconnect returns the panel to the local filesystem.
   Copy/move/delete work between local, remote and archive panels.
 
+FIND FILE (F9 -> Command)
+  Searches recursively with a progress dialog (Esc/Enter aborts; results so
+  far are kept). Results open in the panel; the .. entry returns to browsing.
+
 OTHER (F9 -> File / Options)
-  Chmod, Chown, Symlink, Settings (external editor/viewer, confirm-delete).
+  Chmod, Chown, Symlink, Compress, and Settings (theme, external editor/
+  viewer, confirm-delete). Many color themes are available; with a truecolor
+  terminal the bars and cursor use a gradient.
 
 Press Esc or F10 to close this help.";
 

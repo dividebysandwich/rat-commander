@@ -3,6 +3,7 @@
 use crate::ui::theme::Theme;
 use ratatui::Frame;
 use ratatui::layout::Rect;
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
@@ -17,26 +18,49 @@ pub const EDITOR_LABELS: [&str; 10] = [
 ];
 
 /// Render a function-key hint row using the supplied labels. The segments are
-/// distributed so the row spans the full width of `area`, with the same
-/// number/label styling everywhere in the program.
+/// distributed so the row spans the full width of `area`. With truecolor, the
+/// bar is drawn as a horizontal gradient; otherwise the classic two-tone look.
 pub fn render(f: &mut Frame, area: Rect, labels: &[&str], theme: &Theme) {
     let n = labels.len().max(1);
     let total = area.width as usize;
     let base = total / n;
     let extra = total % n; // spread the remainder over the first segments
 
-    let mut spans: Vec<Span> = Vec::with_capacity(n * 2);
+    // Build a per-cell list of (char, is_number).
+    let mut cells: Vec<(char, bool)> = Vec::with_capacity(total);
     for (i, label) in labels.iter().enumerate() {
         let seg = base + usize::from(i < extra);
         let num = (i + 1).to_string();
-        let label_w = seg.saturating_sub(num.len());
-
-        let mut text: String = label.chars().take(label_w).collect();
-        while text.chars().count() < label_w {
-            text.push(' ');
+        for ch in num.chars() {
+            cells.push((ch, true));
         }
-        spans.push(Span::styled(num, theme.fkey_num));
-        spans.push(Span::styled(text, theme.fkey_label));
+        let label_w = seg.saturating_sub(num.chars().count());
+        let mut count = 0;
+        for ch in label.chars().take(label_w) {
+            cells.push((ch, false));
+            count += 1;
+        }
+        while count < label_w {
+            cells.push((' ', false));
+            count += 1;
+        }
     }
+
+    let spans: Vec<Span> = cells
+        .iter()
+        .enumerate()
+        .map(|(i, (ch, is_num))| {
+            let style = if theme.truecolor {
+                let bg = theme.gradient_at(i, total);
+                let s = Style::default().bg(bg).fg(theme.bar_fg);
+                if *is_num { s.add_modifier(Modifier::BOLD) } else { s }
+            } else if *is_num {
+                theme.fkey_num
+            } else {
+                theme.fkey_label
+            };
+            Span::styled(ch.to_string(), style)
+        })
+        .collect();
     f.render_widget(Paragraph::new(Line::from(spans)), area);
 }

@@ -24,6 +24,8 @@ pub struct Config {
     pub use_internal_editor: bool,
     /// Ask for confirmation before deleting.
     pub confirm_delete: bool,
+    /// Active color theme (palette name).
+    pub theme: String,
 }
 
 impl Default for Config {
@@ -34,6 +36,7 @@ impl Default for Config {
             use_internal_viewer: true,
             use_internal_editor: true,
             confirm_delete: true,
+            theme: "Midnight Commander".to_string(),
         }
     }
 }

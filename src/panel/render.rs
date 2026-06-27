@@ -7,12 +7,32 @@ use crate::util::text::{ellipsize, pad_left, pad_right};
 use crate::vfs::{VfsEntry, VfsKind};
 use ratatui::Frame;
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
 
 /// The vertical line drawn between columns.
 const COL_SEP: &str = "│";
+
+/// Build a horizontal-gradient line for the given text (used for the cursor
+/// bar when truecolor is available).
+fn gradient_line(text: &str, width: usize, fg: Color, theme: &Theme) -> Line<'static> {
+    let spans: Vec<Span> = text
+        .chars()
+        .take(width)
+        .enumerate()
+        .map(|(i, ch)| {
+            Span::styled(
+                ch.to_string(),
+                Style::default()
+                    .bg(theme.gradient_at(i, width))
+                    .fg(fg)
+                    .add_modifier(Modifier::BOLD),
+            )
+        })
+        .collect();
+    Line::from(spans)
+}
 
 /// Draw a panel (border, header, listing, mini-status) into `area`.
 pub fn render_panel(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, theme: &Theme) {
@@ -179,10 +199,15 @@ fn render_full(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, theme
                 pad_left(&size_str, size_w),
                 pad_left(&time_str, time_w)
             );
-            lines.push(Line::from(Span::styled(
-                text,
-                cursor_style(active, marked, theme),
-            )));
+            if active && theme.truecolor {
+                let fg = if marked { theme.marked_fg } else { theme.cursor_fg };
+                lines.push(gradient_line(&text, width, fg, theme));
+            } else {
+                lines.push(Line::from(Span::styled(
+                    text,
+                    cursor_style(active, marked, theme),
+                )));
+            }
         } else {
             let spans = vec![
                 Span::styled(pad_right(&display_name(e), name_w), name_style(e, marked, theme)),
