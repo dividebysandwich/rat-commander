@@ -90,6 +90,16 @@ The installed executable is named **`rc`** for quick typing.
 
   <img width="1007" height="514" alt="image" src="https://github.com/user-attachments/assets/3dd795cf-bf59-4f8b-94de-b9d49ad5f989" />
 
+**Disk explorer** (Command menu → *Disk explorer…*)
+- A full-screen **treemap** of the current directory's subdirectories: each box's
+  area is proportional to the subtree's **on-disk size**, labeled with the name
+  and a human-readable size (e.g. `2.1 GB`). Symlinks are never followed or counted
+- The **top bar** always shows the selected box's name, size and share of the
+  total — so the selection is legible even when its box is too small for a label
+- **Arrow keys** move the selection between boxes, **Enter** dives into the
+  selected subdirectory, **Backspace** goes up, **`g`** (or **Ctrl-Enter** where
+  the terminal reports it) exits and points the active file panel at the selected
+  directory, **Esc** closes
 
 ---
 
@@ -210,6 +220,16 @@ viewer, and the editor. (A quick `Alt`+digit does the same thing.)
 | `r` | Reverse sort order |
 | `k` / `F8` / `F9` / `Del` | Kill the selected process (SIGTERM, with confirmation) |
 | `K` | Force-kill (SIGKILL, with confirmation) |
+| `Esc` / `F10` / `q` | Close |
+
+### Keyboard shortcuts — disk explorer
+
+| Key | Action |
+| --- | --- |
+| `← ↑ ↓ →` | Move the selection between boxes |
+| `Enter` | Dive into the selected subdirectory |
+| `Backspace` | Go up to the parent directory |
+| `g` / `Ctrl-Enter` | Exit and open the selected directory in the active panel |
 | `Esc` / `F10` / `q` | Close |
 
 ### Dialogs

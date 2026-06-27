@@ -6,6 +6,7 @@ use crate::editor::{EditorSignal, EditorState};
 use crate::ops::progress::{ProgressUpdate, TaskOutcome};
 use crate::ops::CancelToken;
 use crate::ops::{OpKind, OpRequest, TaskHandle, TaskId, spawn_op};
+use crate::disk::{DiskSignal, DiskView};
 use crate::panel::sort::SortKey;
 use crate::panel::Panel;
 use crate::proc::{ProcSignal, ProcView};
@@ -70,6 +71,8 @@ pub struct AppState {
     pub menu: Option<MenuBarState>,
     /// The full-screen process explorer, when open.
     pub procview: Option<ProcView>,
+    /// The full-screen disk-usage explorer, when open.
+    pub diskview: Option<DiskView>,
     pub theme: Theme,
     pub config: Config,
     pub registry: Registry,
@@ -196,6 +199,7 @@ impl AppState {
             editor: None,
             menu: None,
             procview: None,
+            diskview: None,
             theme,
             config,
             registry,
@@ -326,6 +330,15 @@ impl AppState {
                     self.dialog = None;
                 }
                 self.panelize_results(paths);
+            }
+            AppEvent::DiskScanned { generation, entries } => {
+                if let Some(dv) = self.diskview.as_mut()
+                    && dv.generation == generation
+                {
+                    dv.entries = entries;
+                    dv.scanning = false;
+                    dv.selected = 0;
+                }
             }
         }
     }
@@ -539,6 +552,22 @@ impl AppState {
             }
             return Flow::Continue;
         }
+        if self.diskview.is_some() {
+            let sig = self.diskview.as_mut().unwrap().handle_key(key);
+            match sig {
+                DiskSignal::Stay => {}
+                DiskSignal::Close => self.diskview = None,
+                DiskSignal::Rescan => self.start_disk_scan(),
+                DiskSignal::GoTo(path) => {
+                    self.diskview = None;
+                    let backend = self.registry.local();
+                    self.active_panel()
+                        .try_enter(VfsPath::local(path), backend, None)
+                        .await;
+                }
+            }
+            return Flow::Continue;
+        }
         if self.menu.is_some() {
             return self.handle_menu_key(key).await;
         }
@@ -590,6 +619,7 @@ impl AppState {
             MenuAction::ToggleSplit => self.split = self.split.toggle(),
             MenuAction::FindFile => self.open_find_dialog(),
             MenuAction::ProcExplorer => self.open_proc_explorer(),
+            MenuAction::DiskExplorer => self.open_disk_explorer(),
             MenuAction::Connect(side, proto) => {
                 self.dialog = Some(Dialog::Form(FormDialog::connect(proto, side)))
             }
@@ -944,6 +974,38 @@ impl AppState {
     /// Open the full-screen process explorer.
     fn open_proc_explorer(&mut self) {
         self.procview = Some(ProcView::new());
+    }
+
+    /// Open the full-screen disk-usage explorer at the active panel's directory.
+    fn open_disk_explorer(&mut self) {
+        let p = &self.panels[self.active];
+        let cwd = if p.cwd.scheme == "file" {
+            p.cwd.path.clone()
+        } else {
+            std::env::current_dir().unwrap_or_else(|_| home_dir())
+        };
+        self.diskview = Some(DiskView::new(cwd));
+        self.start_disk_scan();
+    }
+
+    /// Kick off a background scan of the disk explorer's current directory.
+    fn start_disk_scan(&mut self) {
+        let Some(dv) = self.diskview.as_mut() else {
+            return;
+        };
+        dv.generation = dv.generation.wrapping_add(1);
+        dv.scanning = true;
+        dv.entries.clear();
+        dv.selected = 0;
+        let generation = dv.generation;
+        let cwd = dv.cwd.clone();
+        let tx = self.tx.clone();
+        tokio::spawn(async move {
+            let entries = tokio::task::spawn_blocking(move || crate::disk::scan_dir(&cwd))
+                .await
+                .unwrap_or_default();
+            let _ = tx.send(AppEvent::DiskScanned { generation, entries }).await;
+        });
     }
 
     /// Kill a process (from the explorer), then refresh the listing.

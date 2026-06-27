@@ -3,6 +3,7 @@
 //! Terminal input is handled separately (read directly in the loop); this
 //! channel carries only asynchronous results so the loop never blocks on I/O.
 
+use crate::disk::DiskEntry;
 use crate::ops::progress::{ConflictInfo, ProgressUpdate, TaskId, TaskOutcome};
 
 #[derive(Debug, Clone)]
@@ -19,5 +20,11 @@ pub enum AppEvent {
     FindDone {
         id: TaskId,
         paths: Vec<std::path::PathBuf>,
+    },
+    /// A disk-explorer background scan finished; `generation` lets the view drop
+    /// results from a directory it has already navigated away from.
+    DiskScanned {
+        generation: u64,
+        entries: Vec<DiskEntry>,
     },
 }

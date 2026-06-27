@@ -370,11 +370,10 @@ fn render_table(f: &mut Frame, area: Rect, pv: &mut ProcView, theme: &Theme) {
 
 fn render_footer(f: &mut Frame, area: Rect, _pv: &ProcView, theme: &Theme) {
     let hint = "↑↓ PgUp/Dn move   c CPU  m Mem  n Name  p PID   r reverse   k kill  K force   Esc close";
+    // Highlighted bar (matching the F-key row) so the hints are clearly visible.
+    let line = pad_right(&format!(" {hint}"), area.width as usize);
     f.render_widget(
-        Paragraph::new(Line::from(Span::styled(
-            format!(" {hint}"),
-            Style::default().fg(theme.fkey_label.fg.unwrap_or(theme.panel_fg)).bg(theme.panel_bg),
-        ))),
+        Paragraph::new(Line::from(Span::styled(line, theme.fkey_label))).style(theme.fkey_label),
         area,
     );
 }

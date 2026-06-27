@@ -50,6 +50,13 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
         }
         return;
     }
+    if let Some(dv) = state.diskview.as_mut() {
+        crate::disk::render::render(f, area, dv, &theme);
+        if let Some(d) = &mut state.dialog {
+            d.render(f, area, &theme);
+        }
+        return;
+    }
 
     let rows = Layout::default()
         .direction(Direction::Vertical)
@@ -268,6 +275,22 @@ mod feature_tests {
         let text = text_of(&t);
         assert!(text.contains("(10%)"), "disk usage percent on the border");
         assert!(text.contains('├') && text.contains('┤'), "mini-status separator");
+    }
+
+    #[tokio::test]
+    async fn disk_explorer_opens_and_draws() {
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
+        st.init().await;
+        let mut dv = crate::disk::DiskView::new(std::path::PathBuf::from("/tmp"));
+        dv.scanning = false;
+        dv.entries = vec![crate::disk::DiskEntry { name: "data".into(), size: 5_000_000 }];
+        st.diskview = Some(dv);
+        let mut t = Terminal::new(TestBackend::new(120, 30)).unwrap();
+        t.draw(|f| draw(f, &mut st)).unwrap();
+        let text = text_of(&t);
+        assert!(text.contains("Disk Explorer"), "disk explorer renders over the UI");
+        assert!(text.contains("data"), "subdirectory box labeled");
     }
 
     #[tokio::test]

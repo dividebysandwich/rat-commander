@@ -37,6 +37,7 @@ pub enum MenuAction {
     ToggleSplit,
     FindFile,
     ProcExplorer,
+    DiskExplorer,
     Connect(usize, Protocol),
     Disconnect(usize),
     Settings,
@@ -126,6 +127,7 @@ impl MenuBarState {
             items: vec![
                 item("Find file...", MenuAction::FindFile),
                 item("Process explorer...", MenuAction::ProcExplorer),
+                item("Disk explorer...", MenuAction::DiskExplorer),
                 sep(),
                 item("Swap panels", MenuAction::SwapPanels),
                 item("Re-read directories", MenuAction::Refresh),
