@@ -582,7 +582,18 @@ impl AppState {
                     self.editor = None;
                     self.reload_all().await;
                 }
-                EditorSignal::Save { close_after } => self.save_editor(close_after).await,
+                EditorSignal::Save { close_after } => {
+                    if close_after {
+                        self.save_editor(true).await;
+                    } else {
+                        let name = self
+                            .editor
+                            .as_ref()
+                            .map(|e| e.name.clone())
+                            .unwrap_or_default();
+                        self.dialog = Some(Dialog::Confirm(ConfirmDialog::save_editor(&name)));
+                    }
+                }
                 EditorSignal::ConfirmQuit => {
                     let name = self
                         .editor
@@ -637,7 +648,9 @@ impl AppState {
             match self.diffview.as_mut().unwrap().handle_key(key) {
                 DiffSignal::Stay => {}
                 DiffSignal::Close => self.diffview = None,
-                DiffSignal::Save => self.save_diff().await,
+                DiffSignal::Save => {
+                    self.dialog = Some(Dialog::Confirm(ConfirmDialog::save_diff()));
+                }
             }
             return Flow::Continue;
         }
@@ -779,6 +792,8 @@ impl AppState {
             Submit::CompareDirs(mode) => self.compare_dirs(mode).await,
             Submit::Quit => self.pending_quit = true,
             Submit::EditorSaveQuit => self.save_editor(true).await,
+            Submit::EditorSave => self.save_editor(false).await,
+            Submit::DiffSave => self.save_diff().await,
             Submit::EditorDiscardQuit => {
                 self.editor = None;
                 self.reload_all().await;

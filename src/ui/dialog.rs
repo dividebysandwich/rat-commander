@@ -62,6 +62,10 @@ pub enum Submit {
     Quit,
     EditorSaveQuit,
     EditorDiscardQuit,
+    /// Confirmed F2 save in the editor (no quit).
+    EditorSave,
+    /// Confirmed F2 save in the file-comparison view.
+    DiffSave,
     /// Select/unselect files by pattern with options.
     Select {
         select: bool,
@@ -441,6 +445,30 @@ impl ConfirmDialog {
             "Save",
             "Discard",
             Some(Submit::EditorDiscardQuit),
+        )
+    }
+
+    /// Confirm an explicit F2 save in the editor. Save (default) / Cancel.
+    pub fn save_editor(name: &str) -> Self {
+        Self::yes_no(
+            "Save file",
+            format!("Save changes to \"{name}\"?"),
+            Submit::EditorSave,
+            "Save",
+            "Cancel",
+            None,
+        )
+    }
+
+    /// Confirm an explicit F2 save in the file-comparison view.
+    pub fn save_diff() -> Self {
+        Self::yes_no(
+            "Save files",
+            "Save the changed file(s)?".to_string(),
+            Submit::DiffSave,
+            "Save",
+            "Cancel",
+            None,
         )
     }
 
