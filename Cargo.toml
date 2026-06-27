@@ -3,7 +3,7 @@ name = "rat-commander"
 version = "0.1.0"
 edition = "2024"
 description = "A self-contained Norton/Midnight-Commander-style TUI file manager"
-license = "MIT"
+license = "GPL-2.0-only"
 repository = "https://github.com/dividebysandwich/rat-commander"
 
 # The installed executable is named `rc` for convenience.

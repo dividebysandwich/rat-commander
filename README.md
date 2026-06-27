@@ -251,4 +251,4 @@ C/C++ sources, so a C/C++ toolchain is required (provided automatically by
 
 ## License
 
-MIT. See `Cargo.toml`.
+GNU General Public License, version 2 (GPL-2.0-only). See the `LICENSE` file.
