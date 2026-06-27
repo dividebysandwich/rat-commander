@@ -170,18 +170,21 @@ impl Panel {
     /// The paths an operation should act on: the marked set if non-empty,
     /// otherwise the entry under the cursor (never `..`).
     pub fn operation_targets(&self) -> Vec<VfsPath> {
-        // Find-file results: operate on the stored full paths.
+        // Find-file results: operate on the stored full paths (never "..").
         if let Some(paths) = &self.result_paths {
             if !self.selection.is_empty() {
                 return self
                     .entries
                     .iter()
                     .zip(paths)
-                    .filter(|(e, _)| self.selection.is_marked(&e.name))
+                    .filter(|(e, _)| e.name != ".." && self.selection.is_marked(&e.name))
                     .map(|(_, p)| p.clone())
                     .collect();
             }
-            return paths.get(self.cursor).cloned().into_iter().collect();
+            return match self.current_entry() {
+                Some(e) if e.name != ".." => paths.get(self.cursor).cloned().into_iter().collect(),
+                _ => Vec::new(),
+            };
         }
         if !self.selection.is_empty() {
             self.selection
@@ -203,8 +206,13 @@ impl Panel {
     /// Enter the directory (or follow `..`) under the cursor. Returns true if
     /// navigation happened (caller should reload).
     pub fn target_dir_under_cursor(&self) -> Option<(VfsPath, Option<String>)> {
-        // In find-file results, Enter jumps to the file's directory.
+        // In find-file results: ".." leaves the result view back to normal
+        // browsing; any other entry jumps to that file's directory.
         if let Some(paths) = &self.result_paths {
+            let e = self.current_entry()?;
+            if e.name == ".." {
+                return Some((self.cwd.clone(), None));
+            }
             let path = paths.get(self.cursor)?;
             let parent = path.parent()?;
             return Some((parent, Some(path.file_name())));

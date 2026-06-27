@@ -411,6 +411,8 @@ pub struct ProgressDialog {
     pub total_total: u64,
     pub files_done: u64,
     pub files_total: u64,
+    /// When true, render an indeterminate sweep (e.g. find-file scanning).
+    pub indeterminate: bool,
 }
 
 impl ProgressDialog {
@@ -425,7 +427,15 @@ impl ProgressDialog {
             total_total: 0,
             files_done: 0,
             files_total: 0,
+            indeterminate: false,
         }
+    }
+
+    /// An indeterminate progress dialog for find-file scanning.
+    pub fn find(id: TaskId) -> Self {
+        let mut d = Self::new(id, "Searching");
+        d.indeterminate = true;
+        d
     }
 
     pub fn update(&mut self, u: &ProgressUpdate) {
@@ -455,6 +465,9 @@ impl ProgressDialog {
     }
 
     fn render(&self, f: &mut Frame, area: Rect, theme: &Theme) {
+        if self.indeterminate {
+            return self.render_indeterminate(f, area, theme);
+        }
         let w = 60u16.min(area.width.saturating_sub(4));
         let rect = centered(area, w, 10);
         f.render_widget(Clear, rect);
@@ -514,6 +527,51 @@ impl ProgressDialog {
                 .alignment(ratatui::layout::Alignment::Center)
                 .style(Style::default().bg(theme.dialog_bg)),
             rows[4],
+        );
+    }
+
+    /// Render an indeterminate scanning dialog (current path + sweep + count).
+    fn render_indeterminate(&self, f: &mut Frame, area: Rect, theme: &Theme) {
+        let w = 64u16.min(area.width.saturating_sub(4));
+        let rect = centered(area, w, 8);
+        f.render_widget(Clear, rect);
+        let block = dialog_block(self.verb, theme);
+        let inner = block.inner(rect);
+        f.render_widget(block, rect);
+
+        let base = Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg);
+        let line_at = |yy: u16| Rect { x: inner.x, y: yy, width: inner.width, height: 1 };
+
+        f.render_widget(
+            Paragraph::new(Line::from(format!("{} files found", self.files_done))).style(base),
+            line_at(inner.y),
+        );
+        let name = crate::util::text::ellipsize(&self.current_name, inner.width as usize);
+        f.render_widget(Paragraph::new(Line::from(name)).style(base), line_at(inner.y + 1));
+
+        // A bouncing block sweeps based on the update counter (files_done).
+        let bar_w = inner.width as usize;
+        let block_w = (bar_w / 5).max(1);
+        let span = bar_w.saturating_sub(block_w).max(1);
+        let phase = (self.files_done as usize) % (2 * span);
+        let pos = if phase < span { phase } else { 2 * span - phase };
+        let mut bar = String::with_capacity(bar_w);
+        for i in 0..bar_w {
+            bar.push(if i >= pos && i < pos + block_w { '█' } else { '░' });
+        }
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                bar,
+                Style::default().fg(theme.input_bg).bg(theme.dialog_bg),
+            ))),
+            line_at(inner.y + 3),
+        );
+
+        f.render_widget(
+            Paragraph::new(Line::from(button("[ Abort ]", true, theme)))
+                .alignment(ratatui::layout::Alignment::Center)
+                .style(base),
+            line_at(inner.y + inner.height - 1),
         );
     }
 }

@@ -11,4 +11,10 @@ pub enum AppEvent {
     Progress(ProgressUpdate),
     /// A background task finished (success, cancel, or failure).
     TaskDone { id: TaskId, outcome: TaskOutcome },
+    /// A find-file task finished (or was aborted); carries the paths collected
+    /// so far so partial results can still be panelized.
+    FindDone {
+        id: TaskId,
+        paths: Vec<std::path::PathBuf>,
+    },
 }

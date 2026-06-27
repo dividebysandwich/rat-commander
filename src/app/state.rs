@@ -3,7 +3,8 @@
 use crate::app::event::AppEvent;
 use crate::config::Config;
 use crate::editor::{EditorSignal, EditorState};
-use crate::ops::progress::TaskOutcome;
+use crate::ops::progress::{ProgressUpdate, TaskOutcome};
+use crate::ops::CancelToken;
 use crate::ops::{OpKind, OpRequest, TaskHandle, TaskId, spawn_op};
 use crate::panel::sort::SortKey;
 use crate::panel::Panel;
@@ -138,6 +139,15 @@ impl AppState {
                     p.selection.clear();
                 }
                 self.reload_all().await;
+            }
+            AppEvent::FindDone { id, paths } => {
+                self.tasks.remove(&id);
+                if let Some(Dialog::Progress(p)) = &self.dialog
+                    && p.id == id
+                {
+                    self.dialog = None;
+                }
+                self.panelize_results(paths);
             }
         }
     }
@@ -306,7 +316,7 @@ impl AppState {
                 shell,
             } => self.apply_select(select, &pattern, files_only, case_sensitive, shell),
             Submit::SearchReplace(p) => self.apply_search_replace(p),
-            Submit::Find(p) => self.start_find(p).await,
+            Submit::Find(p) => self.start_find(p),
             Submit::Chmod(path, mode) => {
                 let backend = self.panels[self.active].backend.clone();
                 match backend.set_permissions(&path, mode).await {
@@ -547,6 +557,11 @@ impl AppState {
         let sources = self.panels[self.active].operation_targets();
         if sources.is_empty() {
             self.show_error("No files selected");
+            return;
+        }
+        // A search-result panel is not a real destination directory.
+        if self.panels[self.other_index()].is_panelized() {
+            self.show_error("Cannot copy into a search-result panel");
             return;
         }
         // Destination is an archive → add into it (rebuild), not a file copy.
@@ -810,25 +825,76 @@ impl AppState {
         }
     }
 
-    /// Run a find-file search and panelize the results into the active panel.
-    async fn start_find(&mut self, p: FindParams) {
+    /// Launch a cancellable find-file search; a progress dialog shows the
+    /// current path and lets the user abort. Results arrive via `FindDone`.
+    fn start_find(&mut self, p: FindParams) {
         let start = if p.start_at.trim().is_empty() {
             self.panels[self.active].cwd.path.clone()
         } else {
             PathBuf::from(&p.start_at)
         };
-        let found = tokio::task::spawn_blocking(move || find_files(&start, &p)).await;
-        let paths = match found {
-            Ok(Ok(paths)) => paths,
-            Ok(Err(e)) => return self.show_error(e),
-            Err(e) => return self.show_error(e.to_string()),
-        };
+        let matcher =
+            match crate::panel::selection::NameMatcher::build(&p.file_name, p.case_sensitive, p.shell) {
+                Ok(m) => m,
+                Err(e) => return self.show_error(format!("invalid pattern: {e}")),
+            };
+
+        let id = self.next_task_id;
+        self.next_task_id += 1;
+        let cancel = CancelToken::new();
+        self.tasks.insert(
+            id,
+            TaskHandle {
+                id,
+                cancel: cancel.clone(),
+            },
+        );
+        self.dialog = Some(Dialog::Progress(ProgressDialog::find(id)));
+
+        let tx = self.tx.clone();
+        tokio::spawn(async move {
+            let tx2 = tx.clone();
+            let paths = tokio::task::spawn_blocking(move || {
+                find_files(&start, &p, &matcher, &cancel, |cur, found| {
+                    let _ = tx2.try_send(AppEvent::Progress(ProgressUpdate {
+                        id,
+                        verb: "Searching",
+                        current_name: cur,
+                        file_done: 0,
+                        file_total: 0,
+                        total_done: 0,
+                        total_total: 0,
+                        files_done: found as u64,
+                        files_total: 0,
+                    }));
+                })
+            })
+            .await
+            .unwrap_or_default();
+            let _ = tx.send(AppEvent::FindDone { id, paths }).await;
+        });
+    }
+
+    /// Panelize find-file results (with a `..` entry that returns to browsing).
+    fn panelize_results(&mut self, paths: Vec<PathBuf>) {
         if paths.is_empty() {
             return self.show_error("No files found");
         }
-
-        let mut entries = Vec::new();
-        let mut vpaths = Vec::new();
+        let cwd = self.panels[self.active].cwd.clone();
+        let mut entries = vec![VfsEntry {
+            name: "..".to_string(),
+            kind: VfsKind::Dir,
+            size: 0,
+            mtime: None,
+            atime: None,
+            ctime: None,
+            inode: None,
+            mode: None,
+            uid: None,
+            gid: None,
+            symlink_target: None,
+        }];
+        let mut vpaths = vec![cwd]; // dummy path paired with ".."
         for path in paths {
             let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
             entries.push(VfsEntry {
@@ -984,12 +1050,17 @@ fn archive_target_under_cursor(p: &Panel) -> Option<(VfsPath, Option<String>)> {
     Some((VfsPath::archive(file_path, "/"), None))
 }
 
-/// Recursively find files under `start` matching the find parameters.
-fn find_files(start: &Path, p: &FindParams) -> std::result::Result<Vec<PathBuf>, String> {
-    use crate::panel::selection::NameMatcher;
-    const MAX_RESULTS: usize = 10_000;
+/// Recursively find files under `start`, reporting progress and honouring
+/// cancellation. Returns whatever was collected (partial on abort).
+fn find_files(
+    start: &Path,
+    p: &FindParams,
+    matcher: &crate::panel::selection::NameMatcher,
+    cancel: &crate::ops::CancelToken,
+    mut progress: impl FnMut(String, usize),
+) -> Vec<PathBuf> {
+    const MAX_RESULTS: usize = 50_000;
 
-    let matcher = NameMatcher::build(&p.file_name, p.case_sensitive, p.shell)?;
     let content_needle = if p.content.is_empty() {
         None
     } else if p.case_sensitive {
@@ -1003,16 +1074,23 @@ fn find_files(start: &Path, p: &FindParams) -> std::result::Result<Vec<PathBuf>,
         walker = walker.max_depth(1);
     }
     let mut out = Vec::new();
+    let mut scanned = 0usize;
     for entry in walker.into_iter().filter_entry(|e| {
         // Skip hidden files/dirs (but never the start dir itself).
-        !(p.skip_hidden
-            && e.depth() > 0
-            && e.file_name().to_string_lossy().starts_with('.'))
+        !(p.skip_hidden && e.depth() > 0 && e.file_name().to_string_lossy().starts_with('.'))
     }) {
+        if cancel.is_cancelled() {
+            break;
+        }
         let entry = match entry {
             Ok(e) => e,
             Err(_) => continue,
         };
+        // Throttle progress reporting (every 64 entries scanned).
+        scanned += 1;
+        if scanned.is_multiple_of(64) {
+            progress(entry.path().to_string_lossy().into_owned(), out.len());
+        }
         if !entry.file_type().is_file() {
             continue;
         }
@@ -1037,11 +1115,12 @@ fn find_files(start: &Path, p: &FindParams) -> std::result::Result<Vec<PathBuf>,
             }
         }
         out.push(entry.path().to_path_buf());
+        progress(entry.path().to_string_lossy().into_owned(), out.len());
         if out.len() >= MAX_RESULTS {
             break;
         }
     }
-    Ok(out)
+    out
 }
 
 /// Remove a local file or directory tree (used after a move-into-archive).
@@ -1208,6 +1287,13 @@ mod tests {
         std::fs::write(root.join("sub/b.txt"), b"world").unwrap();
         std::fs::write(root.join("c.log"), b"hello again").unwrap();
 
+        let run = |p: &FindParams| {
+            let m = crate::panel::selection::NameMatcher::build(&p.file_name, p.case_sensitive, p.shell)
+                .unwrap();
+            let c = crate::ops::CancelToken::new();
+            find_files(&root, p, &m, &c, |_, _| {})
+        };
+
         let by_name = FindParams {
             start_at: String::new(),
             file_name: "*.txt".into(),
@@ -1217,16 +1303,14 @@ mod tests {
             skip_hidden: true,
             shell: true,
         };
-        let r = find_files(&root, &by_name).unwrap();
-        assert_eq!(r.len(), 2, "two .txt files");
+        assert_eq!(run(&by_name).len(), 2, "two .txt files");
 
         let by_content = FindParams {
             file_name: "*".into(),
             content: "HELLO".into(),
             ..by_name
         };
-        let r2 = find_files(&root, &by_content).unwrap();
-        assert_eq!(r2.len(), 2, "two files contain 'hello' (case-insensitive)");
+        assert_eq!(run(&by_content).len(), 2, "two files contain 'hello'");
 
         std::fs::remove_dir_all(&root).ok();
     }
