@@ -8,6 +8,7 @@ use crate::ops::CancelToken;
 use crate::ops::{OpKind, OpRequest, TaskHandle, TaskId, spawn_op};
 use crate::panel::sort::SortKey;
 use crate::panel::Panel;
+use crate::proc::{ProcSignal, ProcView};
 use crate::ui::cmdline::CommandLine;
 use crate::ui::dialog::{
     ConfirmDialog, Dialog, DialogResult, FindDialog, FindParams, FormDialog, InputDialog,
@@ -67,6 +68,8 @@ pub struct AppState {
     pub viewer: Option<ViewerState>,
     pub editor: Option<EditorState>,
     pub menu: Option<MenuBarState>,
+    /// The full-screen process explorer, when open.
+    pub procview: Option<ProcView>,
     pub theme: Theme,
     pub config: Config,
     pub registry: Registry,
@@ -189,6 +192,7 @@ impl AppState {
             viewer: None,
             editor: None,
             menu: None,
+            procview: None,
             theme,
             config,
             registry,
@@ -215,17 +219,25 @@ impl AppState {
     /// Returns true when something visible changed (so the loop can redraw).
     pub fn on_tick(&mut self) -> bool {
         let mut dirty = false;
-        if self.config.animation && self.truecolor {
+        self.tick_count = self.tick_count.wrapping_add(1);
+        // Animate gradients when truecolor is on and either animations are
+        // enabled or the (always-animated) process explorer is open.
+        let animate = self.truecolor && (self.config.animation || self.procview.is_some());
+        if animate {
             self.anim_phase = self.anim_phase.wrapping_add(1);
             dirty = true;
         }
-        if self.config.system_status {
-            self.tick_count = self.tick_count.wrapping_add(1);
+        if self.config.system_status && self.tick_count.is_multiple_of(5) {
             // Sample roughly every 500 ms.
-            if self.tick_count.is_multiple_of(5) {
-                self.sampler.sample();
-                dirty = true;
+            self.sampler.sample();
+            dirty = true;
+        }
+        // Refresh the process explorer roughly once a second.
+        if let Some(pv) = self.procview.as_mut() {
+            if self.tick_count.is_multiple_of(10) {
+                pv.refresh();
             }
+            dirty = true;
         }
         dirty
     }
@@ -235,6 +247,7 @@ impl AppState {
         (self.config.animation && self.truecolor)
             || self.config.system_status
             || self.pending_esc.is_some()
+            || self.procview.is_some()
     }
 
     /// Load both panels' directories.
@@ -503,6 +516,17 @@ impl AppState {
             }
             return Flow::Continue;
         }
+        if let Some(pv) = self.procview.as_mut() {
+            match pv.handle_key(key) {
+                ProcSignal::Stay => {}
+                ProcSignal::Close => self.procview = None,
+                ProcSignal::Kill { pid, name, force } => {
+                    self.dialog =
+                        Some(Dialog::Confirm(ConfirmDialog::kill(pid, &name, force)));
+                }
+            }
+            return Flow::Continue;
+        }
         if self.menu.is_some() {
             return self.handle_menu_key(key).await;
         }
@@ -553,6 +577,7 @@ impl AppState {
             MenuAction::Refresh => self.reload_all().await,
             MenuAction::ToggleSplit => self.split = self.split.toggle(),
             MenuAction::FindFile => self.open_find_dialog(),
+            MenuAction::ProcExplorer => self.open_proc_explorer(),
             MenuAction::Connect(side, proto) => {
                 self.dialog = Some(Dialog::Form(FormDialog::connect(proto, side)))
             }
@@ -629,6 +654,7 @@ impl AppState {
             Submit::Compress(sources, name) => self.start_compress(sources, name),
             Submit::Connect(side, creds) => self.connect_remote(side, creds).await,
             Submit::UserCommand(tpl) => self.pending_run = Some(self.expand_macros(&tpl)),
+            Submit::KillProcess { pid, force } => self.kill_process(pid, force),
             Submit::Quit => self.pending_quit = true,
             Submit::EditorSaveQuit => self.save_editor(true).await,
             Submit::EditorDiscardQuit => {
@@ -885,6 +911,29 @@ impl AppState {
         self.active_panel()
             .try_enter(newcwd, backend, focus.as_deref())
             .await;
+    }
+
+    /// Open the full-screen process explorer.
+    fn open_proc_explorer(&mut self) {
+        self.procview = Some(ProcView::new());
+    }
+
+    /// Kill a process (from the explorer), then refresh the listing.
+    fn kill_process(&mut self, pid: i32, force: bool) {
+        #[cfg(unix)]
+        {
+            use nix::sys::signal::{Signal, kill};
+            use nix::unistd::Pid;
+            let sig = if force { Signal::SIGKILL } else { Signal::SIGTERM };
+            let _ = kill(Pid::from_raw(pid), sig);
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = (pid, force);
+        }
+        if let Some(pv) = self.procview.as_mut() {
+            pv.refresh();
+        }
     }
 
     /// Handle a `cd` typed at the command line: change the active panel's

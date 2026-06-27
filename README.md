@@ -80,6 +80,12 @@ The installed executable is named **`rc`** for quick typing.
 - A configurable **F2 user menu** (Midnight Commander `menu` file format)
 - Open a file with the system default app (`xdg-open`) by pressing Enter on it
 
+**Process explorer** (Command menu → *Process explorer…*)
+- A full-screen list of processes with **CPU% and memory** usage, sortable by
+  **name, CPU, memory or PID**, and **kill** (SIGTERM, or SIGKILL with `K`)
+- An animated **CPU-load line graph**, per-**core** load bars, and a **memory**
+  display — all using truecolor gradients when available (Linux `/proc`)
+
 ---
 
 ## Installation
@@ -189,6 +195,17 @@ viewer, and the editor. (A quick `Alt`+digit does the same thing.)
 | `Ctrl-V` | Paste |
 | `Ctrl-Z` / `Ctrl-Y` | Undo / redo |
 | `Esc` / `F10` | Quit (prompts if modified) |
+
+### Keyboard shortcuts — process explorer
+
+| Key | Action |
+| --- | --- |
+| `↑ ↓ / PgUp PgDn / Home End` | Move the selection |
+| `c` / `m` / `n` / `p` | Sort by CPU / memory / name / PID (press again to reverse) |
+| `r` | Reverse sort order |
+| `k` / `F8` / `F9` / `Del` | Kill the selected process (SIGTERM, with confirmation) |
+| `K` | Force-kill (SIGKILL, with confirmation) |
+| `Esc` / `F10` / `q` | Close |
 
 ### Dialogs
 

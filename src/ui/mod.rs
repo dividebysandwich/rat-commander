@@ -39,6 +39,17 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
         }
         return;
     }
+    if let Some(pv) = state.procview.as_mut() {
+        // The process explorer's graphs animate whenever truecolor is available,
+        // regardless of the global animation toggle.
+        let mut th = theme.clone();
+        th.animated = state.truecolor;
+        crate::proc::render::render(f, area, pv, &th);
+        if let Some(d) = &mut state.dialog {
+            d.render(f, area, &theme);
+        }
+        return;
+    }
 
     let rows = Layout::default()
         .direction(Direction::Vertical)
@@ -257,6 +268,20 @@ mod feature_tests {
         let text = text_of(&t);
         assert!(text.contains("(10%)"), "disk usage percent on the border");
         assert!(text.contains('├') && text.contains('┤'), "mini-status separator");
+    }
+
+    #[tokio::test]
+    async fn process_explorer_opens_and_draws() {
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
+        st.init().await;
+        st.procview = Some(crate::proc::ProcView::new());
+        let mut t = Terminal::new(TestBackend::new(120, 30)).unwrap();
+        t.draw(|f| draw(f, &mut st)).unwrap();
+        let text = text_of(&t);
+        assert!(text.contains("Process Explorer"), "explorer renders over the UI");
+        assert!(text.contains("Cores"), "per-core graph present");
+        assert!(text.contains("Mem"), "memory graph present");
     }
 
     #[test]

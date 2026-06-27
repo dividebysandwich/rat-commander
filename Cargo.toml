@@ -1,6 +1,6 @@
 [package]
 name = "rat-commander"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "A self-contained Norton/Midnight-Commander-style TUI file manager"
 license = "GPL-2.0-only"
@@ -66,9 +66,9 @@ walkdir = "2.5.0"
 xz2 = "0.1.7"
 zip = "8.6.0"
 
-# nix (chmod/chown/uid lookups) is Unix-only.
+# nix (chmod/chown/uid lookups, process signals) is Unix-only.
 [target.'cfg(unix)'.dependencies]
-nix = { version = "0.31.3", features = ["fs", "user"] }
+nix = { version = "0.31.3", features = ["fs", "user", "signal", "process"] }
 
 [profile.release]
 strip = true

@@ -87,6 +87,8 @@ pub enum Submit {
     Connect(usize, RemoteCreds),
     /// Run a user-menu (F2) command template (macros expanded by the app).
     UserCommand(String),
+    /// Kill a process from the process explorer (`force` ⇒ SIGKILL).
+    KillProcess { pid: i32, force: bool },
 }
 
 /// Values collected by the settings form.
@@ -389,6 +391,19 @@ impl ConfirmDialog {
             Submit::Quit,
             "Yes",
             "No",
+            None,
+        )
+    }
+
+    /// Confirm killing a process (from the process explorer).
+    pub fn kill(pid: i32, name: &str, force: bool) -> Self {
+        let how = if force { "Force-kill (SIGKILL)" } else { "Kill (SIGTERM)" };
+        Self::yes_no(
+            "Kill process",
+            format!("{how} process {pid} \"{name}\"?"),
+            Submit::KillProcess { pid, force },
+            "Kill",
+            "Cancel",
             None,
         )
     }

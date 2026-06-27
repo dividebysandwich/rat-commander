@@ -36,6 +36,7 @@ pub enum MenuAction {
     Refresh,
     ToggleSplit,
     FindFile,
+    ProcExplorer,
     Connect(usize, Protocol),
     Disconnect(usize),
     Settings,
@@ -124,6 +125,7 @@ impl MenuBarState {
         let command = Menu {
             items: vec![
                 item("Find file...", MenuAction::FindFile),
+                item("Process explorer...", MenuAction::ProcExplorer),
                 sep(),
                 item("Swap panels", MenuAction::SwapPanels),
                 item("Re-read directories", MenuAction::Refresh),
