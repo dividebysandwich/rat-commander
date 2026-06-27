@@ -177,7 +177,8 @@ fn render_disk_usage(f: &mut Frame, area: Rect, panel: &Panel, border_color: Col
 
 /// Foreground color for an entry's name based on its kind/mark. Directories use
 /// the same color as ordinary files (they're distinguished by the `/` prefix);
-/// executables and symlinks keep their accent colors.
+/// executables and symlinks keep their accent colors; plain files are tinted by
+/// file-type category (archive / document / image / media).
 fn name_style(e: &VfsEntry, marked: bool, theme: &Theme) -> Style {
     let base = Style::default().bg(theme.panel_bg);
     if marked {
@@ -186,8 +187,47 @@ fn name_style(e: &VfsEntry, marked: bool, theme: &Theme) -> Style {
     match e.kind {
         VfsKind::Symlink => base.fg(theme.symlink_fg),
         VfsKind::File if e.is_executable() => base.fg(theme.exec_fg).add_modifier(Modifier::BOLD),
-        // Directories and plain files share the normal foreground.
+        VfsKind::File => match category_color(e.extension(), theme) {
+            Some(c) => base.fg(c),
+            None => base.fg(theme.panel_fg),
+        },
+        // Directories (and anything else) use the normal foreground.
         _ => base.fg(theme.panel_fg),
+    }
+}
+
+/// Map a file extension to its category accent color, if any.
+fn category_color(ext: &str, theme: &Theme) -> Option<Color> {
+    let e = ext.to_ascii_lowercase();
+    let e = e.as_str();
+    const ARCHIVE: &[&str] = &[
+        "zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "tbz2", "tbz", "xz", "txz", "zst", "lz",
+        "lzma", "z", "deb", "rpm", "jar", "war", "apk", "cab", "arj", "lha", "lzh", "iso", "dmg",
+        "pkg", "msi", "xz2",
+    ];
+    const DOCUMENT: &[&str] = &[
+        "txt", "md", "rst", "pdf", "doc", "docx", "odt", "rtf", "xls", "xlsx", "ods", "ppt",
+        "pptx", "odp", "csv", "tex", "epub", "djvu", "mobi", "log", "json", "xml", "yaml", "yml",
+        "toml", "ini", "cfg", "conf", "html", "htm", "css",
+    ];
+    const IMAGE: &[&str] = &[
+        "jpg", "jpeg", "png", "gif", "bmp", "svg", "webp", "tiff", "tif", "ico", "ppm", "pgm",
+        "xpm", "heic", "heif", "raw", "cr2", "nef", "psd", "xcf",
+    ];
+    const MEDIA: &[&str] = &[
+        "wav", "mp3", "flac", "ogg", "oga", "opus", "aac", "m4a", "wma", "mid", "midi", "aiff",
+        "mp4", "mkv", "avi", "mov", "webm", "flv", "wmv", "m4v", "mpg", "mpeg", "3gp", "ts", "vob",
+    ];
+    if ARCHIVE.contains(&e) {
+        Some(theme.archive_fg)
+    } else if DOCUMENT.contains(&e) {
+        Some(theme.doc_fg)
+    } else if IMAGE.contains(&e) {
+        Some(theme.image_fg)
+    } else if MEDIA.contains(&e) {
+        Some(theme.media_fg)
+    } else {
+        None
     }
 }
 
@@ -466,5 +506,37 @@ mod tests {
     fn display_name_includes_prefix() {
         assert_eq!(display_name(&entry("dir", VfsKind::Dir, 0o755, false)), "/dir");
         assert_eq!(display_name(&entry("file", VfsKind::File, 0o644, false)), " file");
+    }
+
+    #[test]
+    fn category_color_maps_extensions() {
+        let t = Theme::mc();
+        assert_eq!(category_color("zip", &t), Some(t.archive_fg));
+        assert_eq!(category_color("deb", &t), Some(t.archive_fg));
+        assert_eq!(category_color("PNG", &t), Some(t.image_fg), "case-insensitive");
+        assert_eq!(category_color("wav", &t), Some(t.media_fg));
+        assert_eq!(category_color("mp4", &t), Some(t.media_fg));
+        assert_eq!(category_color("pdf", &t), Some(t.doc_fg));
+        assert_eq!(category_color("xyz", &t), None);
+        assert_eq!(category_color("", &t), None);
+    }
+
+    #[test]
+    fn name_style_tints_plain_files_by_type() {
+        let t = Theme::mc();
+        // An archive file gets the archive color; an unknown one stays normal.
+        assert_eq!(
+            name_style(&entry("a.zip", VfsKind::File, 0o644, false), false, &t).fg,
+            Some(t.archive_fg)
+        );
+        assert_eq!(
+            name_style(&entry("notes.dat", VfsKind::File, 0o644, false), false, &t).fg,
+            Some(t.panel_fg)
+        );
+        // Executables and directories are unaffected by category coloring.
+        assert_eq!(
+            name_style(&entry("run.sh", VfsKind::File, 0o755, false), false, &t).fg,
+            Some(t.exec_fg)
+        );
     }
 }

@@ -53,6 +53,12 @@ pub struct Theme {
     pub dir_fg: Color,
     pub exec_fg: Color,
     pub symlink_fg: Color,
+    /// File-type accent colors (by extension): archives, documents, images, and
+    /// audio/video media.
+    pub archive_fg: Color,
+    pub doc_fg: Color,
+    pub image_fg: Color,
+    pub media_fg: Color,
     pub menubar: Style,
     pub fkey_label: Style,
     pub fkey_num: Style,
@@ -113,6 +119,12 @@ impl Theme {
             dir_fg: p.bright_blue,
             exec_fg: p.bright_green,
             symlink_fg: p.bright_cyan,
+            // Archives = purple, documents = (dark) yellow, images = cyan,
+            // audio/video = green — matching Midnight Commander's scheme.
+            archive_fg: p.bright_magenta,
+            doc_fg: p.yellow,
+            image_fg: p.bright_cyan,
+            media_fg: p.bright_green,
             menubar: Style::default().bg(p.cyan).fg(p.bg),
             fkey_label: Style::default().bg(p.cyan).fg(p.bg),
             fkey_num: Style::default().bg(p.bg).fg(p.bright_white),

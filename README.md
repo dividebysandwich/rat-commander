@@ -26,6 +26,8 @@ The installed executable is named **`rc`** for quick typing.
 - `ls -F`-style **type markers** before each name (so types read by symbol, not
   just color): `/` directory, `*` executable, `@` symlink, `!` broken symlink,
   and a leading space for plain files (keeps names aligned)
+- **File-type colors** by extension (theme-derived): archives purple, documents
+  dark yellow, images cyan, audio/video green
 - Each panel shows the volume's **free / total disk space** on its bottom border,
   and the selected file on a separated mini-status line
 - Command line at the bottom; type **`cd <dir>`** to change the active panel
