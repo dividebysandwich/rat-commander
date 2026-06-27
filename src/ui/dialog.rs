@@ -168,6 +168,10 @@ impl Dialog {
             // Precise per-button hit-testing.
             Dialog::Overwrite(d) => return d.handle_click(col, row),
             Dialog::Compare(d) => return d.handle_click(col, row),
+            Dialog::Confirm(d) => {
+                let rect = centered(area, 54u16.min(area.width.saturating_sub(4)), 7);
+                return d.handle_click(rect, col, row);
+            }
             // Any click dismisses a message box.
             Dialog::Message(_) => return DialogResult::Cancel,
             // The progress dialog is keyboard-aborted (Esc); ignore clicks so a
@@ -196,10 +200,6 @@ impl Dialog {
         }
         let mid = rect.x + rect.width / 2;
         let primary = col < mid;
-        if let Dialog::Confirm(d) = self {
-            d.focus_yes = primary;
-            return if primary { d.confirm() } else { d.no_action() };
-        }
         // OK == Enter, Cancel == Esc for the input/form/search/find dialogs.
         let code = if primary { KeyCode::Enter } else { KeyCode::Esc };
         self.handle_key(KeyEvent::new(code, KeyModifiers::NONE))
@@ -211,7 +211,6 @@ impl Dialog {
         let aw = area.width;
         let r = match self {
             Dialog::Input(_) => centered(area, 60u16.min(aw.saturating_sub(4)), 7),
-            Dialog::Confirm(_) => centered(area, 54u16.min(aw.saturating_sub(4)), 7),
             Dialog::Form(d) => {
                 centered(area, 60u16.min(aw.saturating_sub(4)), d.form.field_count() as u16 + 4)
             }
@@ -375,15 +374,18 @@ impl InputDialog {
 // Confirm dialog
 // ---------------------------------------------------------------------------
 
+/// One button in a [`ConfirmDialog`]. A `None` action simply cancels.
+struct ConfirmButton {
+    label: String,
+    action: Option<Submit>,
+}
+
 pub struct ConfirmDialog {
     pub title: String,
     pub message: String,
-    pub focus_yes: bool,
-    pub yes_label: String,
-    pub no_label: String,
-    pub submit: Option<Submit>,
-    /// Action for the "No" button. When `None`, "No" simply cancels.
-    pub no_submit: Option<Submit>,
+    buttons: Vec<ConfirmButton>,
+    /// Index of the currently focused button.
+    focus: usize,
 }
 
 impl ConfirmDialog {
@@ -398,11 +400,25 @@ impl ConfirmDialog {
         ConfirmDialog {
             title: title.to_string(),
             message,
-            focus_yes: true,
-            yes_label: yes_label.to_string(),
-            no_label: no_label.to_string(),
-            submit: Some(submit),
-            no_submit,
+            buttons: vec![
+                ConfirmButton { label: yes_label.to_string(), action: Some(submit) },
+                ConfirmButton { label: no_label.to_string(), action: no_submit },
+            ],
+            focus: 0,
+        }
+    }
+
+    /// A three-button save / discard / cancel modal. Cancel resumes editing.
+    fn save_discard_cancel(title: &str, message: String, save: Submit, discard: Submit) -> Self {
+        ConfirmDialog {
+            title: title.to_string(),
+            message,
+            buttons: vec![
+                ConfirmButton { label: "Save".to_string(), action: Some(save) },
+                ConfirmButton { label: "Discard".to_string(), action: Some(discard) },
+                ConfirmButton { label: "Cancel".to_string(), action: None },
+            ],
+            focus: 0,
         }
     }
 
@@ -439,16 +455,14 @@ impl ConfirmDialog {
         )
     }
 
-    /// The editor's save/discard/cancel modal. Yes = save & quit, No = discard
-    /// & quit, Esc = cancel (stay in the editor).
+    /// The editor's save/discard/cancel modal. Save & quit, Discard & quit, or
+    /// Cancel/Esc to resume editing.
     pub fn editor_quit(name: &str) -> Self {
-        Self::yes_no(
+        Self::save_discard_cancel(
             "File modified",
             format!("\"{name}\" has unsaved changes. Save before closing?"),
             Submit::EditorSaveQuit,
-            "Save",
-            "Discard",
-            Some(Submit::EditorDiscardQuit),
+            Submit::EditorDiscardQuit,
         )
     }
 
@@ -476,54 +490,84 @@ impl ConfirmDialog {
         )
     }
 
-    /// The diff view's save/discard/cancel modal. Yes = save & close, No =
-    /// discard & close, Esc = cancel (stay in the diff view).
+    /// The diff view's save/discard/cancel modal. Save & close, Discard & close,
+    /// or Cancel/Esc to resume editing.
     pub fn diff_quit() -> Self {
-        Self::yes_no(
+        Self::save_discard_cancel(
             "Files modified",
             "Save changes before closing the comparison?".to_string(),
             Submit::DiffSaveQuit,
-            "Save",
-            "Discard",
-            Some(Submit::DiffDiscardQuit),
+            Submit::DiffDiscardQuit,
         )
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> DialogResult {
         match key.code {
             KeyCode::Esc => DialogResult::Cancel,
-            KeyCode::Char('n') | KeyCode::Char('N') => self.no_action(),
-            KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Char('s') | KeyCode::Char('S') => {
-                self.confirm()
-            }
-            KeyCode::Char('d') | KeyCode::Char('D') => self.no_action(),
-            KeyCode::Left | KeyCode::Right | KeyCode::Tab => {
-                self.focus_yes = !self.focus_yes;
+            KeyCode::Left => {
+                let n = self.buttons.len();
+                self.focus = (self.focus + n - 1) % n;
                 DialogResult::None
             }
-            KeyCode::Enter => {
-                if self.focus_yes {
-                    self.confirm()
+            KeyCode::Right | KeyCode::Tab => {
+                self.focus = (self.focus + 1) % self.buttons.len();
+                DialogResult::None
+            }
+            KeyCode::Enter => self.activate(self.focus),
+            KeyCode::Char(c) => {
+                let c = c.to_ascii_lowercase();
+                // y/n alias the first two buttons; otherwise match a button's
+                // leading letter (S)ave / (D)iscard / (C)ancel / (K)ill / (N)o.
+                let idx = if c == 'y' {
+                    Some(0)
+                } else if c == 'n' && self.buttons.len() >= 2 {
+                    Some(1)
                 } else {
-                    self.no_action()
+                    self.buttons.iter().position(|b| {
+                        b.label.chars().next().map(|x| x.to_ascii_lowercase()) == Some(c)
+                    })
+                };
+                match idx {
+                    Some(i) => self.activate(i),
+                    None => DialogResult::None,
                 }
             }
             _ => DialogResult::None,
         }
     }
 
-    fn confirm(&mut self) -> DialogResult {
-        match self.submit.take() {
+    fn activate(&mut self, idx: usize) -> DialogResult {
+        self.focus = idx;
+        match self.buttons.get_mut(idx).and_then(|b| b.action.take()) {
             Some(s) => DialogResult::Submit(s),
             None => DialogResult::Cancel,
         }
     }
 
-    fn no_action(&mut self) -> DialogResult {
-        match self.no_submit.take() {
-            Some(s) => DialogResult::Submit(s),
-            None => DialogResult::Cancel,
+    /// Hit-test a click against the centered button row. Returns `None` for
+    /// clicks that miss every button.
+    fn handle_click(&mut self, rect: Rect, col: u16, row: u16) -> DialogResult {
+        if row != rect.y + rect.height.saturating_sub(2) {
+            return DialogResult::None;
         }
+        let labels = self.button_labels();
+        let total: usize =
+            labels.iter().map(|l| l.chars().count()).sum::<usize>() + 3 * labels.len().saturating_sub(1);
+        let inner_x = rect.x + 1;
+        let inner_w = rect.width.saturating_sub(2) as usize;
+        let mut x = inner_x + (inner_w.saturating_sub(total) / 2) as u16;
+        for (i, l) in labels.iter().enumerate() {
+            let w = l.chars().count() as u16;
+            if col >= x && col < x + w {
+                return self.activate(i);
+            }
+            x += w + 3;
+        }
+        DialogResult::None
+    }
+
+    fn button_labels(&self) -> Vec<String> {
+        self.buttons.iter().map(|b| format!("[ {} ]", b.label)).collect()
     }
 
     fn render(&self, f: &mut Frame, area: Rect, theme: &Theme) {
@@ -548,11 +592,15 @@ impl ConfirmDialog {
             rows[0],
         );
 
-        let yes = button(&format!("[ {} ]", self.yes_label), self.focus_yes, theme);
-        let no = button(&format!("[ {} ]", self.no_label), !self.focus_yes, theme);
-        let buttons = Line::from(vec![yes, Span::raw("   "), no]);
+        let mut spans = Vec::new();
+        for (i, label) in self.button_labels().iter().enumerate() {
+            if i > 0 {
+                spans.push(Span::raw("   "));
+            }
+            spans.push(button(label, i == self.focus, theme));
+        }
         f.render_widget(
-            Paragraph::new(buttons)
+            Paragraph::new(Line::from(spans))
                 .alignment(ratatui::layout::Alignment::Center)
                 .style(Style::default().bg(theme.dialog_bg)),
             rows[1],
@@ -2808,6 +2856,51 @@ mod tests {
 
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    #[test]
+    fn save_discard_cancel_has_three_buttons() {
+        // Save.
+        let mut d = ConfirmDialog::editor_quit("notes.txt");
+        assert_eq!(d.buttons.len(), 3);
+        assert!(matches!(
+            d.handle_key(key(KeyCode::Enter)),
+            DialogResult::Submit(Submit::EditorSaveQuit)
+        ));
+
+        // Discard via its hotkey.
+        let mut d = ConfirmDialog::editor_quit("notes.txt");
+        assert!(matches!(
+            d.handle_key(key(KeyCode::Char('d'))),
+            DialogResult::Submit(Submit::EditorDiscardQuit)
+        ));
+
+        // Cancel via its hotkey resumes editing (no submit).
+        let mut d = ConfirmDialog::editor_quit("notes.txt");
+        assert!(matches!(d.handle_key(key(KeyCode::Char('c'))), DialogResult::Cancel));
+
+        // Esc still cancels.
+        let mut d = ConfirmDialog::diff_quit();
+        assert!(matches!(d.handle_key(key(KeyCode::Esc)), DialogResult::Cancel));
+
+        // Focus the third button with Tab×2, then Enter cancels.
+        let mut d = ConfirmDialog::diff_quit();
+        d.handle_key(key(KeyCode::Tab));
+        d.handle_key(key(KeyCode::Tab));
+        assert_eq!(d.focus, 2);
+        assert!(matches!(d.handle_key(key(KeyCode::Enter)), DialogResult::Cancel));
+    }
+
+    #[test]
+    fn two_button_confirm_still_works() {
+        let mut d = ConfirmDialog::quit();
+        assert_eq!(d.buttons.len(), 2);
+        assert!(matches!(d.handle_key(key(KeyCode::Char('n'))), DialogResult::Cancel));
+        let mut d = ConfirmDialog::quit();
+        assert!(matches!(
+            d.handle_key(key(KeyCode::Char('y'))),
+            DialogResult::Submit(Submit::Quit)
+        ));
     }
 
     #[test]
