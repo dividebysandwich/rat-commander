@@ -690,11 +690,11 @@ impl AppState {
             Ok(b) => b,
             Err(e) => return self.show_error(e.to_string()),
         };
-        let p = self.active_panel();
-        p.cwd = newcwd;
-        p.backend = backend;
-        p.selection.clear();
-        let _ = p.reload_keeping(focus.as_deref()).await;
+        // Atomic move: if the target can't be listed (e.g. permission denied),
+        // the panel stays where it is rather than getting stuck in it.
+        self.active_panel()
+            .try_enter(newcwd, backend, focus.as_deref())
+            .await;
     }
 
     /// Open the local file under the cursor with the system default program
@@ -1574,6 +1574,59 @@ mod tests {
         assert!(names.contains(&"top.txt".to_string()), "names: {names:?}");
         assert!(names.contains(&"..".to_string()), "archive has parent link");
 
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn cannot_enter_unreadable_directory() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("rc_perm_{}_{nanos}", std::process::id()));
+        let secret = root.join("secret");
+        std::fs::create_dir_all(&secret).unwrap();
+        std::fs::write(root.join("visible.txt"), b"hi").unwrap();
+        // Remove all permissions on the subdirectory.
+        std::fs::set_permissions(&secret, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+        // If we can still read it (e.g. running as root), the scenario doesn't
+        // apply — skip rather than assert a false negative.
+        let denied = std::fs::read_dir(&secret).is_err();
+
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
+        st.panels[0].cwd = VfsPath::local(&root);
+        st.panels[0].backend = st.registry.local();
+        st.panels[0].reload().await.unwrap();
+        st.active = 0;
+
+        let idx = st.panels[0]
+            .entries
+            .iter()
+            .position(|e| e.name == "secret")
+            .unwrap();
+        st.panels[0].cursor = idx;
+        st.enter_dir().await;
+
+        if denied {
+            assert_eq!(
+                st.panels[0].cwd.path, root,
+                "should not have entered the unreadable directory"
+            );
+            assert!(st.panels[0].error.is_none(), "no error should be left behind");
+            // The listing is intact so the user can keep navigating.
+            assert!(
+                st.panels[0].entries.iter().any(|e| e.name == "visible.txt"),
+                "panel listing should be preserved"
+            );
+        }
+
+        // Restore permissions so cleanup can remove the tree.
+        std::fs::set_permissions(&secret, std::fs::Permissions::from_mode(0o755)).ok();
         std::fs::remove_dir_all(&root).ok();
     }
 

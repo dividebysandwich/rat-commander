@@ -115,6 +115,35 @@ impl Panel {
         Ok(())
     }
 
+    /// Navigate to `newcwd` (on `backend`), focusing `focus_name` once the
+    /// listing loads. The move is atomic: if the target can't be read (e.g. a
+    /// directory the user has no permission to list), the panel reverts to where
+    /// it was and returns `false` — so navigation into an unusable directory
+    /// simply does not happen.
+    pub async fn try_enter(
+        &mut self,
+        newcwd: VfsPath,
+        backend: Arc<dyn Vfs>,
+        focus_name: Option<&str>,
+    ) -> bool {
+        let prev_cwd = std::mem::replace(&mut self.cwd, newcwd);
+        let prev_backend = std::mem::replace(&mut self.backend, backend);
+        let prev_selection = std::mem::replace(&mut self.selection, Selection::new());
+
+        let _ = self.reload_keeping(focus_name).await;
+        if self.error.is_some() {
+            // Couldn't list the target: undo the move and stay put.
+            self.cwd = prev_cwd;
+            self.backend = prev_backend;
+            self.selection = prev_selection;
+            self.error = None;
+            let _ = self.reload().await;
+            false
+        } else {
+            true
+        }
+    }
+
     pub fn current_entry(&self) -> Option<&VfsEntry> {
         self.entries.get(self.cursor)
     }
