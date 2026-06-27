@@ -2,6 +2,34 @@
 name = "rat-commander"
 version = "0.1.0"
 edition = "2024"
+description = "A self-contained Norton/Midnight-Commander-style TUI file manager"
+license = "MIT"
+repository = "https://github.com/dividebysandwich/rat-commander"
+
+# The installed executable is named `rc` for convenience.
+[[bin]]
+name = "rc"
+path = "src/main.rs"
+
+# cargo-deb packaging metadata (binary is auto-included from [[bin]]).
+[package.metadata.deb]
+maintainer = "rat-commander maintainers"
+copyright = "rat-commander contributors"
+section = "utils"
+priority = "optional"
+# Explicit dependencies (skips dpkg-shlibdeps, which cannot analyse the
+# cross-compiled arm64/armhf binaries on an x86_64 CI host). These shared
+# libraries ship by default on Debian and Raspberry Pi OS.
+depends = "libc6, libgcc-s1, libstdc++6, liblzma5"
+extended-description = """
+rat-commander is a self-contained, Midnight-Commander-style two-panel file
+manager for the terminal: internal viewer/editor, archives browsed as
+directories, FTP/SFTP/SCP remote panels, themeable truecolor UI, and a
+configurable F2 user menu."""
+assets = [
+    ["target/release/rc", "usr/bin/", "755"],
+    ["README.md", "usr/share/doc/rat-commander/README.md", "644"],
+]
 
 [dependencies]
 async-trait = "0.1.89"
@@ -30,3 +58,7 @@ unrar = "0.5.8"
 walkdir = "2.5.0"
 xz2 = "0.1.7"
 zip = "8.6.0"
+
+[profile.release]
+strip = true
+opt-level = 3

@@ -24,3 +24,8 @@ target
 # Added by cargo
 
 /target
+
+# Packaging build outputs
+dist/
+staging/
+pkgroot/

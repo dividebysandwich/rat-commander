@@ -1,0 +1,139 @@
+name: Release
+
+# Builds installable archives and native packages for Linux, Windows and macOS.
+# Triggers on version tags (v*) to publish a GitHub Release, and can be run
+# manually (workflow_dispatch) to produce the artifacts without releasing.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ---- Linux (archive + .deb) ----
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu, kind: linux, deb: true, cross: false }
+          - { os: ubuntu-latest, target: aarch64-unknown-linux-gnu, kind: linux, deb: true, cross: true }   # Raspberry Pi 64-bit
+          - { os: ubuntu-latest, target: armv7-unknown-linux-gnueabihf, kind: linux, deb: true, cross: true } # Raspberry Pi 32-bit
+          # ---- Windows (archive + .msi) ----
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, kind: windows, deb: false, cross: false }
+          # ---- macOS (archive + .pkg) ----
+          - { os: macos-13, target: x86_64-apple-darwin, kind: macos, deb: false, cross: false }   # Intel
+          - { os: macos-14, target: aarch64-apple-darwin, kind: macos, deb: false, cross: false }  # Apple Silicon
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine version
+        shell: bash
+        run: |
+          VER=$(grep -m1 '^version' Cargo.toml | sed -E 's/version *= *"([^"]+)".*/\1/')
+          echo "VERSION=$VER" >> "$GITHUB_ENV"
+          echo "Version: $VER"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross
+        if: matrix.cross
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+
+      - name: Install cargo-deb
+        if: matrix.deb
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deb
+
+      # ---- Build ----
+      - name: Build (cross)
+        if: matrix.cross
+        run: cross build --locked --release --target ${{ matrix.target }}
+
+      - name: Build (cargo)
+        if: ${{ !matrix.cross }}
+        run: cargo build --locked --release --target ${{ matrix.target }}
+
+      # ---- Archives ----
+      - name: Package archive (Unix)
+        if: matrix.kind != 'windows'
+        shell: bash
+        run: |
+          mkdir -p dist staging
+          cp "target/${{ matrix.target }}/release/rc" staging/
+          cp README.md staging/ 2>/dev/null || true
+          tar -C staging -czf "dist/rc-${VERSION}-${{ matrix.target }}.tar.gz" .
+
+      - name: Package archive (Windows)
+        if: matrix.kind == 'windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Compress-Archive -Path "target/${{ matrix.target }}/release/rc.exe", "README.md" `
+            -DestinationPath "dist/rc-$env:VERSION-${{ matrix.target }}.zip" -Force
+
+      # ---- Debian packages (amd64 / arm64 / armhf) ----
+      - name: Build .deb
+        if: matrix.deb
+        run: |
+          cargo deb --no-build --no-strip --target ${{ matrix.target }} --output "dist/"
+
+      # ---- Windows MSI (WiX) ----
+      - name: Build MSI
+        if: matrix.kind == 'windows'
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix --version 4.0.5
+          $bin = "target/${{ matrix.target }}/release"
+          wix build packaging/windows/rc.wxs -d Version=$env:VERSION -d BinDir=$bin `
+            -o "dist/rc-$env:VERSION-${{ matrix.target }}.msi"
+
+      # ---- macOS .pkg ----
+      - name: Build .pkg
+        if: matrix.kind == 'macos'
+        shell: bash
+        run: |
+          mkdir -p pkgroot
+          cp "target/${{ matrix.target }}/release/rc" pkgroot/
+          pkgbuild --identifier com.rat-commander.rc \
+            --version "${VERSION}" \
+            --install-location /usr/local/bin \
+            --root pkgroot \
+            "dist/rc-${VERSION}-${{ matrix.target }}.pkg"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/**/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true
