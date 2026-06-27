@@ -264,6 +264,7 @@ fn render_full(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, theme
         ..area
     };
     let rows = body_area.height as usize;
+    panel.page = rows.max(1);
     ensure_visible(panel.cursor, &mut panel.offset, rows);
 
     let normal = Style::default().fg(theme.panel_fg).bg(theme.panel_bg);
@@ -344,6 +345,8 @@ fn render_brief(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, them
     }
     let cell_w = 16usize.min(width.max(1));
     let columns = (width / cell_w).max(1);
+    // A page is the full grid of visible cells (rows × columns).
+    panel.page = (rows * columns).max(1);
     // Each column reserves one cell for a vertical separator between names.
     let name_w = cell_w.saturating_sub(1).max(1);
     let sep_style = Style::default().fg(theme.panel_border).bg(theme.panel_bg);

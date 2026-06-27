@@ -91,6 +91,8 @@ pub struct Panel {
     pub disk: Option<DiskUsage>,
     /// Layout geometry from the last render, for mapping mouse clicks to entries.
     pub hit: Option<PanelHit>,
+    /// Number of entries visible on screen, set by the renderer; drives PgUp/PgDn.
+    pub page: usize,
 }
 
 impl Panel {
@@ -108,6 +110,7 @@ impl Panel {
             result_paths: None,
             disk: None,
             hit: None,
+            page: 1,
         }
     }
 

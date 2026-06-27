@@ -47,8 +47,6 @@ pub enum Flow {
     SubShell,
 }
 
-const PAGE: isize = 15;
-
 /// What a mouse point/drag on a panel should do to the entry under it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PointAction {
@@ -889,8 +887,16 @@ impl AppState {
             // -- Panel navigation --
             KeyCode::Up => self.active_panel().move_cursor(-1),
             KeyCode::Down => self.active_panel().move_cursor(1),
-            KeyCode::PageUp => self.active_panel().move_cursor(-PAGE),
-            KeyCode::PageDown => self.active_panel().move_cursor(PAGE),
+            KeyCode::PageUp => {
+                let p = self.active_panel();
+                let step = p.page.max(1) as isize;
+                p.move_cursor(-step);
+            }
+            KeyCode::PageDown => {
+                let p = self.active_panel();
+                let step = p.page.max(1) as isize;
+                p.move_cursor(step);
+            }
             KeyCode::Home => self.active_panel().move_home(),
             KeyCode::End => self.active_panel().move_end(),
             KeyCode::Insert => self.active_panel().toggle_mark_and_advance(),
@@ -2181,6 +2187,42 @@ mod tests {
         assert!(!sel.is_marked("b.txt"), "b was selected → inverted off");
         assert!(sel.is_marked("c.txt"), "c was unselected → inverted on");
         assert!(!sel.is_marked("d.txt"), "d untouched");
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[tokio::test]
+    async fn page_keys_move_by_visible_page() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("rc_page_{}_{nanos}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        for i in 0..100 {
+            std::fs::write(root.join(format!("f{i:03}.txt")), b"x").unwrap();
+        }
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
+        st.active = 0;
+        st.panels[0].cwd = VfsPath::local(&root);
+        st.panels[0].backend = st.registry.local();
+        st.panels[0].reload().await.unwrap();
+
+        // Render so the panel records its visible page size from the area.
+        let mut term = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        term.draw(|f| crate::ui::draw(f, &mut st)).unwrap();
+        let page = st.panels[0].page;
+        assert!(page > 1, "page size should reflect the terminal height");
+
+        st.panels[0].cursor = 0;
+        st.handle_key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE)).await;
+        assert_eq!(st.panels[0].cursor, page, "PageDown moves one whole page");
+        st.handle_key(KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE)).await;
+        assert_eq!(st.panels[0].cursor, 0, "PageUp moves back a whole page");
 
         std::fs::remove_dir_all(&root).ok();
     }
