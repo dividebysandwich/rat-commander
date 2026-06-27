@@ -29,9 +29,10 @@ The installed executable is named **`rc`** for quick typing.
 - Command line at the bottom; type **`cd <dir>`** to change the active panel
   (supports `~`, `..`, absolute and relative paths); drop to a full-screen shell
   with **Ctrl-O**
-- **Mouse support**: left-click a file to move the cursor, right-click to mark,
-  drag to carry the cursor (right-drag paint-marks); click the menu bar to open
-  menus and pick items, and click **OK/Cancel** (or **Yes/No**) buttons in dialogs
+- **Mouse support**: left-click a file to move the cursor, right-click to
+  invert its mark, drag to carry the cursor (right-drag inverts the mark of every
+  file it passes over); click the menu bar to open menus and pick items, and click
+  **OK/Cancel** (or **Yes/No**) buttons in dialogs
 - **Find File** with a live progress dialog (abortable; partial results kept);
   results are *panelized* into the active panel
 
@@ -118,10 +119,11 @@ command and press **Enter** to run it in the active panel's directory — except
 sticks, unlike running `cd` in a subshell).
 
 The **mouse** works too: **left-click** a file to move the cursor to it (and
-activate that panel), **right-click** to mark/unmark it, and **drag** to carry
-the cursor along — dragging with the right button **paint-marks** files. Click a
-menu-bar title to open it and click an entry to run it, and click the
-**OK/Cancel** / **Yes/No** buttons in dialogs.
+activate that panel), **right-click** to invert its mark, and **drag** to carry
+the cursor along — dragging with the right button **inverts the selection** of
+every file it sweeps across (each file flips once). Click a menu-bar title to
+open it and click an entry to run it, and click the **OK/Cancel** / **Yes/No**
+buttons in dialogs.
 
 For a built-in cheat sheet, press **F1**.
 

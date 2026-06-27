@@ -52,10 +52,9 @@ const PAGE: isize = 15;
 enum PointAction {
     /// Move the cursor only (left click / left drag).
     Cursor,
-    /// Toggle the entry's mark (right click).
-    ToggleMark,
-    /// Mark the entry (right drag — paint marking).
-    PaintMark,
+    /// Invert the entry's mark, once per entry entered during the gesture
+    /// (right click / right drag — paint inverting).
+    InvertPaint,
 }
 
 pub struct AppState {
@@ -99,6 +98,9 @@ pub struct AppState {
     /// The full terminal area from the last render, used to hit-test mouse clicks
     /// against menus and centered dialogs.
     pub last_area: Rect,
+    /// The (panel, entry) last toggled by a right-drag paint, so each entry is
+    /// inverted only once as the drag passes over it.
+    paint_last: Option<(usize, usize)>,
 }
 
 /// How long a lone Esc is held, waiting for a digit, before it is delivered as
@@ -205,6 +207,7 @@ impl AppState {
             pending_esc: None,
             stashed_progress: None,
             last_area: Rect::new(0, 0, 0, 0),
+            paint_last: None,
         }
     }
 
@@ -391,6 +394,11 @@ impl AppState {
             return Flow::Continue;
         }
 
+        // A fresh press starts a new gesture; forget the last painted entry.
+        if matches!(ev.kind, MouseEventKind::Down(_)) {
+            self.paint_last = None;
+        }
+
         // Base mode: the menu bar, then the file panels.
         match ev.kind {
             MouseEventKind::Down(MouseButton::Left) => {
@@ -404,11 +412,8 @@ impl AppState {
             MouseEventKind::Drag(MouseButton::Left) => {
                 self.panel_point(col, row, PointAction::Cursor)
             }
-            MouseEventKind::Down(MouseButton::Right) => {
-                self.panel_point(col, row, PointAction::ToggleMark)
-            }
-            MouseEventKind::Drag(MouseButton::Right) => {
-                self.panel_point(col, row, PointAction::PaintMark)
+            MouseEventKind::Down(MouseButton::Right) | MouseEventKind::Drag(MouseButton::Right) => {
+                self.panel_point(col, row, PointAction::InvertPaint)
             }
             _ => {}
         }
@@ -436,16 +441,19 @@ impl AppState {
         if matches!(action, PointAction::Cursor) {
             return;
         }
-        // Selection actions never touch the "..".
+        // Invert the mark, but only once per entry as the drag enters it, so a
+        // run of drag events over the same file doesn't flip it repeatedly.
+        if self.paint_last == Some((pi, idx)) {
+            return;
+        }
+        self.paint_last = Some((pi, idx));
+        let p = &mut self.panels[pi];
+        // Selection never touches the "..".
         if let Some(e) = p.entries.get(idx)
             && e.name != ".."
         {
             let name = e.name.clone();
-            match action {
-                PointAction::ToggleMark => p.selection.toggle(&name),
-                PointAction::PaintMark => p.selection.mark(&name),
-                PointAction::Cursor => {}
-            }
+            p.selection.toggle(&name);
         }
     }
 
@@ -1955,6 +1963,58 @@ mod tests {
         })
         .await;
         assert!(st.panels[0].selection.is_marked(&name), "right-click marks the file");
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[tokio::test]
+    async fn right_drag_inverts_selection_across_files() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("rc_drag_{}_{nanos}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        for n in ["a.txt", "b.txt", "c.txt", "d.txt"] {
+            std::fs::write(root.join(n), b"x").unwrap();
+        }
+
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
+        st.active = 0;
+        st.panels[0].cwd = VfsPath::local(&root);
+        st.panels[0].backend = st.registry.local();
+        st.panels[0].reload().await.unwrap();
+        // Pre-select a.txt and b.txt.
+        st.panels[0].selection.mark("a.txt");
+        st.panels[0].selection.mark("b.txt");
+
+        let mut term = Terminal::new(TestBackend::new(120, 30)).unwrap();
+        term.draw(|f| crate::ui::draw(f, &mut st)).unwrap();
+        let hit = st.panels[0].hit.expect("hit");
+
+        let col = hit.body.x + 1;
+        // Press on a.txt, then drag across a (again), b, then c.
+        for (kind, name) in [
+            (MouseEventKind::Down(MouseButton::Right), "a.txt"),
+            (MouseEventKind::Drag(MouseButton::Right), "a.txt"), // same cell: no double-flip
+            (MouseEventKind::Drag(MouseButton::Right), "b.txt"),
+            (MouseEventKind::Drag(MouseButton::Right), "c.txt"),
+        ] {
+            let idx = st.panels[0].entries.iter().position(|e| e.name == name).unwrap();
+            let row = hit.body.y + (idx - hit.offset) as u16;
+            st.handle_mouse(MouseEvent { kind, column: col, row, modifiers: KeyModifiers::NONE })
+                .await;
+        }
+
+        let sel = &st.panels[0].selection;
+        assert!(!sel.is_marked("a.txt"), "a was selected → inverted off");
+        assert!(!sel.is_marked("b.txt"), "b was selected → inverted off");
+        assert!(sel.is_marked("c.txt"), "c was unselected → inverted on");
+        assert!(!sel.is_marked("d.txt"), "d untouched");
 
         std::fs::remove_dir_all(&root).ok();
     }
