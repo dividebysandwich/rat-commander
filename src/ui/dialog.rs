@@ -1940,7 +1940,7 @@ fn pulse_gauge(f: &mut Frame, area: Rect, ratio: f64, label: &str, base: ratatui
     // The pulse moves as `anim` advances, which the app does while an operation
     // is running (so the bars pulse during a copy even if animations are off).
     let pos = if theme.truecolor {
-        (theme.anim as f64 * 1.6) % period
+        (theme.anim as f64 * 3.2) % period
     } else {
         f64::NEG_INFINITY
     };
