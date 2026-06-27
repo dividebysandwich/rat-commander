@@ -569,7 +569,6 @@ impl AppState {
         dst_dir: Option<VfsPath>,
     ) {
         if sources.is_empty() {
-            self.show_error("No files selected");
             return;
         }
         let id = self.next_task_id;
@@ -727,7 +726,6 @@ impl AppState {
     fn open_transfer_dialog(&mut self, kind: OpKind) {
         let sources = self.panels[self.active].operation_targets();
         if sources.is_empty() {
-            self.show_error("No files selected");
             return;
         }
         // A search-result panel is not a real destination directory.
@@ -758,7 +756,6 @@ impl AppState {
     fn open_delete_dialog(&mut self) {
         let targets = self.panels[self.active].operation_targets();
         if targets.is_empty() {
-            self.show_error("No files selected");
             return;
         }
         if self.config.confirm_delete {
@@ -857,7 +854,7 @@ impl AppState {
         }
         let sources = p.operation_targets();
         if sources.is_empty() {
-            return self.show_error("No files selected");
+            return;
         }
         self.dialog = Some(Dialog::Input(InputDialog::new(
             "Compress",
