@@ -80,6 +80,9 @@ The installed executable is named **`rc`** for quick typing.
 - A configurable **F2 user menu** (Midnight Commander `menu` file format)
 - Open a file with the system default app (`xdg-open`) by pressing Enter on it
 
+<img width="1006" height="657" alt="image" src="https://github.com/user-attachments/assets/579e86aa-f3d8-4f19-9f45-be46e0c36a42" />
+
+
 **Process explorer** (Command menu → *Process explorer…*)
 - A full-screen list of processes with **CPU% and memory** usage, sortable by
   **name, CPU, memory or PID** (the sort hotkey is shown in the column header,
