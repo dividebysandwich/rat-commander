@@ -43,6 +43,10 @@ async fn run_loop(
     rx: &mut AppReceiver,
     events: &mut EventStream,
 ) -> Result<()> {
+    // ~100 ms tick drives animations and the system-status sampler.
+    let mut ticker = tokio::time::interval(std::time::Duration::from_millis(100));
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
     loop {
         term.draw(|f| ui::draw(f, state))?;
 
@@ -67,6 +71,9 @@ async fn run_loop(
             }
             Some(app_event) = rx.recv() => {
                 state.apply_event(app_event).await;
+            }
+            _ = ticker.tick(), if state.wants_ticks() => {
+                state.on_tick();
             }
         }
     }

@@ -16,7 +16,9 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 
 /// Render the entire UI for one frame.
 pub fn draw(f: &mut Frame, state: &mut AppState) {
-    let theme = state.theme.clone();
+    let mut theme = state.theme.clone();
+    theme.anim = state.anim_phase;
+    theme.animated = state.config.animation && state.truecolor;
     let area = f.area();
 
     // The editor and viewer take over the entire screen — no menu bar, so the
@@ -47,6 +49,18 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
         .split(area);
 
     menubar::render(f, rows[0], &theme);
+
+    // System-status widget on the right of the menu bar (wide screens only).
+    if state.config.system_status && area.width >= menubar::STATUS_MIN_WIDTH {
+        let sw = menubar::STATUS_WIDTH;
+        let status_area = Rect {
+            x: rows[0].x + rows[0].width - sw,
+            y: rows[0].y,
+            width: sw,
+            height: 1,
+        };
+        menubar::render_status(f, status_area, &state.sampler, &theme);
+    }
 
     let (left_area, right_area) = split_body(rows[1], state.split);
     let active = state.active;
@@ -188,3 +202,55 @@ mod tests {
 
 
 
+
+#[cfg(test)]
+mod feature_tests {
+    use super::*;
+    use crate::app::state::AppState;
+    use crate::util::async_bridge;
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+
+    fn text_of(t: &Terminal<TestBackend>) -> String {
+        let b = t.backend().buffer();
+        let mut s = String::new();
+        for y in 0..b.area.height { for x in 0..b.area.width { s.push_str(b[(x,y)].symbol()); } s.push('\n'); }
+        s
+    }
+
+    #[tokio::test]
+    async fn status_widget_shows_on_wide_screen() {
+        let (tx,_rx)=async_bridge::channel();
+        let mut st=AppState::new(tx);
+        st.config.system_status = true;
+        st.sampler.sample(); st.sampler.sample();
+        st.init().await;
+        let mut t=Terminal::new(TestBackend::new(120,24)).unwrap();
+        t.draw(|f| draw(f,&mut st)).unwrap();
+        let text=text_of(&t);
+        assert!(text.contains("CPU"), "status CPU label present");
+        assert!(text.contains("MEM"), "status MEM present");
+    }
+
+    #[tokio::test]
+    async fn status_widget_hidden_on_narrow_screen() {
+        let (tx,_rx)=async_bridge::channel();
+        let mut st=AppState::new(tx);
+        st.config.system_status = true;
+        st.init().await;
+        let mut t=Terminal::new(TestBackend::new(70,24)).unwrap();
+        t.draw(|f| draw(f,&mut st)).unwrap();
+        assert!(!text_of(&t).contains("CPU"), "no status on narrow screen");
+    }
+
+    #[test]
+    fn animated_gradient_shifts_with_phase() {
+        let mut th = crate::ui::theme::Theme::by_name("Dracula", true);
+        th.animated = true;
+        th.anim = 0;
+        let a = th.gradient_at(5, 20);
+        th.anim = 8;
+        let b = th.gradient_at(5, 20);
+        assert_ne!(a, b, "gradient should move with the animation phase");
+    }
+}

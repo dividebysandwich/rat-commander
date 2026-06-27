@@ -66,6 +66,10 @@ pub struct Theme {
     pub error_fg: Color,
     /// Readable foreground for text drawn over a gradient bar.
     pub bar_fg: Color,
+    /// Animation frame (set per-frame by the renderer).
+    pub anim: usize,
+    /// Whether gradients should animate (slide) this frame.
+    pub animated: bool,
     /// Gradient endpoints (RGB) used for bars when `truecolor` is set.
     grad_a: (u8, u8, u8),
     grad_b: (u8, u8, u8),
@@ -125,6 +129,8 @@ impl Theme {
             error_fg: p.bright_red,
             // Vivid gradient endpoints keep the bars/cursor bright and modern.
             bar_fg: best_contrast(mix(p.bright_blue, p.bright_magenta, 0.5), p.black, p.bright_white),
+            anim: 0,
+            animated: false,
             grad_a: to_rgb(p.bright_blue),
             grad_b: to_rgb(p.bright_magenta),
         }
@@ -148,10 +154,17 @@ impl Theme {
         if !self.truecolor {
             return Color::Rgb(self.grad_a.0, self.grad_a.1, self.grad_a.2);
         }
-        let t = if width <= 1 {
+        let base = if width <= 1 {
             0.0
         } else {
             i as f64 / (width - 1) as f64
+        };
+        // When animated, slide a triangle wave so the gradient bounces a→b→a
+        // and shifts over time; otherwise a static linear a→b ramp.
+        let t = if self.animated {
+            triangle(base * 1.5 + self.anim as f64 * 0.04)
+        } else {
+            base
         };
         let r = lerp(self.grad_a.0, self.grad_b.0, t);
         let g = lerp(self.grad_a.1, self.grad_b.1, t);
@@ -168,6 +181,12 @@ impl Default for Theme {
 
 fn lerp(a: u8, b: u8, t: f64) -> u8 {
     (a as f64 + (b as f64 - a as f64) * t).round().clamp(0.0, 255.0) as u8
+}
+
+/// Triangle wave over period 1: 0 → 1 → 0.
+fn triangle(x: f64) -> f64 {
+    let f = x - x.floor();
+    if f < 0.5 { f * 2.0 } else { 2.0 * (1.0 - f) }
 }
 
 fn to_rgb(c: Color) -> (u8, u8, u8) {

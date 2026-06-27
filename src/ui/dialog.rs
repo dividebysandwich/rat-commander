@@ -14,7 +14,10 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Constraint, Direction, Layout, Position, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Borders, Clear, Gauge, Paragraph, Wrap};
+use ratatui::symbols;
+use ratatui::widgets::{
+    Axis, Block, BorderType, Borders, Chart, Clear, Dataset, Gauge, GraphType, Paragraph, Wrap,
+};
 
 /// The active modal dialog (only one at a time).
 #[allow(clippy::large_enum_variant)]
@@ -86,6 +89,9 @@ pub struct SettingsValues {
     pub use_internal_editor: bool,
     pub confirm_delete: bool,
     pub theme: String,
+    pub truecolor: bool,
+    pub animation: bool,
+    pub system_status: bool,
 }
 
 impl Dialog {
@@ -227,6 +233,7 @@ impl InputDialog {
     fn render(&self, f: &mut Frame, area: Rect, theme: &Theme) {
         let w = 60u16.min(area.width.saturating_sub(4));
         let rect = centered(area, w, 7);
+        draw_shadow(f, rect, theme);
         f.render_widget(Clear, rect);
         let block = dialog_block(&self.title, theme);
         let inner = block.inner(rect);
@@ -368,6 +375,7 @@ impl ConfirmDialog {
     fn render(&self, f: &mut Frame, area: Rect, theme: &Theme) {
         let w = 54u16.min(area.width.saturating_sub(4));
         let rect = centered(area, w, 7);
+        draw_shadow(f, rect, theme);
         f.render_widget(Clear, rect);
         let block = dialog_block(&self.title, theme);
         let inner = block.inner(rect);
@@ -414,6 +422,11 @@ pub struct ProgressDialog {
     pub files_total: u64,
     /// When true, render an indeterminate sweep (e.g. find-file scanning).
     pub indeterminate: bool,
+    /// Transfer-speed samples: (bytes-done, bytes/sec) for the chart.
+    samples: Vec<(f64, f64)>,
+    peak_speed: f64,
+    last_bytes: u64,
+    last_instant: Option<std::time::Instant>,
 }
 
 impl ProgressDialog {
@@ -429,6 +442,10 @@ impl ProgressDialog {
             files_done: 0,
             files_total: 0,
             indeterminate: false,
+            samples: Vec::new(),
+            peak_speed: 0.0,
+            last_bytes: 0,
+            last_instant: None,
         }
     }
 
@@ -448,6 +465,28 @@ impl ProgressDialog {
         self.total_total = u.total_total;
         self.files_done = u.files_done;
         self.files_total = u.files_total;
+
+        // Sample transfer speed (~every 100 ms) for the chart.
+        let now = std::time::Instant::now();
+        match self.last_instant {
+            None => {
+                self.last_instant = Some(now);
+                self.last_bytes = u.total_done;
+            }
+            Some(prev) => {
+                let dt = now.duration_since(prev).as_secs_f64();
+                if dt >= 0.1 {
+                    let speed = u.total_done.saturating_sub(self.last_bytes) as f64 / dt;
+                    self.peak_speed = self.peak_speed.max(speed);
+                    self.samples.push((u.total_done as f64, speed));
+                    if self.samples.len() > 1024 {
+                        self.samples.remove(0);
+                    }
+                    self.last_instant = Some(now);
+                    self.last_bytes = u.total_done;
+                }
+            }
+        }
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> DialogResult {
@@ -469,33 +508,33 @@ impl ProgressDialog {
         if self.indeterminate {
             return self.render_indeterminate(f, area, theme);
         }
-        let w = 60u16.min(area.width.saturating_sub(4));
-        let rect = centered(area, w, 10);
+        let w = 64u16.min(area.width.saturating_sub(4));
+        let rect = centered(area, w, 16);
+        draw_shadow(f, rect, theme);
         f.render_widget(Clear, rect);
         let block = dialog_block(self.verb, theme);
         let inner = block.inner(rect);
         f.render_widget(block, rect);
+        let base = Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg);
 
         let rows = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(1), // file name
                 Constraint::Length(1), // file gauge
-                Constraint::Length(1), // spacer/label
+                Constraint::Length(1), // total label
                 Constraint::Length(1), // total gauge
-                Constraint::Min(0),    // hint
+                Constraint::Length(1), // chart title
+                Constraint::Min(3),    // speed chart
+                Constraint::Length(1), // abort
             ])
             .split(inner);
 
         let name = crate::util::text::ellipsize(&self.current_name, inner.width as usize);
-        f.render_widget(
-            Paragraph::new(Line::from(name))
-                .style(Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg)),
-            rows[0],
-        );
+        f.render_widget(Paragraph::new(Line::from(name)).style(base), rows[0]);
 
         let file_gauge = Gauge::default()
-            .gauge_style(Style::default().fg(ratatui::style::Color::Green))
+            .gauge_style(Style::default().fg(theme.exec_fg).bg(theme.dialog_bg))
             .ratio(Self::ratio(self.file_done, self.file_total))
             .label(format!(
                 "{} / {}",
@@ -506,35 +545,79 @@ impl ProgressDialog {
 
         f.render_widget(
             Paragraph::new(Line::from(format!(
-                "Total: {} / {} files",
-                self.files_done, self.files_total
+                "Total: {} / {}  ({}/{} files)",
+                human_size(self.total_done),
+                human_size(self.total_total),
+                self.files_done,
+                self.files_total
             )))
-            .style(Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg)),
+            .style(base),
             rows[2],
         );
 
         let total_gauge = Gauge::default()
-            .gauge_style(Style::default().fg(ratatui::style::Color::Cyan))
-            .ratio(Self::ratio(self.total_done, self.total_total))
-            .label(format!(
-                "{} / {}",
-                human_size(self.total_done),
-                human_size(self.total_total)
-            ));
+            .gauge_style(Style::default().fg(theme.panel_border_active).bg(theme.dialog_bg))
+            .ratio(Self::ratio(self.total_done, self.total_total));
         f.render_widget(total_gauge, rows[3]);
+
+        f.render_widget(
+            Paragraph::new(Line::from("Speed (y) over bytes transferred (x):")).style(base),
+            rows[4],
+        );
+        self.render_speed_chart(f, rows[5], theme);
 
         f.render_widget(
             Paragraph::new(Line::from(button("[ Abort ]", true, theme)))
                 .alignment(ratatui::layout::Alignment::Center)
-                .style(Style::default().bg(theme.dialog_bg)),
-            rows[4],
+                .style(base),
+            rows[6],
         );
+    }
+
+    /// A line chart of transfer speed (Y) against bytes transferred (X).
+    fn render_speed_chart(&self, f: &mut Frame, area: Rect, theme: &Theme) {
+        let base = Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg);
+        if self.samples.len() < 2 {
+            f.render_widget(
+                Paragraph::new(Line::from("  measuring…")).style(base),
+                area,
+            );
+            return;
+        }
+        let x_max = (self.total_total.max(self.last_bytes)).max(1) as f64;
+        let y_max = (self.peak_speed * 1.15).max(1.0);
+
+        let datasets = vec![Dataset::default()
+            .marker(symbols::Marker::Braille)
+            .graph_type(GraphType::Line)
+            .style(Style::default().fg(theme.panel_border_active))
+            .data(&self.samples)];
+
+        let chart = Chart::new(datasets)
+            .style(Style::default().bg(theme.dialog_bg))
+            .x_axis(
+                Axis::default()
+                    .style(base)
+                    .bounds([0.0, x_max])
+                    .labels([Span::raw("0"), Span::raw(human_size(x_max as u64))]),
+            )
+            .y_axis(
+                Axis::default()
+                    .style(base)
+                    .bounds([0.0, y_max])
+                    .labels([
+                        Span::raw("0"),
+                        Span::raw(format!("{}/s", human_size(y_max as u64))),
+                    ]),
+            );
+        f.render_widget(chart, area);
     }
 
     /// Render an indeterminate scanning dialog (current path + sweep + count).
     fn render_indeterminate(&self, f: &mut Frame, area: Rect, theme: &Theme) {
         let w = 64u16.min(area.width.saturating_sub(4));
         let rect = centered(area, w, 8);
+        draw_shadow(f, rect, theme);
         f.render_widget(Clear, rect);
         let block = dialog_block(self.verb, theme);
         let inner = block.inner(rect);
@@ -599,6 +682,7 @@ impl MessageDialog {
     fn render(&self, f: &mut Frame, area: Rect, theme: &Theme) {
         let w = 60u16.min(area.width.saturating_sub(4));
         let rect = centered(area, w, 8);
+        draw_shadow(f, rect, theme);
         f.render_widget(Clear, rect);
         let block = dialog_block(&self.title, theme);
         let inner = block.inner(rect);
@@ -818,9 +902,12 @@ pub struct FormDialog {
 }
 
 impl FormDialog {
-    pub fn settings(cfg: &crate::config::Config) -> Self {
+    pub fn settings(cfg: &crate::config::Config, truecolor: bool) -> Self {
         let form = Form::new(vec![
             Field::choice("Theme", crate::ui::theme::palette_names(), &cfg.theme),
+            Field::check("Truecolor (gradients)", truecolor),
+            Field::check("Animations", cfg.animation),
+            Field::check("System status widget", cfg.system_status),
             Field::text("External editor", cfg.editor.clone()),
             Field::text("External viewer", cfg.viewer.clone()),
             Field::check("Use internal viewer", cfg.use_internal_viewer),
@@ -933,11 +1020,14 @@ impl FormDialog {
         let submit = match &self.purpose {
             FormPurpose::Settings => Submit::Settings(SettingsValues {
                 theme: fields[0].as_text().to_string(),
-                editor: fields[1].as_text().trim().to_string(),
-                viewer: fields[2].as_text().trim().to_string(),
-                use_internal_viewer: fields[3].as_bool(),
-                use_internal_editor: fields[4].as_bool(),
-                confirm_delete: fields[5].as_bool(),
+                truecolor: fields[1].as_bool(),
+                animation: fields[2].as_bool(),
+                system_status: fields[3].as_bool(),
+                editor: fields[4].as_text().trim().to_string(),
+                viewer: fields[5].as_text().trim().to_string(),
+                use_internal_viewer: fields[6].as_bool(),
+                use_internal_editor: fields[7].as_bool(),
+                confirm_delete: fields[8].as_bool(),
             }),
             FormPurpose::Chmod(p) => Submit::Chmod(p.clone(), self.chmod_mode()),
             FormPurpose::Chown(p) => Submit::Chown(
@@ -988,6 +1078,7 @@ impl FormDialog {
         let height = n + 4;
         let w = 60u16.min(area.width.saturating_sub(4));
         let rect = centered(area, w, height);
+        draw_shadow(f, rect, theme);
         f.render_widget(Clear, rect);
         let block = dialog_block(&self.title, theme);
         let inner = block.inner(rect);
@@ -1145,6 +1236,7 @@ impl SelectDialog {
     fn render(&self, f: &mut Frame, area: Rect, theme: &Theme) {
         let title = if self.select { "Select" } else { "Unselect" };
         let rect = centered(area, 54u16.min(area.width.saturating_sub(2)), 7);
+        draw_shadow(f, rect, theme);
         f.render_widget(Clear, rect);
         let block = dialog_block(title, theme);
         let inner = block.inner(rect);
@@ -1327,6 +1419,7 @@ impl SearchReplaceDialog {
         let title = if self.replace { "Replace" } else { "Search" };
         let height = if self.replace { 14 } else { 12 };
         let rect = centered(area, 64u16.min(area.width.saturating_sub(2)), height);
+        draw_shadow(f, rect, theme);
         f.render_widget(Clear, rect);
         let block = dialog_block(title, theme);
         let inner = block.inner(rect);
@@ -1498,6 +1591,7 @@ impl FindDialog {
 
     fn render(&self, f: &mut Frame, area: Rect, theme: &Theme) {
         let rect = centered(area, 66u16.min(area.width.saturating_sub(2)), 13);
+        draw_shadow(f, rect, theme);
         f.render_widget(Clear, rect);
         let block = dialog_block("Find File", theme);
         let inner = block.inner(rect);
@@ -1587,6 +1681,28 @@ fn wildcard_to_regex(pattern: &str) -> String {
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
+
+/// Draw a drop shadow for a dialog box: a dim band one cell below and to the
+/// right of `rect`. Out-of-screen cells are clipped by the renderer.
+fn draw_shadow(f: &mut Frame, rect: Rect, _theme: &Theme) {
+    let shadow = Style::default().bg(ratatui::style::Color::Rgb(8, 8, 12));
+    // Bottom edge (offset right by 1 so it sits under the box).
+    let bottom = Rect {
+        x: rect.x + 1,
+        y: rect.y + rect.height,
+        width: rect.width,
+        height: 1,
+    };
+    // Right edge (offset down by 1).
+    let right = Rect {
+        x: rect.x + rect.width,
+        y: rect.y + 1,
+        width: 1,
+        height: rect.height,
+    };
+    f.render_widget(Block::default().style(shadow), bottom);
+    f.render_widget(Block::default().style(shadow), right);
+}
 
 /// A rectangle of fixed size centered within `area`.
 pub fn centered(area: Rect, width: u16, height: u16) -> Rect {
@@ -1719,5 +1835,6 @@ pub(crate) fn ok_cancel_line(focus_ok: bool, theme: &Theme) -> Line<'static> {
     };
     Line::from(vec![ok, Span::styled("   ", Style::default().bg(theme.dialog_bg)), cancel])
 }
+
 
 

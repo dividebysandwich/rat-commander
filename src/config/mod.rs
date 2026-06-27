@@ -26,6 +26,12 @@ pub struct Config {
     pub confirm_delete: bool,
     /// Active color theme (palette name).
     pub theme: String,
+    /// 24-bit color override; `None` = auto-detect from the terminal.
+    pub truecolor: Option<bool>,
+    /// Enable animations (gradient motion, CPU histogram).
+    pub animation: bool,
+    /// Show the CPU/memory status widget in the menu bar.
+    pub system_status: bool,
 }
 
 impl Default for Config {
@@ -37,6 +43,9 @@ impl Default for Config {
             use_internal_editor: true,
             confirm_delete: true,
             theme: "Midnight Commander".to_string(),
+            truecolor: None,
+            animation: true,
+            system_status: true,
         }
     }
 }

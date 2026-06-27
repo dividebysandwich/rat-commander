@@ -62,7 +62,12 @@ pub struct AppState {
     next_session_id: usize,
     tx: AppSender,
     /// Whether the terminal supports 24-bit color (for gradients).
-    truecolor: bool,
+    pub truecolor: bool,
+    /// Animation frame counter (drives the gradient motion).
+    pub anim_phase: usize,
+    tick_count: usize,
+    /// CPU/memory sampler for the status widget.
+    pub sampler: crate::util::sysinfo::SysSampler,
     /// Theme name to restore if the settings dialog is cancelled (live preview).
     theme_backup: Option<String>,
     /// Set when a confirmed quit should propagate out as `Flow::Quit`.
@@ -84,7 +89,7 @@ impl AppState {
         let left = Panel::new(local.clone(), cwd.clone());
         let right = Panel::new(local, cwd);
         let config = Config::load();
-        let truecolor = detect_truecolor();
+        let truecolor = config.truecolor.unwrap_or_else(detect_truecolor);
         let theme = Theme::by_name(&config.theme, truecolor);
         AppState {
             panels: [left, right],
@@ -103,9 +108,36 @@ impl AppState {
             next_session_id: 0,
             tx,
             truecolor,
+            anim_phase: 0,
+            tick_count: 0,
+            sampler: crate::util::sysinfo::SysSampler::new(),
             theme_backup: None,
             pending_quit: false,
         }
+    }
+
+    /// Periodic tick (~100 ms): advances animation and samples system stats.
+    /// Returns true when something visible changed (so the loop can redraw).
+    pub fn on_tick(&mut self) -> bool {
+        let mut dirty = false;
+        if self.config.animation && self.truecolor {
+            self.anim_phase = self.anim_phase.wrapping_add(1);
+            dirty = true;
+        }
+        if self.config.system_status {
+            self.tick_count = self.tick_count.wrapping_add(1);
+            // Sample roughly every 500 ms.
+            if self.tick_count.is_multiple_of(5) {
+                self.sampler.sample();
+                dirty = true;
+            }
+        }
+        dirty
+    }
+
+    /// Whether the loop needs periodic ticks at all (animation or stats on).
+    pub fn wants_ticks(&self) -> bool {
+        (self.config.animation && self.truecolor) || self.config.system_status
     }
 
     /// Load both panels' directories.
@@ -372,6 +404,10 @@ impl AppState {
                 self.config.use_internal_editor = v.use_internal_editor;
                 self.config.confirm_delete = v.confirm_delete;
                 self.config.theme = v.theme;
+                self.config.truecolor = Some(v.truecolor);
+                self.config.animation = v.animation;
+                self.config.system_status = v.system_status;
+                self.truecolor = v.truecolor;
                 // Re-theme the running UI immediately.
                 self.theme = Theme::by_name(&self.config.theme, self.truecolor);
                 if let Err(e) = self.config.save() {
@@ -562,6 +598,8 @@ impl AppState {
             .target_dir_under_cursor()
             .or_else(|| archive_target_under_cursor(p));
         let Some((newcwd, focus)) = target else {
+            // Not a directory/archive: open a local file with its default app.
+            self.open_with_default();
             return;
         };
         // Re-resolve the backend: navigation may cross backends (local↔archive).
@@ -574,6 +612,33 @@ impl AppState {
         p.backend = backend;
         p.selection.clear();
         let _ = p.reload_keeping(focus.as_deref()).await;
+    }
+
+    /// Open the local file under the cursor with the system default program
+    /// (xdg-open), but only if a MIME handler is actually defined for it. Runs
+    /// detached so the TUI keeps running.
+    fn open_with_default(&self) {
+        let p = &self.panels[self.active];
+        if p.cwd.scheme != "file" {
+            return;
+        }
+        let Some(e) = p.current_entry() else {
+            return;
+        };
+        if e.kind != VfsKind::File {
+            return;
+        }
+        let path = p.cwd.path.join(&e.name);
+        tokio::spawn(async move {
+            if has_mime_handler(&path).await {
+                let _ = tokio::process::Command::new("xdg-open")
+                    .arg(&path)
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .spawn();
+            }
+        });
     }
 
     fn cycle_sort(&mut self) {
@@ -657,7 +722,7 @@ impl AppState {
     fn open_settings(&mut self) {
         // Remember the current theme so Esc can revert a live preview.
         self.theme_backup = Some(self.config.theme.clone());
-        self.dialog = Some(Dialog::Form(FormDialog::settings(&self.config)));
+        self.dialog = Some(Dialog::Form(FormDialog::settings(&self.config, self.truecolor)));
     }
 
     fn open_chmod(&mut self) {
@@ -1154,6 +1219,30 @@ fn find_files(
         }
     }
     out
+}
+
+/// Whether the system has a default MIME handler for `path`.
+async fn has_mime_handler(path: &Path) -> bool {
+    let Ok(ft) = tokio::process::Command::new("xdg-mime")
+        .args(["query", "filetype"])
+        .arg(path)
+        .output()
+        .await
+    else {
+        return false;
+    };
+    let mime = String::from_utf8_lossy(&ft.stdout).trim().to_string();
+    if mime.is_empty() {
+        return false;
+    }
+    let Ok(def) = tokio::process::Command::new("xdg-mime")
+        .args(["query", "default", &mime])
+        .output()
+        .await
+    else {
+        return false;
+    };
+    !String::from_utf8_lossy(&def.stdout).trim().is_empty()
 }
 
 /// Remove a local file or directory tree (used after a move-into-archive).
