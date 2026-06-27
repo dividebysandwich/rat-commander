@@ -47,6 +47,9 @@ async fn run_loop(
     let mut ticker = tokio::time::interval(std::time::Duration::from_millis(100));
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
+    // Persistent Ctrl-O subshell, kept alive across toggles.
+    let mut subshell: Option<crate::shell::Subshell> = None;
+
     loop {
         term.draw(|f| ui::draw(f, state))?;
 
@@ -60,7 +63,7 @@ async fn run_loop(
                             Flow::RunExternal { program, path } => {
                                 run_external(term, state, &program, &path).await?
                             }
-                            Flow::SubShell => run_subshell(term, state).await?,
+                            Flow::SubShell => toggle_subshell(term, state, &mut subshell).await?,
                             Flow::Continue => {}
                         }
                     }
@@ -162,11 +165,13 @@ async fn run_external(
     Ok(())
 }
 
-/// Ctrl-O: suspend the TUI and launch an interactive shell in the active
-/// panel's directory (local). The TUI restores when the shell exits.
-async fn run_subshell(term: &mut Term, state: &mut AppState) -> Result<()> {
-    restore_terminal(term)?;
-
+/// Ctrl-O: toggle the persistent subshell (Midnight Commander style). The shell
+/// lives in a PTY and keeps its state between visits; Ctrl-O returns here.
+async fn toggle_subshell(
+    term: &mut Term,
+    state: &mut AppState,
+    subshell: &mut Option<crate::shell::Subshell>,
+) -> Result<()> {
     let cwd = {
         let p = &state.panels[state.active];
         if p.cwd.scheme == "file" {
@@ -175,9 +180,63 @@ async fn run_subshell(term: &mut Term, state: &mut AppState) -> Result<()> {
             std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"))
         }
     };
-    println!("[rat-commander subshell — type 'exit' to return]");
-    let _ = interactive_shell().current_dir(&cwd).status().await;
+    let size = term.size()?;
 
+    // (Re)create the shell if needed.
+    let needs_spawn = subshell.as_mut().map(|s| !s.is_alive()).unwrap_or(true);
+    if needs_spawn {
+        match crate::shell::Subshell::spawn(&cwd, size.height, size.width) {
+            Ok(s) => *subshell = Some(s),
+            Err(_) => {
+                // Fall back to a one-shot shell if a PTY can't be created.
+                return run_oneshot_shell(term, state, &cwd).await;
+            }
+        }
+    }
+    let Some(sh) = subshell.as_mut() else {
+        return Ok(());
+    };
+
+    // Hand the terminal to the shell: leave the alternate screen (so the shell
+    // is on the primary screen) and stop capturing the mouse. Raw mode stays on
+    // so keystrokes pass through byte-for-byte; the PTY does its own cooking.
+    {
+        let out = term.backend_mut();
+        queue!(out, LeaveAlternateScreen, DisableMouseCapture)?;
+        out.flush()?;
+    }
+    term.show_cursor()?;
+    sh.resize(size.height, size.width);
+
+    sh.run_until_toggle();
+
+    // Take the terminal back for the panels.
+    {
+        let out = term.backend_mut();
+        queue!(out, EnterAlternateScreen, EnableMouseCapture)?;
+        out.flush()?;
+    }
+    term.hide_cursor()?;
+    term.clear()?;
+
+    // Follow the shell's directory change back into the active panel (Linux).
+    if let Some(dir) = sh.child_cwd() {
+        let p = &mut state.panels[state.active];
+        if p.cwd.scheme == "file" && dir != p.cwd.path {
+            p.cwd = crate::vfs::VfsPath::local(dir);
+            p.selection.clear();
+            let _ = p.reload().await;
+        }
+    }
+    state.reload_all().await;
+    Ok(())
+}
+
+/// Fallback when a PTY can't be created: run an interactive shell once.
+async fn run_oneshot_shell(term: &mut Term, state: &mut AppState, cwd: &std::path::Path) -> Result<()> {
+    restore_terminal(term)?;
+    println!("[rat-commander subshell — type 'exit' to return]");
+    let _ = interactive_shell().current_dir(cwd).status().await;
     *term = setup_terminal()?;
     term.clear()?;
     state.reload_all().await;

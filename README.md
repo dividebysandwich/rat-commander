@@ -121,7 +121,7 @@ For a built-in cheat sheet, press **F1**.
 | `Insert` | Tag file and advance |
 | `+` / `-` / `*` | Select / unselect group (wildcard) / invert selection |
 | `← →` | Move within the command line |
-| `Ctrl-O` | Toggle full-screen shell |
+| `Ctrl-O` | Toggle the persistent subshell (press `Ctrl-O` again to return) |
 | `Ctrl-R` | Re-read the active panel |
 | `Ctrl-S` / `Ctrl-E` | Cycle sort key / toggle reverse |
 | `Ctrl-W` | Toggle brief / full listing |

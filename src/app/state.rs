@@ -1421,7 +1421,7 @@ FUNCTION KEYS
   F5  Copy                     F6  Rename / move
   F7  Make directory           F8  Delete
   F9  Pulldown menu            F10 Quit
-  Ctrl-O                       drop to a full-screen shell (exit to return)
+  Ctrl-O                       toggle the persistent subshell (Ctrl-O to return)
   Ctrl-Q                       quit immediately
 
 VIEWER (F3)

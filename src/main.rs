@@ -7,6 +7,7 @@ mod app;
 mod config;
 mod editor;
 mod ops;
+mod shell;
 mod panel;
 mod ui;
 mod usermenu;
