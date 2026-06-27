@@ -639,16 +639,7 @@ impl AppState {
             return;
         }
         let path = p.cwd.path.join(&e.name);
-        tokio::spawn(async move {
-            if has_mime_handler(&path).await {
-                let _ = tokio::process::Command::new("xdg-open")
-                    .arg(&path)
-                    .stdin(std::process::Stdio::null())
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .spawn();
-            }
-        });
+        tokio::spawn(async move { launch_default(path).await });
     }
 
     fn cycle_sort(&mut self) {
@@ -1276,7 +1267,39 @@ fn find_files(
     out
 }
 
+/// Open `path` with the system default application (detached), if one exists.
+#[cfg(target_os = "linux")]
+async fn launch_default(path: PathBuf) {
+    // Only launch when a MIME handler is actually defined for the file.
+    if has_mime_handler(&path).await {
+        let _ = tokio::process::Command::new("xdg-open")
+            .arg(&path)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+    }
+}
+
+#[cfg(target_os = "macos")]
+async fn launch_default(path: PathBuf) {
+    let _ = tokio::process::Command::new("open").arg(&path).spawn();
+}
+
+#[cfg(windows)]
+async fn launch_default(path: PathBuf) {
+    // `cmd /C start "" "<path>"` opens the file with its registered handler.
+    let _ = tokio::process::Command::new("cmd")
+        .args(["/C", "start", ""])
+        .arg(&path)
+        .spawn();
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+async fn launch_default(_path: PathBuf) {}
+
 /// Whether the system has a default MIME handler for `path`.
+#[cfg(target_os = "linux")]
 async fn has_mime_handler(path: &Path) -> bool {
     let Ok(ft) = tokio::process::Command::new("xdg-mime")
         .args(["query", "filetype"])
@@ -1310,6 +1333,7 @@ fn remove_local(p: &Path) -> std::io::Result<()> {
 }
 
 /// Resolve a user name or numeric uid string into a uid (or `None` if empty).
+#[cfg(unix)]
 fn resolve_uid(s: &str) -> Result<Option<u32>, String> {
     if s.is_empty() {
         return Ok(None);
@@ -1325,6 +1349,7 @@ fn resolve_uid(s: &str) -> Result<Option<u32>, String> {
 }
 
 /// Resolve a group name or numeric gid string into a gid (or `None` if empty).
+#[cfg(unix)]
 fn resolve_gid(s: &str) -> Result<Option<u32>, String> {
     if s.is_empty() {
         return Ok(None);
@@ -1339,6 +1364,17 @@ fn resolve_gid(s: &str) -> Result<Option<u32>, String> {
     }
 }
 
+#[cfg(not(unix))]
+fn resolve_uid(_s: &str) -> Result<Option<u32>, String> {
+    Err("ownership is not supported on this platform".to_string())
+}
+
+#[cfg(not(unix))]
+fn resolve_gid(_s: &str) -> Result<Option<u32>, String> {
+    Err("ownership is not supported on this platform".to_string())
+}
+
+#[cfg(unix)]
 fn uid_name(uid: u32) -> Option<String> {
     nix::unistd::User::from_uid(nix::unistd::Uid::from_raw(uid))
         .ok()
@@ -1346,11 +1382,22 @@ fn uid_name(uid: u32) -> Option<String> {
         .map(|u| u.name)
 }
 
+#[cfg(unix)]
 fn gid_name(gid: u32) -> Option<String> {
     nix::unistd::Group::from_gid(nix::unistd::Gid::from_raw(gid))
         .ok()
         .flatten()
         .map(|g| g.name)
+}
+
+#[cfg(not(unix))]
+fn uid_name(_uid: u32) -> Option<String> {
+    None
+}
+
+#[cfg(not(unix))]
+fn gid_name(_gid: u32) -> Option<String> {
+    None
 }
 
 const HELP_TEXT: &str = "\

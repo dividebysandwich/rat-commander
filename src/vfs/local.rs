@@ -1,10 +1,13 @@
 //! Local-filesystem [`Vfs`] backend.
 
 use super::{BoxRead, BoxWrite, Capabilities, Vfs, VfsEntry, VfsKind, VfsPath, WriteMeta};
-use crate::util::{Error, Result};
+use crate::util::Result;
+#[cfg(unix)]
+use crate::util::Error;
 use std::fs::Metadata;
-use std::os::unix::fs::MetadataExt;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+#[cfg(unix)]
+use std::time::{Duration, UNIX_EPOCH};
+use std::time::SystemTime;
 use tokio::fs;
 
 /// The local disk. All operations run on tokio's blocking-friendly `fs` API.
@@ -34,21 +37,58 @@ fn entry_from_meta(name: String, meta: &Metadata, symlink_target: Option<String>
         VfsKind::Other
     };
 
+    let ext = ext_meta(meta);
     VfsEntry {
         name,
         kind,
         size: meta.len(),
-        mtime: Some(meta.modified().unwrap_or(UNIX_EPOCH)),
+        mtime: meta.modified().ok(),
+        atime: ext.atime,
+        ctime: ext.ctime,
+        inode: ext.inode,
+        mode: ext.mode,
+        uid: ext.uid,
+        gid: ext.gid,
+        symlink_target,
+    }
+}
+
+/// Platform-specific metadata fields.
+struct ExtMeta {
+    atime: Option<SystemTime>,
+    ctime: Option<SystemTime>,
+    inode: Option<u64>,
+    mode: Option<u32>,
+    uid: Option<u32>,
+    gid: Option<u32>,
+}
+
+#[cfg(unix)]
+fn ext_meta(meta: &Metadata) -> ExtMeta {
+    use std::os::unix::fs::MetadataExt;
+    ExtMeta {
         atime: Some(unix_to_system(meta.atime())),
         ctime: Some(unix_to_system(meta.ctime())),
         inode: Some(meta.ino()),
         mode: Some(meta.mode()),
         uid: Some(meta.uid()),
         gid: Some(meta.gid()),
-        symlink_target,
     }
 }
 
+#[cfg(not(unix))]
+fn ext_meta(meta: &Metadata) -> ExtMeta {
+    ExtMeta {
+        atime: meta.accessed().ok(),
+        ctime: None,
+        inode: None,
+        mode: None,
+        uid: None,
+        gid: None,
+    }
+}
+
+#[cfg(unix)]
 fn unix_to_system(secs: i64) -> SystemTime {
     if secs >= 0 {
         UNIX_EPOCH + Duration::from_secs(secs as u64)
@@ -64,7 +104,14 @@ impl Vfs for LocalFs {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities::local()
+        // Permissions / ownership / symlinks are Unix concepts.
+        Capabilities {
+            permissions: cfg!(unix),
+            ownership: cfg!(unix),
+            symlinks: cfg!(unix),
+            inode: cfg!(unix),
+            ..Capabilities::local()
+        }
     }
 
     async fn read_dir(&self, dir: &VfsPath) -> Result<Vec<VfsEntry>> {
@@ -133,6 +180,7 @@ impl Vfs for LocalFs {
         Ok(())
     }
 
+    #[cfg(unix)]
     async fn set_permissions(&self, path: &VfsPath, mode: u32) -> Result<()> {
         use std::os::unix::fs::PermissionsExt;
         let perms = std::fs::Permissions::from_mode(mode);
@@ -140,6 +188,12 @@ impl Vfs for LocalFs {
         Ok(())
     }
 
+    #[cfg(not(unix))]
+    async fn set_permissions(&self, _path: &VfsPath, _mode: u32) -> Result<()> {
+        Err(crate::util::Error::Unsupported)
+    }
+
+    #[cfg(unix)]
     async fn set_owner(&self, path: &VfsPath, uid: Option<u32>, gid: Option<u32>) -> Result<()> {
         use nix::unistd::{Gid, Uid};
         let p = path.path.clone();
@@ -152,8 +206,32 @@ impl Vfs for LocalFs {
         Ok(())
     }
 
+    #[cfg(not(unix))]
+    async fn set_owner(&self, _path: &VfsPath, _uid: Option<u32>, _gid: Option<u32>) -> Result<()> {
+        Err(crate::util::Error::Unsupported)
+    }
+
+    #[cfg(unix)]
     async fn symlink(&self, target: &str, link: &VfsPath) -> Result<()> {
         fs::symlink(target, link.as_path()).await?;
+        Ok(())
+    }
+
+    #[cfg(not(unix))]
+    async fn symlink(&self, target: &str, link: &VfsPath) -> Result<()> {
+        // Windows symlink creation needs special privileges; pick file vs dir.
+        let target = std::path::PathBuf::from(target);
+        let link = link.path.clone();
+        let is_dir = tokio::fs::metadata(&target).await.map(|m| m.is_dir()).unwrap_or(false);
+        tokio::task::spawn_blocking(move || -> std::io::Result<()> {
+            if is_dir {
+                std::os::windows::fs::symlink_dir(&target, &link)
+            } else {
+                std::os::windows::fs::symlink_file(&target, &link)
+            }
+        })
+        .await
+        .map_err(|e| crate::util::Error::other(format!("join error: {e}")))??;
         Ok(())
     }
 

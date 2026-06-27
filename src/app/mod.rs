@@ -80,6 +80,31 @@ async fn run_loop(
     Ok(())
 }
 
+/// Build a `Command` that runs `cmd` through the platform shell
+/// (`sh -c` on Unix, `cmd /C` on Windows).
+fn shell_command(cmd: &str) -> tokio::process::Command {
+    if cfg!(windows) {
+        let mut c = tokio::process::Command::new("cmd");
+        c.arg("/C").arg(cmd);
+        c
+    } else {
+        let mut c = tokio::process::Command::new("sh");
+        c.arg("-c").arg(cmd);
+        c
+    }
+}
+
+/// The interactive shell to drop into for Ctrl-O.
+fn interactive_shell() -> tokio::process::Command {
+    if cfg!(windows) {
+        let comspec = std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_string());
+        tokio::process::Command::new(comspec)
+    } else {
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+        tokio::process::Command::new(shell)
+    }
+}
+
 /// Suspend the TUI, run a shell command in the active panel's directory, wait
 /// for the user, then restore the TUI and refresh the panels.
 async fn run_command(term: &mut Term, state: &mut AppState, cmd: &str) -> Result<()> {
@@ -94,12 +119,7 @@ async fn run_command(term: &mut Term, state: &mut AppState, cmd: &str) -> Result
         std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"))
     };
     println!("$ {cmd}");
-    let status = tokio::process::Command::new("sh")
-        .arg("-c")
-        .arg(cmd)
-        .current_dir(&cwd)
-        .status()
-        .await;
+    let status = shell_command(cmd).current_dir(&cwd).status().await;
     match status {
         Ok(s) if !s.success() => println!("\n[exit status: {s}]"),
         Err(e) => println!("\n[failed to run: {e}]"),
@@ -127,11 +147,7 @@ async fn run_external(
 
     // Run `program <path>` via the shell so arguments in the command work.
     let cmd = format!("{program} \"{}\"", path.display());
-    let status = tokio::process::Command::new("sh")
-        .arg("-c")
-        .arg(&cmd)
-        .status()
-        .await;
+    let status = shell_command(&cmd).status().await;
     if let Err(e) = status {
         println!("\n[failed to run external program: {e}]");
         print!("[Press Enter to continue]");
@@ -151,7 +167,6 @@ async fn run_external(
 async fn run_subshell(term: &mut Term, state: &mut AppState) -> Result<()> {
     restore_terminal(term)?;
 
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
     let cwd = {
         let p = &state.panels[state.active];
         if p.cwd.scheme == "file" {
@@ -161,10 +176,7 @@ async fn run_subshell(term: &mut Term, state: &mut AppState) -> Result<()> {
         }
     };
     println!("[rat-commander subshell — type 'exit' to return]");
-    let _ = tokio::process::Command::new(&shell)
-        .current_dir(&cwd)
-        .status()
-        .await;
+    let _ = interactive_shell().current_dir(&cwd).status().await;
 
     *term = setup_terminal()?;
     term.clear()?;
