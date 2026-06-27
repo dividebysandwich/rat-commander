@@ -10,6 +10,8 @@ The installed executable is named **`rc`** for quick typing.
 
 <img width="1004" height="519" alt="image" src="https://github.com/user-attachments/assets/82d34088-f3fc-4848-abbe-3c22b4c850cd" />
 
+<img width="1003" height="519" alt="image" src="https://github.com/user-attachments/assets/848b70d5-88cc-41bd-81f0-51b2b3c5ce27" />
+
 
 ---
 
@@ -65,6 +67,9 @@ The installed executable is named **`rc`** for quick typing.
 **Remote filesystems** (each connection mounts into a panel)
 - **SFTP** and **SCP** over SSH, and **FTP/FTPS**
 - Copy/move/delete works transparently between local, remote and archive panels
+
+<img width="576" height="217" alt="image" src="https://github.com/user-attachments/assets/792884cc-f9b9-495c-9cbc-9171d802a290" />
+
 
 **Look & feel**
 - Many color themes (Dracula, Nord, Gruvbox, Solarized, Tokyo Night, Catppuccin,
