@@ -188,12 +188,49 @@ fn draw_box(f: &mut Frame, rect: Rect, entry: &DiskEntry, selected: bool, idx: u
                 .alignment(Alignment::Center),
             Rect { y: bi.y + 1, height: 1, ..bi },
         );
+        // Big enough: list the largest files (path relative to this box + size).
+        if bi.height >= 5 && bi.width >= 16 && !entry.files.is_empty() {
+            let list = Rect {
+                y: bi.y + 3,
+                height: bi.height - 3,
+                ..bi
+            };
+            draw_file_list(f, list, &entry.files, color, theme);
+        }
     } else {
         // One interior row: show the name only.
         f.render_widget(
             Paragraph::new(Line::from(Span::styled(name, name_style)))
                 .alignment(Alignment::Center),
             bi,
+        );
+    }
+}
+
+/// List the biggest files inside a box: each row is `relative/path … SIZE`,
+/// the path left-aligned (dim) and the size right-aligned in the box color.
+fn draw_file_list(
+    f: &mut Frame,
+    area: Rect,
+    files: &[super::FileEntry],
+    color: ratatui::style::Color,
+    theme: &Theme,
+) {
+    let w = area.width as usize;
+    let path_style = Style::default().fg(theme.panel_fg).bg(theme.panel_bg);
+    let size_style = Style::default().fg(color).bg(theme.panel_bg);
+    for (k, file) in files.iter().take(area.height as usize).enumerate() {
+        let size = human_gb(file.size);
+        // Reserve "<space>SIZE" on the right; the path fills the rest.
+        let path_w = w.saturating_sub(size.chars().count() + 1).max(1);
+        let path = ellipsize(&file.rel, path_w);
+        let line = Line::from(vec![
+            Span::styled(pad_right(&path, path_w), path_style),
+            Span::styled(format!(" {size}"), size_style),
+        ]);
+        f.render_widget(
+            Paragraph::new(line),
+            Rect { y: area.y + k as u16, height: 1, ..area },
         );
     }
 }
@@ -328,7 +365,38 @@ mod tests {
     use super::*;
 
     fn e(name: &str, size: u64) -> DiskEntry {
-        DiskEntry { name: name.into(), size }
+        DiskEntry { name: name.into(), size, files: vec![] }
+    }
+
+    #[test]
+    fn big_box_lists_its_largest_files() {
+        use crate::disk::{DiskView, FileEntry};
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let mut dv = DiskView::new(std::path::PathBuf::from("/tmp"));
+        dv.scanning = false;
+        // A single entry fills the whole treemap → its box is large.
+        dv.entries = vec![DiskEntry {
+            name: "project".into(),
+            size: 9_000_000,
+            files: vec![
+                FileEntry { rel: "target/huge.bin".into(), size: 5_000_000 },
+                FileEntry { rel: "assets/movie.mp4".into(), size: 3_000_000 },
+            ],
+        }];
+        let theme = crate::ui::theme::Theme::mc();
+        let mut t = Terminal::new(TestBackend::new(100, 30)).unwrap();
+        t.draw(|f| render(f, f.area(), &mut dv, &theme)).unwrap();
+        let b = t.backend().buffer();
+        let mut s = String::new();
+        for y in 0..b.area.height {
+            for x in 0..b.area.width {
+                s.push_str(b[(x, y)].symbol());
+            }
+        }
+        assert!(s.contains("target/huge.bin"), "largest file path shown");
+        assert!(s.contains("assets/movie.mp4"), "second file path shown");
+        assert!(s.contains("4.8 MB"), "file size shown");
     }
 
     #[test]

@@ -119,6 +119,9 @@ The installed executable is named **`rc`** for quick typing.
 - A full-screen **treemap** of the current directory's subdirectories: each box's
   area is proportional to the subtree's **on-disk size**, labeled with the name
   and a human-readable size (e.g. `2.1 GB`). Symlinks are never followed or counted
+- Boxes that are **large enough** also list their **biggest files** inside, each
+  with its path relative to that box and its size — so you can spot the space
+  hogs without diving in
 - The **top bar** always shows the selected box's name, size and share of the
   total — so the selection is legible even when its box is too small for a label
 - **Arrow keys** move the selection between boxes, **Enter** dives into the

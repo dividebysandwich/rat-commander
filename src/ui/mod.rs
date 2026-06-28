@@ -291,7 +291,8 @@ mod feature_tests {
         st.init().await;
         let mut dv = crate::disk::DiskView::new(std::path::PathBuf::from("/tmp"));
         dv.scanning = false;
-        dv.entries = vec![crate::disk::DiskEntry { name: "data".into(), size: 5_000_000 }];
+        dv.entries =
+            vec![crate::disk::DiskEntry { name: "data".into(), size: 5_000_000, files: vec![] }];
         st.diskview = Some(dv);
         let mut t = Terminal::new(TestBackend::new(120, 30)).unwrap();
         t.draw(|f| draw(f, &mut st)).unwrap();

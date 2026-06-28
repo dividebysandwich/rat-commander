@@ -14,6 +14,17 @@ pub struct DiskEntry {
     pub name: String,
     /// Total on-disk size of the subtree (bytes), excluding symlinks.
     pub size: u64,
+    /// The largest files in this subtree (largest first), each with its path
+    /// relative to this box's directory. Shown inside sufficiently large boxes.
+    pub files: Vec<FileEntry>,
+}
+
+/// A single large file inside a box's subtree.
+#[derive(Debug, Clone)]
+pub struct FileEntry {
+    /// Path relative to the box's directory (e.g. `cache/blobs/ab12`).
+    pub rel: String,
+    pub size: u64,
 }
 
 /// What handling a key in the disk explorer asks the app to do.
@@ -167,8 +178,12 @@ pub fn human_gb(bytes: u64) -> String {
 // Scanning
 // ---------------------------------------------------------------------------
 
+/// How many of the largest files to remember per box, for the in-box listing.
+const TOP_FILES: usize = 32;
+
 /// Scan the immediate subdirectories of `dir`, computing each one's total
-/// on-disk size (symlinks are skipped, never followed). Sorted largest-first.
+/// on-disk size and its largest files (symlinks are skipped, never followed).
+/// Sorted largest-first.
 pub fn scan_dir(dir: &Path) -> Vec<DiskEntry> {
     let mut out = Vec::new();
     if let Ok(rd) = std::fs::read_dir(dir) {
@@ -179,17 +194,23 @@ pub fn scan_dir(dir: &Path) -> Vec<DiskEntry> {
                 continue;
             }
             let name = de.file_name().to_string_lossy().into_owned();
-            let size = dir_size(&de.path());
-            out.push(DiskEntry { name, size });
+            let (size, files) = subtree_stats(&de.path());
+            out.push(DiskEntry { name, size, files });
         }
     }
     out.sort_by(|a, b| b.size.cmp(&a.size).then(a.name.cmp(&b.name)));
     out
 }
 
-/// Recursive on-disk size of `path`, excluding symlinks (not followed).
-fn dir_size(path: &Path) -> u64 {
+/// Recursive on-disk size of `path` plus its [`TOP_FILES`] largest files
+/// (relative paths, largest first), excluding symlinks (not followed). A
+/// bounded min-heap keeps memory flat regardless of how many files exist.
+fn subtree_stats(path: &Path) -> (u64, Vec<FileEntry>) {
+    use std::cmp::Reverse;
+    use std::collections::BinaryHeap;
+
     let mut total = 0u64;
+    let mut heap: BinaryHeap<Reverse<(u64, String)>> = BinaryHeap::new();
     for entry in walkdir::WalkDir::new(path)
         .follow_links(false)
         .into_iter()
@@ -198,10 +219,26 @@ fn dir_size(path: &Path) -> u64 {
         if entry.file_type().is_file()
             && let Ok(meta) = entry.metadata()
         {
-            total += on_disk_len(&meta);
+            let len = on_disk_len(&meta);
+            total += len;
+            let rel = entry
+                .path()
+                .strip_prefix(path)
+                .unwrap_or(entry.path())
+                .to_string_lossy()
+                .into_owned();
+            heap.push(Reverse((len, rel)));
+            if heap.len() > TOP_FILES {
+                heap.pop(); // drop the current smallest
+            }
         }
     }
-    total
+    let mut files: Vec<FileEntry> = heap
+        .into_iter()
+        .map(|Reverse((size, rel))| FileEntry { rel, size })
+        .collect();
+    files.sort_by(|a, b| b.size.cmp(&a.size).then(a.rel.cmp(&b.rel)));
+    (total, files)
 }
 
 /// Bytes a file occupies on disk: allocated blocks on Unix, apparent size else.
@@ -234,9 +271,9 @@ mod tests {
         let mut dv = DiskView::new(PathBuf::from("/tmp"));
         dv.scanning = false;
         dv.entries = vec![
-            DiskEntry { name: "a".into(), size: 1 },
-            DiskEntry { name: "b".into(), size: 1 },
-            DiskEntry { name: "c".into(), size: 1 },
+            DiskEntry { name: "a".into(), size: 1, files: vec![] },
+            DiskEntry { name: "b".into(), size: 1, files: vec![] },
+            DiskEntry { name: "c".into(), size: 1, files: vec![] },
         ];
         // Two side-by-side boxes plus one below the first.
         dv.rects = vec![
@@ -257,7 +294,7 @@ mod tests {
         use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
         let mut dv = DiskView::new(PathBuf::from("/tmp/work"));
         dv.scanning = false;
-        dv.entries = vec![DiskEntry { name: "sub".into(), size: 1 }];
+        dv.entries = vec![DiskEntry { name: "sub".into(), size: 1, files: vec![] }];
         dv.selected = 0;
         assert!(matches!(
             dv.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
@@ -270,7 +307,7 @@ mod tests {
         ));
         assert_eq!(dv.cwd, PathBuf::from("/tmp/work"));
         // Shift-Enter, Ctrl-Enter and 'g' all ask the app to go to the dir.
-        dv.entries = vec![DiskEntry { name: "sub".into(), size: 1 }];
+        dv.entries = vec![DiskEntry { name: "sub".into(), size: 1, files: vec![] }];
         for key in [
             KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT),
             KeyEvent::new(KeyCode::Enter, KeyModifiers::CONTROL),
@@ -301,6 +338,14 @@ mod tests {
         assert_eq!(names, vec!["big", "small"], "sorted largest-first");
         assert!(entries[0].size >= 12000, "big counts its whole subtree");
         assert!(entries[0].size > entries[1].size);
+
+        // The largest files are collected with paths relative to the box dir,
+        // largest first (a.bin > sub/b.bin).
+        let files = &entries[0].files;
+        assert_eq!(files.len(), 2, "both files captured");
+        assert_eq!(files[0].rel, "a.bin");
+        assert_eq!(files[1].rel, "sub/b.bin");
+        assert!(files[0].size >= files[1].size);
 
         // A symlinked directory must not appear as a box.
         #[cfg(unix)]
