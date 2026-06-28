@@ -57,6 +57,11 @@ The installed executable is named **`rc`** for quick typing.
 
 **Built-in viewer (F3)**
 - Text and **hex** modes, line wrap toggle, and search
+- **Paged from disk** — local files are read on demand (only a per-line offset
+  index is kept), so arbitrarily large files open instantly without loading into
+  memory; search streams the file in windows too
+- Opening a **large remote file** (View or Edit) streams it with a **progress
+  dialog you can abort** (Esc); the viewer then pages from the downloaded copy
 
 **Built-in editor (F4)** — `mcedit`-style
 - Block mark/copy/move/delete, search, **search & replace** (literal or regex),

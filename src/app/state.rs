@@ -1,6 +1,6 @@
 //! Application state and the key/event dispatch that drives it.
 
-use crate::app::event::AppEvent;
+use crate::app::event::{AppEvent, FetchKind};
 use crate::config::Config;
 use crate::editor::{EditorSignal, EditorState};
 use crate::ops::progress::{ProgressUpdate, TaskOutcome};
@@ -470,6 +470,47 @@ impl AppState {
                     dv.entries = entries;
                     dv.scanning = false;
                     dv.selected = 0;
+                }
+            }
+            AppEvent::FileFetched { id, kind, name, orig_path, temp } => {
+                self.tasks.remove(&id);
+                if let Some(Dialog::Progress(p)) = &self.dialog
+                    && p.id == id
+                {
+                    self.dialog = None;
+                }
+                match kind {
+                    FetchKind::View => {
+                        // Page the downloaded copy from disk; it's deleted on close.
+                        let t = temp.clone();
+                        let vs = tokio::task::spawn_blocking(move || {
+                            ViewerState::open_file(name, t.clone(), Some(t))
+                        })
+                        .await;
+                        match vs {
+                            Ok(Ok(v)) => self.viewer = Some(v),
+                            Ok(Err(e)) => {
+                                let _ = std::fs::remove_file(&temp);
+                                self.show_error(format!("cannot open file: {e}"));
+                            }
+                            Err(_) => {
+                                let _ = std::fs::remove_file(&temp);
+                                self.show_error("viewer failed to open file");
+                            }
+                        }
+                    }
+                    FetchKind::Edit => {
+                        // The editor edits in memory; read the temp then drop it.
+                        // Saving still targets the original (remote) path.
+                        match std::fs::read(&temp) {
+                            Ok(bytes) => {
+                                let text = String::from_utf8_lossy(&bytes).into_owned();
+                                self.editor = Some(EditorState::new(name, orig_path, &text));
+                            }
+                            Err(e) => self.show_error(format!("cannot open file: {e}")),
+                        }
+                        let _ = std::fs::remove_file(&temp);
+                    }
                 }
             }
         }
@@ -1942,21 +1983,34 @@ impl AppState {
             return Flow::Continue;
         }
         let name = e.name.clone();
+        let size = e.size;
         let path = p.cwd.join(&name);
         let backend = p.backend.clone();
 
-        if self.config.wants_internal_viewer() {
-            match load_file(&backend, &path).await {
-                Ok(data) => self.viewer = Some(ViewerState::new(name, data)),
-                Err(e) => self.show_error(format!("cannot open file: {e}")),
-            }
-            Flow::Continue
-        } else {
-            Flow::RunExternal {
+        if !self.config.wants_internal_viewer() {
+            return Flow::RunExternal {
                 program: self.config.viewer.clone(),
                 path: path.path,
-            }
+            };
         }
+
+        if path.scheme == "file" {
+            // Local: page straight from disk — never load the whole file. The
+            // line-index scan runs off-thread so it doesn't block the reactor.
+            let local = path.path.clone();
+            let vs =
+                tokio::task::spawn_blocking(move || ViewerState::open_file(name, local, None)).await;
+            match vs {
+                Ok(Ok(v)) => self.viewer = Some(v),
+                Ok(Err(e)) => self.show_error(format!("cannot open file: {e}")),
+                Err(_) => self.show_error("viewer failed to open file"),
+            }
+        } else {
+            // Remote/archive: stream to a temp file with a cancellable progress
+            // bar; the viewer then pages from that temp copy.
+            self.start_fetch(FetchKind::View, name, path, backend, size);
+        }
+        Flow::Continue
     }
 
     /// F4: edit the file under the cursor with the internal editor (or a
@@ -1974,16 +2028,23 @@ impl AppState {
         let path = p.cwd.join(&name);
         let backend = p.backend.clone();
 
-        if self.config.wants_internal_editor() {
-            let local = path.scheme == "file";
-            // Files too big to load as text open directly in (in-place) hex mode.
-            if local && size > crate::editor::MAX_TEXT_EDIT {
-                match EditorState::new_hex(name, path) {
-                    Ok(ed) => self.editor = Some(ed),
-                    Err(e) => self.show_error(format!("cannot open file: {e}")),
-                }
-                return Flow::Continue;
+        if !self.config.wants_internal_editor() {
+            return Flow::RunExternal {
+                program: self.config.editor.clone(),
+                path: path.path,
+            };
+        }
+
+        let local = path.scheme == "file";
+        // Local files too big to load as text open directly in (in-place) hex mode.
+        if local && size > crate::editor::MAX_TEXT_EDIT {
+            match EditorState::new_hex(name, path) {
+                Ok(ed) => self.editor = Some(ed),
+                Err(e) => self.show_error(format!("cannot open file: {e}")),
             }
+            return Flow::Continue;
+        }
+        if local {
             match load_file(&backend, &path).await {
                 Ok(data) => {
                     let text = String::from_utf8_lossy(&data).into_owned();
@@ -1991,13 +2052,69 @@ impl AppState {
                 }
                 Err(e) => self.show_error(format!("cannot open file: {e}")),
             }
-            Flow::Continue
-        } else {
-            Flow::RunExternal {
-                program: self.config.editor.clone(),
-                path: path.path,
-            }
+            return Flow::Continue;
         }
+        // Remote/archive: in-place hex editing isn't possible (no random write),
+        // so editing requires loading into memory — cap the size and stream the
+        // download with a cancellable progress bar.
+        if size > crate::editor::MAX_TEXT_EDIT {
+            self.show_error("File too large to edit over this connection");
+            return Flow::Continue;
+        }
+        self.start_fetch(FetchKind::Edit, name, path, backend, size);
+        Flow::Continue
+    }
+
+    /// Stream a (remote/archive) file to a local temp file for view/edit, showing
+    /// a cancellable progress dialog. Delivers `FileFetched` on success.
+    fn start_fetch(
+        &mut self,
+        kind: FetchKind,
+        name: String,
+        path: VfsPath,
+        backend: std::sync::Arc<dyn Vfs>,
+        total: u64,
+    ) {
+        let id = self.next_task_id;
+        self.next_task_id += 1;
+        let cancel = CancelToken::new();
+        let (reply, _reply_rx) = tokio::sync::mpsc::channel(1);
+        self.tasks.insert(
+            id,
+            TaskHandle {
+                id,
+                cancel: cancel.clone(),
+                reply,
+            },
+        );
+        self.dialog = Some(Dialog::Progress(ProgressDialog::new(id, "Reading")));
+
+        let safe: String = name.chars().map(|c| if c == '/' { '_' } else { c }).collect();
+        let temp = std::env::temp_dir().join(format!("rc_fetch_{}_{id}_{safe}", std::process::id()));
+        let tx = self.tx.clone();
+        let orig_path = path.clone();
+        tokio::spawn(async move {
+            let outcome = fetch_to_temp(&backend, &path, &temp, total, &cancel, id, &name, &tx).await;
+            match outcome {
+                Ok(true) => {
+                    let _ = tx
+                        .send(AppEvent::FileFetched { id, kind, name, orig_path, temp })
+                        .await;
+                }
+                Ok(false) => {
+                    let _ = tokio::fs::remove_file(&temp).await;
+                    let _ = tx
+                        .send(AppEvent::TaskDone { id, outcome: TaskOutcome::Cancelled })
+                        .await;
+                }
+                Err(e) => {
+                    let _ = tokio::fs::remove_file(&temp).await;
+                    let _ = tx
+                        .send(AppEvent::TaskDone { id, outcome: TaskOutcome::Failed(e) })
+                        .await;
+                }
+            }
+        });
     }
 
     /// Persist the editor's contents to its file, optionally closing after.
@@ -2052,6 +2169,57 @@ async fn load_file(backend: &std::sync::Arc<dyn Vfs>, path: &VfsPath) -> crate::
         .read_to_end(&mut buf)
         .await?;
     Ok(buf)
+}
+
+/// Stream `path` from `backend` to the local `temp` file, emitting throttled
+/// progress and honoring `cancel`. Returns `Ok(true)` when complete, `Ok(false)`
+/// when cancelled, or `Err` on I/O failure. The caller cleans up `temp`.
+#[allow(clippy::too_many_arguments)]
+async fn fetch_to_temp(
+    backend: &std::sync::Arc<dyn Vfs>,
+    path: &VfsPath,
+    temp: &Path,
+    total: u64,
+    cancel: &crate::ops::CancelToken,
+    id: TaskId,
+    name: &str,
+    tx: &AppSender,
+) -> Result<bool, String> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut reader = backend.open_read(path).await.map_err(|e| e.to_string())?;
+    let mut file = tokio::fs::File::create(temp).await.map_err(|e| e.to_string())?;
+    let mut buf = vec![0u8; 256 * 1024];
+    let mut done = 0u64;
+    let mut since_report = 0u64;
+    loop {
+        if cancel.is_cancelled() {
+            return Ok(false);
+        }
+        let n = reader.read(&mut buf).await.map_err(|e| e.to_string())?;
+        if n == 0 {
+            break;
+        }
+        file.write_all(&buf[..n]).await.map_err(|e| e.to_string())?;
+        done += n as u64;
+        since_report += n as u64;
+        // Report at most ~every 1 MB so the bar advances without flooding.
+        if since_report >= 1024 * 1024 {
+            since_report = 0;
+            let _ = tx.try_send(AppEvent::Progress(ProgressUpdate {
+                id,
+                verb: "Reading",
+                current_name: name.to_string(),
+                file_done: done,
+                file_total: total,
+                total_done: done,
+                total_total: total,
+                files_done: 0,
+                files_total: 1,
+            }));
+        }
+    }
+    file.flush().await.map_err(|e| e.to_string())?;
+    Ok(true)
 }
 
 /// Write all bytes to a file, truncating/creating it.

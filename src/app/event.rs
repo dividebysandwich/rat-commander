@@ -7,6 +7,13 @@ use crate::disk::DiskEntry;
 use crate::ops::progress::{ConflictInfo, ProgressUpdate, TaskId, TaskOutcome};
 use crate::vfs::VfsPath;
 
+/// Why a file was fetched to a local temp (so the handler opens the right view).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FetchKind {
+    View,
+    Edit,
+}
+
 #[derive(Debug, Clone)]
 pub enum AppEvent {
     /// A throttled progress snapshot from the ops engine.
@@ -35,5 +42,14 @@ pub enum AppEvent {
     DiskScanned {
         generation: u64,
         entries: Vec<DiskEntry>,
+    },
+    /// A view/edit fetch streamed a (remote/archive) file to a local temp file;
+    /// the handler opens it (paged viewer, or editor targeting `orig_path`).
+    FileFetched {
+        id: TaskId,
+        kind: FetchKind,
+        name: String,
+        orig_path: VfsPath,
+        temp: std::path::PathBuf,
     },
 }

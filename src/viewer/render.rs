@@ -96,14 +96,14 @@ fn render_text(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
 fn render_hex(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
     let style = Style::default().fg(theme.panel_fg).bg(theme.panel_bg);
     let mut lines: Vec<Line> = Vec::with_capacity(area.height as usize);
+    let total_rows = v.hex_rows();
     for r in 0..area.height as usize {
         let row = v.top + r;
-        let off = row * 16;
-        if off >= v.data.len() {
+        if row >= total_rows {
             break;
         }
-        let end = (off + 16).min(v.data.len());
-        let bytes = &v.data[off..end];
+        let off = row * 16;
+        let bytes = v.hex_row(off);
 
         let mut hex = String::with_capacity(48);
         let mut ascii = String::with_capacity(16);
