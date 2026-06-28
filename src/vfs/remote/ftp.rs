@@ -1,15 +1,15 @@
 //! FTP backend over suppaftp (tokio). The single control connection is shared
-//! behind an async mutex; downloads buffer through memory (`MemReader`) while
-//! uploads stream through a duplex pipe so transfer progress is accurate.
+//! behind an async mutex; both downloads and uploads stream through a duplex
+//! pipe so transfers proceed at network speed with bounded memory and accurate
+//! progress.
 
 use super::{Connection, RemoteCreds, parse_unix_listing_line};
 use crate::util::{Error, Result};
-use crate::vfs::membuf::{MemReader, pipe_upload};
+use crate::vfs::membuf::{pipe_download, pipe_upload};
 use crate::vfs::{BoxRead, BoxWrite, Capabilities, Vfs, VfsEntry, VfsKind, VfsPath, WriteMeta};
 use std::sync::Arc;
 use suppaftp::tokio::AsyncFtpStream;
 use suppaftp::types::FileType;
-use tokio::io::AsyncReadExt;
 use tokio::sync::Mutex;
 
 pub struct FtpFs {
@@ -132,21 +132,18 @@ impl Vfs for FtpFs {
     }
 
     async fn open_read(&self, path: &VfsPath) -> Result<BoxRead> {
-        let mut guard = self.conn.lock().await;
-        let mut stream = guard
-            .retr_as_stream(path_str(path))
-            .await
-            .map_err(|e| Error::other(e.to_string()))?;
-        let mut buf = Vec::new();
-        stream
-            .read_to_end(&mut buf)
-            .await
-            .map_err(|e| Error::other(e.to_string()))?;
-        guard
-            .finalize_retr_stream(stream)
-            .await
-            .map_err(|e| Error::other(e.to_string()))?;
-        Ok(Box::new(MemReader::new(buf)))
+        // Stream the data connection straight into the read pipe (holding the
+        // control-connection lock for the transfer's duration), so large files
+        // download chunk-by-chunk at network speed instead of buffering in RAM.
+        let conn = self.conn.clone();
+        let path = path_str(path);
+        Ok(pipe_download(64 * 1024, move |mut w| async move {
+            let mut guard = conn.lock().await;
+            let mut stream = guard.retr_as_stream(&path).await.map_err(io_err)?;
+            tokio::io::copy(&mut stream, &mut w).await?;
+            guard.finalize_retr_stream(stream).await.map_err(io_err)?;
+            Ok(())
+        }))
     }
 
     async fn open_write(&self, path: &VfsPath, _meta: WriteMeta) -> Result<BoxWrite> {

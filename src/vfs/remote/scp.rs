@@ -4,7 +4,7 @@
 
 use super::{Connection, RemoteCreds, SshHandle, parse_unix_listing_line, shell_quote, ssh_connect};
 use crate::util::{Error, Result};
-use crate::vfs::membuf::{MemReader, pipe_upload};
+use crate::vfs::membuf::{pipe_download, pipe_upload};
 use crate::vfs::{BoxRead, BoxWrite, Capabilities, Vfs, VfsEntry, VfsKind, VfsPath, WriteMeta};
 use russh::ChannelMsg;
 use std::sync::Arc;
@@ -146,12 +146,32 @@ impl Vfs for ScpFs {
     }
 
     async fn open_read(&self, path: &VfsPath) -> Result<BoxRead> {
+        // Stream `cat`'s stdout over a fresh channel straight into the read pipe,
+        // so multi-gigabyte files transfer chunk-by-chunk (bounded memory) and
+        // the progress bar advances from the first bytes — instead of buffering
+        // the whole file into RAM before the copy can start.
+        let handle = self.handle.clone();
         let cmd = format!("cat -- {}", shell_quote(&path_str(path)));
-        let (out, code) = exec_capture(&self.handle, &cmd).await?;
-        if code != 0 {
-            return Err(Error::other(format!("cannot read {}", path_str(path))));
-        }
-        Ok(Box::new(MemReader::new(out)))
+        Ok(pipe_download(1024 * 1024, move |mut w| async move {
+            let mut channel = handle
+                .channel_open_session()
+                .await
+                .map_err(|e| std::io::Error::other(format!("channel open failed: {e}")))?;
+            channel
+                .exec(true, cmd)
+                .await
+                .map_err(|e| std::io::Error::other(format!("exec failed: {e}")))?;
+            loop {
+                match channel.wait().await {
+                    Some(ChannelMsg::Data { data }) => w.write_all(&data).await?,
+                    Some(ChannelMsg::ExtendedData { .. }) => {} // stderr: ignore
+                    Some(_) => {}
+                    None => break, // channel closed → EOF
+                }
+            }
+            w.shutdown().await?;
+            Ok(())
+        }))
     }
 
     async fn open_write(&self, path: &VfsPath, _meta: WriteMeta) -> Result<BoxWrite> {

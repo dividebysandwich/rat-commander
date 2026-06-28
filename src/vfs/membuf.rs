@@ -1,14 +1,17 @@
 //! In-memory async IO adapters used by backends that cannot stream directly.
 //!
-//! - [`MemReader`] serves a `Vec<u8>` as an `AsyncRead` (e.g. an FTP/SCP file
-//!   fetched whole into memory).
+//! - [`MemReader`] serves a `Vec<u8>` as an `AsyncRead`.
 //! - [`pipe_upload`] returns an `AsyncWrite` whose bytes are streamed to a
 //!   user-supplied upload future through a bounded duplex pipe. Backpressure
 //!   couples the writer's progress to the real network transfer, so the ops
 //!   engine's progress bar reflects the actual upload rather than a local buffer
 //!   fill. The transfer is finalized (and its result awaited) on `shutdown`.
+//! - [`pipe_download`] is the mirror image: it returns an `AsyncRead` fed by a
+//!   user-supplied download future, so a multi-gigabyte remote file streams
+//!   through chunk-by-chunk (bounded memory) instead of being buffered whole
+//!   before the copy can begin.
 
-use crate::vfs::BoxWrite;
+use crate::vfs::{BoxRead, BoxWrite};
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -42,6 +45,24 @@ impl AsyncRead for MemReader {
         }
         Poll::Ready(Ok(()))
     }
+}
+
+/// Create a streaming download reader. `download` receives the **write** end of
+/// a bounded duplex pipe and should stream the remote file's bytes into it. The
+/// returned [`BoxRead`] yields those bytes as they arrive; the pipe's bounded
+/// capacity applies backpressure so the producer proceeds at the consumer's
+/// (and thus the network's) pace, keeping memory flat. When `download` finishes
+/// — or the reader is dropped — the pipe closes and the other side sees EOF.
+pub fn pipe_download<F, Fut>(capacity: usize, download: F) -> BoxRead
+where
+    F: FnOnce(DuplexStream) -> Fut + Send + 'static,
+    Fut: Future<Output = std::io::Result<()>> + Send + 'static,
+{
+    let (w, r) = tokio::io::duplex(capacity);
+    tokio::spawn(async move {
+        let _ = download(w).await;
+    });
+    Box::new(r)
 }
 
 type IoFut = Pin<Box<dyn Future<Output = std::io::Result<()>> + Send>>;
@@ -136,6 +157,20 @@ mod tests {
         w.write_all(data).await.unwrap();
         w.shutdown().await.unwrap(); // closes the pipe and awaits the upload
         assert_eq!(received.lock().await.as_slice(), data);
+    }
+
+    #[tokio::test]
+    async fn pipe_download_streams_bytes_to_reader() {
+        // Small capacity forces backpressure — the producer can only proceed as
+        // the reader drains, which is exactly how a network download should pace.
+        let mut r = pipe_download(8, move |mut w| async move {
+            w.write_all(b"streamed download payload").await?;
+            w.shutdown().await?;
+            Ok(())
+        });
+        let mut out = Vec::new();
+        r.read_to_end(&mut out).await.unwrap();
+        assert_eq!(out.as_slice(), b"streamed download payload");
     }
 
     #[tokio::test]
