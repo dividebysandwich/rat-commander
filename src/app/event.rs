@@ -5,6 +5,7 @@
 
 use crate::disk::DiskEntry;
 use crate::ops::progress::{ConflictInfo, ProgressUpdate, TaskId, TaskOutcome};
+use crate::vfs::VfsPath;
 
 #[derive(Debug, Clone)]
 pub enum AppEvent {
@@ -15,11 +16,12 @@ pub enum AppEvent {
     Conflict(ConflictInfo),
     /// A background task finished (success, cancel, or failure).
     TaskDone { id: TaskId, outcome: TaskOutcome },
-    /// A find-file task finished (or was aborted); carries the paths collected
-    /// so far so partial results can still be panelized.
+    /// A find-file task finished (or was aborted); carries the matching files
+    /// (path + size) collected so far so partial results can still be panelized.
+    /// Paths may be local or remote, depending on the searched backend.
     FindDone {
         id: TaskId,
-        paths: Vec<std::path::PathBuf>,
+        results: Vec<(VfsPath, u64)>,
     },
     /// Progress of an in-flight disk-explorer scan: `done` of `total` immediate
     /// subdirectories sized so far. `generation` guards against stale updates.

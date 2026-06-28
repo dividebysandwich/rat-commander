@@ -1,6 +1,6 @@
 [package]
 name = "rat-commander"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2024"
 description = "A self-contained Norton/Midnight-Commander-style TUI file manager"
 license = "GPL-2.0-only"

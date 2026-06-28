@@ -39,7 +39,9 @@ The installed executable is named **`rc`** for quick typing.
   file it passes over); click the menu bar to open menus and pick items, and click
   **OK/Cancel** (or **Yes/No**) buttons in dialogs
 - **Find File** with a live progress dialog (abortable; partial results kept);
-  results are *panelized* into the active panel
+  results are *panelized* into the active panel (with a `..` entry to return to
+  the normal listing). On **remote** panels the search matches **file names**
+  only (content search is local-only), so you can locate files on a server too
 - **Compare directories** (Command menu): mark the files that differ between the
   two panels — **Quick** (present in one panel only), **Size only** (also marks
   the larger of two differently-sized files), or **Content** (marks both files

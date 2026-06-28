@@ -445,14 +445,14 @@ impl AppState {
                     }
                 }
             }
-            AppEvent::FindDone { id, paths } => {
+            AppEvent::FindDone { id, results } => {
                 self.tasks.remove(&id);
                 if let Some(Dialog::Progress(p)) = &self.dialog
                     && p.id == id
                 {
                     self.dialog = None;
                 }
-                self.panelize_results(paths);
+                self.panelize_results(results);
             }
             AppEvent::DiskScanProgress { generation, done, total } => {
                 if let Some(dv) = self.diskview.as_mut()
@@ -1741,11 +1741,9 @@ impl AppState {
     }
 
     fn open_find_dialog(&mut self) {
-        let start = if self.panels[self.active].cwd.scheme == "file" {
-            self.panels[self.active].cwd.path.to_string_lossy().into_owned()
-        } else {
-            String::new()
-        };
+        // Prefill the backend-relative path (no "scheme://"): for a remote panel
+        // it's the remote start directory, interpreted on that backend.
+        let start = self.panels[self.active].cwd.path.to_string_lossy().into_owned();
         self.dialog = Some(Dialog::Find(FindDialog::new(start)));
     }
 
@@ -1781,16 +1779,16 @@ impl AppState {
     /// Launch a cancellable find-file search; a progress dialog shows the
     /// current path and lets the user abort. Results arrive via `FindDone`.
     fn start_find(&mut self, p: FindParams) {
-        let start = if p.start_at.trim().is_empty() {
-            self.panels[self.active].cwd.path.clone()
-        } else {
-            PathBuf::from(&p.start_at)
-        };
         let matcher =
             match crate::panel::selection::NameMatcher::build(&p.file_name, p.case_sensitive, p.shell) {
                 Ok(m) => m,
                 Err(e) => return self.show_error(format!("invalid pattern: {e}")),
             };
+        let cwd = self.panels[self.active].cwd.clone();
+        let backend = self.panels[self.active].backend.clone();
+        // Non-local backends (remote, archives) are searched by name only via the
+        // VFS — content search isn't reasonable over the network.
+        let on_vfs = cwd.scheme != "file";
 
         let id = self.next_task_id;
         self.next_task_id += 1;
@@ -1808,33 +1806,79 @@ impl AppState {
         );
         self.dialog = Some(Dialog::Progress(ProgressDialog::find(id)));
 
+        let progress = move |tx2: AppSender, cur: String, found: usize| {
+            let _ = tx2.try_send(AppEvent::Progress(ProgressUpdate {
+                id,
+                verb: "Searching",
+                current_name: cur,
+                file_done: 0,
+                file_total: 0,
+                total_done: 0,
+                total_total: 0,
+                files_done: found as u64,
+                files_total: 0,
+            }));
+        };
+
         let tx = self.tx.clone();
-        tokio::spawn(async move {
-            let tx2 = tx.clone();
-            let paths = tokio::task::spawn_blocking(move || {
-                find_files(&start, &p, &matcher, &cancel, |cur, found| {
-                    let _ = tx2.try_send(AppEvent::Progress(ProgressUpdate {
-                        id,
-                        verb: "Searching",
-                        current_name: cur,
-                        file_done: 0,
-                        file_total: 0,
-                        total_done: 0,
-                        total_total: 0,
-                        files_done: found as u64,
-                        files_total: 0,
-                    }));
+        if on_vfs {
+            // Remote / archive: walk the backend by name only.
+            let start = if p.start_at.trim().is_empty() {
+                cwd.clone()
+            } else {
+                VfsPath {
+                    scheme: cwd.scheme.clone(),
+                    path: PathBuf::from(p.start_at.trim()),
+                    container: cwd.container.clone(),
+                }
+            };
+            let (recursive, skip_hidden) = (p.recursive, p.skip_hidden);
+            tokio::spawn(async move {
+                let tx2 = tx.clone();
+                let results = find_files_vfs(
+                    &backend,
+                    start,
+                    &matcher,
+                    recursive,
+                    skip_hidden,
+                    &cancel,
+                    |cur, found| progress(tx2.clone(), cur, found),
+                )
+                .await;
+                let _ = tx.send(AppEvent::FindDone { id, results }).await;
+            });
+        } else {
+            // Local: the existing blocking walker (supports content search).
+            let start = if p.start_at.trim().is_empty() {
+                cwd.path.clone()
+            } else {
+                PathBuf::from(&p.start_at)
+            };
+            tokio::spawn(async move {
+                let tx2 = tx.clone();
+                let results = tokio::task::spawn_blocking(move || {
+                    find_files(&start, &p, &matcher, &cancel, |cur, found| {
+                        progress(tx2.clone(), cur, found)
+                    })
+                    .into_iter()
+                    .map(|path| {
+                        let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+                        (VfsPath::local(path), size)
+                    })
+                    .collect::<Vec<_>>()
                 })
-            })
-            .await
-            .unwrap_or_default();
-            let _ = tx.send(AppEvent::FindDone { id, paths }).await;
-        });
+                .await
+                .unwrap_or_default();
+                let _ = tx.send(AppEvent::FindDone { id, results }).await;
+            });
+        }
     }
 
     /// Panelize find-file results (with a `..` entry that returns to browsing).
-    fn panelize_results(&mut self, paths: Vec<PathBuf>) {
-        if paths.is_empty() {
+    /// Results may be local or remote; the panel keeps the backend the matches
+    /// live on so navigating into a result — or back out via `..` — works.
+    fn panelize_results(&mut self, results: Vec<(VfsPath, u64)>) {
+        if results.is_empty() {
             return self.show_error("No files found");
         }
         let cwd = self.panels[self.active].cwd.clone();
@@ -1853,10 +1897,9 @@ impl AppState {
             symlink_broken: false,
         }];
         let mut vpaths = vec![cwd]; // dummy path paired with ".."
-        for path in paths {
-            let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        for (path, size) in results {
             entries.push(VfsEntry {
-                name: path.to_string_lossy().into_owned(),
+                name: path.path.to_string_lossy().into_owned(),
                 kind: VfsKind::File,
                 size,
                 mtime: None,
@@ -1869,11 +1912,15 @@ impl AppState {
                 symlink_target: None,
                 symlink_broken: false,
             });
-            vpaths.push(VfsPath::local(path));
+            vpaths.push(path);
         }
-        let local = self.registry.local();
+        // Resolve the backend the results live on (local or the remote session).
+        let backend = vpaths
+            .get(1)
+            .and_then(|p| self.registry.resolve(p).ok())
+            .unwrap_or_else(|| self.registry.local());
         let p = &mut self.panels[self.active];
-        p.backend = local;
+        p.backend = backend;
         p.set_results(entries, vpaths);
     }
 
@@ -2104,6 +2151,61 @@ fn find_files(
         progress(entry.path().to_string_lossy().into_owned(), out.len());
         if out.len() >= MAX_RESULTS {
             break;
+        }
+    }
+    out
+}
+
+/// Recursively search a VFS backend (remote/archive) for files whose names match
+/// `matcher`, returning `(path, size)` pairs. Name-only — there is no content
+/// search over the network. Symlinked directories are not descended (loop-safe).
+async fn find_files_vfs(
+    backend: &std::sync::Arc<dyn Vfs>,
+    start: VfsPath,
+    matcher: &crate::panel::selection::NameMatcher,
+    recursive: bool,
+    skip_hidden: bool,
+    cancel: &crate::ops::CancelToken,
+    mut progress: impl FnMut(String, usize),
+) -> Vec<(VfsPath, u64)> {
+    const MAX_RESULTS: usize = 50_000;
+    let mut out: Vec<(VfsPath, u64)> = Vec::new();
+    let mut stack = vec![start];
+    let mut scanned = 0usize;
+    while let Some(dir) = stack.pop() {
+        if cancel.is_cancelled() {
+            break;
+        }
+        let entries = match backend.read_dir(&dir).await {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        for e in entries {
+            if cancel.is_cancelled() {
+                break;
+            }
+            if e.name == ".." || (skip_hidden && e.name.starts_with('.')) {
+                continue;
+            }
+            let child = dir.join(&e.name);
+            scanned += 1;
+            if scanned.is_multiple_of(64) {
+                progress(child.path.to_string_lossy().into_owned(), out.len());
+            }
+            if e.kind == VfsKind::Dir {
+                // Don't follow symlinked dirs — avoids cycles on remote trees.
+                if recursive && e.symlink_target.is_none() {
+                    stack.push(child);
+                }
+                continue;
+            }
+            if matcher.is_match(&e.name) {
+                progress(child.path.to_string_lossy().into_owned(), out.len() + 1);
+                out.push((child, e.size));
+                if out.len() >= MAX_RESULTS {
+                    return out;
+                }
+            }
         }
     }
     out
@@ -2824,6 +2926,36 @@ mod tests {
             ..by_name
         };
         assert_eq!(run(&by_content).len(), 2, "two files contain 'hello'");
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[tokio::test]
+    async fn find_files_vfs_matches_names_recursively() {
+        use std::sync::Arc;
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("rc_vfind_{}_{nanos}", std::process::id()));
+        std::fs::create_dir_all(root.join("sub")).unwrap();
+        std::fs::write(root.join("a.txt"), b"x").unwrap();
+        std::fs::write(root.join("sub/b.txt"), b"yy").unwrap();
+        std::fs::write(root.join("sub/c.log"), b"z").unwrap();
+
+        // Exercise the VFS walker through the local backend (stands in for remote).
+        let backend: Arc<dyn Vfs> = Arc::new(crate::vfs::local::LocalFs::new());
+        let matcher = crate::panel::selection::NameMatcher::build("*.txt", false, true).unwrap();
+        let cancel = crate::ops::CancelToken::new();
+        let results =
+            find_files_vfs(&backend, VfsPath::local(&root), &matcher, true, true, &cancel, |_, _| {})
+                .await;
+
+        let mut names: Vec<String> = results.iter().map(|(p, _)| p.file_name()).collect();
+        names.sort();
+        assert_eq!(names, vec!["a.txt", "b.txt"], "name-only, recursive, .log excluded");
+        // Sizes come from the directory listing, not a second stat.
+        assert!(results.iter().any(|(p, s)| p.file_name() == "b.txt" && *s == 2));
 
         std::fs::remove_dir_all(&root).ok();
     }
