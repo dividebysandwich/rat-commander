@@ -766,7 +766,12 @@ impl ProgressDialog {
         );
 
         f.render_widget(
-            Paragraph::new(Line::from("Speed (y) over bytes transferred (x):")).style(base),
+            Paragraph::new(Line::from(format!(
+                "Speed: {}/s   peak {}/s",
+                human_size(self.samples.last().map(|s| s.1).unwrap_or(0.0) as u64),
+                human_size(self.peak_speed as u64),
+            )))
+            .style(base),
             rows[4],
         );
         self.render_speed_chart(f, rows[5], theme);
@@ -795,20 +800,55 @@ impl ProgressDialog {
         const BLOCKS: [char; 9] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
         let y_max = (self.peak_speed * 1.15).max(1.0);
         let levels = h * 8;
-        let n = self.samples.len();
 
-        // Vertical gradient: dim near the baseline, bright towards the top.
+        // Pick a bar color that contrasts with the dialog background: the theme
+        // accent when it stands out, otherwise a green that does (e.g. MC's light
+        // dialog, where the cyan accent washes out). The gradient runs from that
+        // intense color at the top down toward the background near the baseline.
+        let bg = theme.dialog_bg;
         let accent = theme.panel_border_active;
-        let white = ratatui::style::Color::Rgb(0xff, 0xff, 0xff);
-        let top = mix_rgb(accent, white, 0.6);
-        let bottom = mix_rgb(accent, theme.dialog_bg, 0.45);
+        let intense = if (luma(accent) - luma(bg)).abs() >= 80.0 {
+            accent
+        } else if luma(bg) > 140.0 {
+            ratatui::style::Color::Rgb(0x1e, 0x7a, 0x1e) // dark green on light bg
+        } else {
+            ratatui::style::Color::Rgb(0x4c, 0xff, 0x4c) // light green on dark bg
+        };
+        let top = intense;
+        let bottom = mix_rgb(intense, bg, 0.7);
+
+        // Bin the peak speed by *transferred-bytes position*, so each column owns
+        // a fixed byte range. Past columns therefore never change — only the
+        // current (rightmost) bars move as the transfer advances — and the graph
+        // grows left→right like a progress bar instead of scrolling.
+        let x_max = if self.total_total > 0 {
+            self.total_total as f64
+        } else {
+            (self.last_bytes.max(1)) as f64
+        };
+        let mut bars = vec![0f64; w];
+        let mut seen = vec![false; w];
+        for &(bytes, speed) in &self.samples {
+            let col = ((bytes / x_max) * w as f64).floor().clamp(0.0, (w - 1) as f64) as usize;
+            bars[col] = bars[col].max(speed);
+            seen[col] = true;
+        }
+        // Carry the last value across empty bins inside the transferred region so
+        // the area stays contiguous up to the current progress; columns beyond it
+        // remain empty.
+        let done_col = ((self.total_done as f64 / x_max) * w as f64).round() as usize;
+        let mut last = 0.0;
+        for c in 0..w {
+            if seen[c] {
+                last = bars[c];
+            } else if c < done_col {
+                bars[c] = last;
+            }
+        }
 
         let buf = f.buffer_mut();
-        for col in 0..w {
-            // Map each column onto a sample (newest at the right edge).
-            let idx = if w <= 1 { n - 1 } else { col * (n - 1) / (w - 1) };
-            let v = self.samples[idx].1.max(0.0);
-            let filled = (((v / y_max) * levels as f64).round() as usize).min(levels);
+        for (col, &bar) in bars.iter().enumerate() {
+            let filled = (((bar.max(0.0) / y_max) * levels as f64).round() as usize).min(levels);
             for row in 0..h {
                 let from_bottom = h - 1 - row;
                 let cell = filled.saturating_sub(from_bottom * 8).min(8);
@@ -2417,6 +2457,16 @@ pub(crate) fn pulse_fill(
     let pos = (theme.anim as f64 * 3.2) % period;
     let t = (1.0 - (x as f64 - pos).abs() / (band * 0.5)).clamp(0.0, 1.0);
     pulse_color(base, t)
+}
+
+/// Perceived brightness (Rec. 601 luma, 0..255) of an RGB color; 128 for
+/// non-RGB colors.
+fn luma(c: ratatui::style::Color) -> f32 {
+    if let ratatui::style::Color::Rgb(r, g, b) = c {
+        0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32
+    } else {
+        128.0
+    }
 }
 
 /// Brighten `base` toward a white-hot highlight by pulse intensity `t` (0..1).
