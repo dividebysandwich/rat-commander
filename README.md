@@ -87,6 +87,11 @@ The installed executable is named **`rc`** for quick typing.
 **Remote filesystems** (each connection mounts into a panel)
 - **SFTP** and **SCP** over SSH, and **FTP/FTPS**
 - Copy/move/delete works transparently between local, remote and archive panels
+- When the destination panel is remote, the copy/move dialog prefills a
+  `scheme://path` target (e.g. `scp-0:///home/user`). **Delete the `scheme://`
+  prefix** to redirect the copy to a **local** path instead (absolute, or
+  relative to the source directory) — handy for pulling a file down to disk while
+  a remote connection stays open
 
 <img width="576" height="217" alt="image" src="https://github.com/user-attachments/assets/792884cc-f9b9-495c-9cbc-9171d802a290" />
 

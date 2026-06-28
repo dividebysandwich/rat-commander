@@ -145,6 +145,57 @@ fn parse_cd(cmd: &str) -> Option<&str> {
     t.strip_prefix("cd ").map(str::trim)
 }
 
+/// Split a `scheme://rest` prefix into `(scheme, rest)`. Only a plausible scheme
+/// token (alphanumerics, `-`, `+`, `.`) is accepted, so ordinary local paths
+/// (which never contain `://` on Unix) are left alone.
+fn split_scheme(s: &str) -> Option<(&str, &str)> {
+    let idx = s.find("://")?;
+    let scheme = &s[..idx];
+    if scheme.is_empty()
+        || !scheme
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '+' | '.'))
+    {
+        return None;
+    }
+    Some((scheme, &s[idx + 3..]))
+}
+
+/// Decide the destination [`VfsPath`] for a typed copy/move target.
+///
+/// - `scheme://path` resolves onto that backend — the path is absolute, or
+///   relative to a panel already on that scheme.
+/// - A bare path drops onto the destination panel's backend as before — *unless*
+///   that panel is remote, in which case a bare path is taken as **local** (a
+///   relative one joins the source panel's directory when it is local, else the
+///   process cwd). This lets the user override a remote destination to a local
+///   one simply by deleting the `scheme://` prefix from the prefilled field.
+fn dest_vfspath(dest: &str, other_cwd: &VfsPath, active_cwd: &VfsPath) -> VfsPath {
+    if let Some((scheme, rest)) = split_scheme(dest) {
+        let base_path = [other_cwd, active_cwd]
+            .into_iter()
+            .find(|c| c.scheme == scheme && c.container.is_none())
+            .map(|c| c.path.clone())
+            .unwrap_or_else(|| PathBuf::from("/"));
+        return resolve_dest_on(
+            rest,
+            &VfsPath { scheme: scheme.to_string(), path: base_path, container: None },
+        );
+    }
+    let other_is_remote = other_cwd.container.is_none() && other_cwd.scheme != "file";
+    if other_is_remote {
+        // The scheme was stripped → treat as a local destination.
+        let base = if active_cwd.scheme == "file" {
+            VfsPath::local(active_cwd.path.clone())
+        } else {
+            VfsPath::local_cwd()
+        };
+        resolve_dest_on(dest, &base)
+    } else {
+        resolve_dest_on(dest, other_cwd)
+    }
+}
+
 /// Resolve a typed destination string onto the destination panel's backend
 /// (`base`). Absolute paths replace the path; relative ones are joined to the
 /// panel's current directory. The scheme/container of `base` are preserved, so a
@@ -913,12 +964,19 @@ impl AppState {
     }
 
     async fn begin_transfer(&mut self, kind: OpKind, sources: Vec<VfsPath>, dest: &str) {
-        // The destination is the *other* panel, so the transfer uses that panel's
-        // backend (local, SFTP/SCP/FTP, …) rather than always the local disk.
+        // The destination defaults to the *other* panel's backend, but a typed
+        // `scheme://` prefix (or its absence on a remote panel) can redirect it
+        // to any registered backend — letting a local path override a remote one.
         let other = self.other_index();
-        let base = self.panels[other].cwd.clone();
-        let dst_fs = self.panels[other].backend.clone();
-        let dst_dir = resolve_dest_on(dest, &base);
+        let active = self.active;
+        let dst_dir = dest_vfspath(dest, &self.panels[other].cwd, &self.panels[active].cwd);
+        let dst_fs = match self.registry.resolve(&dst_dir) {
+            Ok(b) => b,
+            Err(e) => {
+                self.show_error(format!("cannot resolve destination: {e}"));
+                return;
+            }
+        };
         // Only the local backend needs (and supports) creating the directory up
         // front; remote/other backends copy into an existing directory.
         if dst_dir.scheme == "file"
@@ -1380,14 +1438,15 @@ impl AppState {
             self.start_archive_add(kind, sources, dest);
             return;
         }
-        // Show the destination panel's path (for remote panels this is the
-        // remote path, not the "scheme://" display) so it resolves on that
-        // backend rather than being treated as a local path.
-        let dest = self.panels[self.other_index()]
-            .cwd
-            .path
-            .to_string_lossy()
-            .into_owned();
+        // Prefill the destination panel's path. For a remote panel, show the
+        // "scheme://path" form so the copy targets that backend; deleting the
+        // "scheme://" prefix redirects the copy to a local path.
+        let cwd = &self.panels[self.other_index()].cwd;
+        let dest = if cwd.scheme == "file" {
+            cwd.path.to_string_lossy().into_owned()
+        } else {
+            cwd.display()
+        };
         let (title, purpose) = match kind {
             OpKind::Copy => ("Copy", InputPurpose::CopyDest(sources)),
             OpKind::Move => ("Move", InputPurpose::MoveDest(sources)),
@@ -2363,6 +2422,42 @@ mod tests {
         let local = VfsPath::local("/a/b");
         assert_eq!(resolve_dest_on("/c", &local).scheme, "file");
         assert_eq!(resolve_dest_on("sub", &local).path, PathBuf::from("/a/b/sub"));
+    }
+
+    #[test]
+    fn split_scheme_recognizes_only_real_schemes() {
+        assert_eq!(split_scheme("scp-0:///srv/x"), Some(("scp-0", "/srv/x")));
+        assert_eq!(split_scheme("sftp-2://rel"), Some(("sftp-2", "rel")));
+        assert_eq!(split_scheme("/home/user"), None);
+        assert_eq!(split_scheme("relative/path"), None);
+        assert_eq!(split_scheme("://nope"), None);
+    }
+
+    #[test]
+    fn dest_override_remote_to_local() {
+        use std::path::PathBuf;
+        let remote = VfsPath { scheme: "scp-0".into(), path: PathBuf::from("/home/user"), container: None };
+        let local_src = VfsPath::local("/data");
+
+        // Keeping the scheme prefix stays on the remote backend.
+        let d = dest_vfspath("scp-0:///srv/up", &remote, &local_src);
+        assert_eq!(d.scheme, "scp-0");
+        assert_eq!(d.path, PathBuf::from("/srv/up"));
+        // A relative remote path joins the matching panel's cwd.
+        let d = dest_vfspath("scp-0://uploads", &remote, &local_src);
+        assert_eq!((d.scheme.as_str(), d.path), ("scp-0", PathBuf::from("/home/user/uploads")));
+
+        // Dropping the scheme on a remote dest → local (absolute kept as-is).
+        let d = dest_vfspath("/tmp/out", &remote, &local_src);
+        assert_eq!((d.scheme.as_str(), d.path), ("file", PathBuf::from("/tmp/out")));
+        // …and a relative one joins the (local) source panel's directory.
+        let d = dest_vfspath("out", &remote, &local_src);
+        assert_eq!((d.scheme.as_str(), d.path), ("file", PathBuf::from("/data/out")));
+
+        // A bare path to a *local* destination panel behaves exactly as before.
+        let local_dest = VfsPath::local("/a/b");
+        let d = dest_vfspath("sub", &local_dest, &remote);
+        assert_eq!((d.scheme.as_str(), d.path), ("file", PathBuf::from("/a/b/sub")));
     }
 
     #[cfg(unix)]
