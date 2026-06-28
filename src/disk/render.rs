@@ -48,7 +48,7 @@ pub fn render(f: &mut Frame, area: Rect, dv: &mut DiskView, theme: &Theme) {
     dv.rects.clear();
     if dv.scanning {
         render_header(f, header, None, 0, theme);
-        center_text(f, body, "Scanning… (this may take a while for large trees)", theme);
+        render_scanning(f, body, dv.scan_done, dv.scan_total, theme);
         return;
     }
     if dv.entries.is_empty() {
@@ -114,6 +114,51 @@ fn render_footer(f: &mut Frame, area: Rect, theme: &Theme) {
         Paragraph::new(Line::from(Span::styled(line, theme.fkey_label)))
             .style(theme.fkey_label),
         area,
+    );
+}
+
+/// Show scanning progress: a centered label and a horizontal progress bar. The
+/// bar is determinate once the subdirectory count is known, indeterminate (just
+/// a label) before that.
+fn render_scanning(f: &mut Frame, area: Rect, done: usize, total: usize, theme: &Theme) {
+    let label = if total > 0 {
+        format!("Scanning… {done} / {total} directories")
+    } else {
+        "Scanning… (enumerating directories)".to_string()
+    };
+    let mid = area.y + area.height / 2;
+    f.render_widget(
+        Paragraph::new(Line::from(label))
+            .alignment(Alignment::Center)
+            .style(theme.panel_base()),
+        Rect { y: mid.saturating_sub(1), height: 1, ..area },
+    );
+
+    if total == 0 {
+        return;
+    }
+    // A centered bar ~60% of the body width.
+    let bar_w = (area.width as usize * 3 / 5).clamp(10, area.width as usize);
+    let bar_x = area.x + (area.width as usize - bar_w) as u16 / 2;
+    let ratio = (done as f32 / total as f32).clamp(0.0, 1.0);
+    let filled = (ratio * bar_w as f32).round() as usize;
+    let mut spans = Vec::with_capacity(bar_w + 1);
+    for i in 0..bar_w {
+        // Use the same animated pulse fill as the file-copy progress bars.
+        let (ch, color) = if i < filled {
+            ('█', crate::ui::dialog::pulse_fill(theme, theme.panel_border_active, i, bar_w))
+        } else {
+            ('░', theme.panel_border)
+        };
+        spans.push(Span::styled(ch.to_string(), Style::default().fg(color).bg(theme.panel_bg)));
+    }
+    spans.push(Span::styled(
+        format!(" {:.0}%", ratio * 100.0),
+        Style::default().fg(theme.panel_fg).bg(theme.panel_bg),
+    ));
+    f.render_widget(
+        Paragraph::new(Line::from(spans)).style(theme.panel_base()),
+        Rect { x: bar_x, y: mid + 1, height: 1, width: area.width - (bar_x - area.x) },
     );
 }
 
@@ -217,9 +262,18 @@ fn draw_file_list(
     theme: &Theme,
 ) {
     let w = area.width as usize;
-    let path_style = Style::default().fg(theme.panel_fg).bg(theme.panel_bg);
-    let size_style = Style::default().fg(color).bg(theme.panel_bg);
-    for (k, file) in files.iter().take(area.height as usize).enumerate() {
+    let rows = area.height as usize;
+    for (k, file) in files.iter().take(rows).enumerate() {
+        // In truecolor, fade each successive row's background a little darker so
+        // the list reads as a gradient down the box.
+        let bg = if theme.truecolor {
+            darken(theme.panel_bg, (k as f32 * 0.08).min(0.6))
+        } else {
+            theme.panel_bg
+        };
+        let path_style = Style::default().fg(theme.panel_fg).bg(bg);
+        let size_style = Style::default().fg(color).bg(bg);
+
         let size = human_gb(file.size);
         // Reserve "<space>SIZE" on the right; the path fills the rest.
         let path_w = w.saturating_sub(size.chars().count() + 1).max(1);
@@ -229,9 +283,20 @@ fn draw_file_list(
             Span::styled(format!(" {size}"), size_style),
         ]);
         f.render_widget(
-            Paragraph::new(line),
+            Paragraph::new(line).style(Style::default().bg(bg)),
             Rect { y: area.y + k as u16, height: 1, ..area },
         );
+    }
+}
+
+/// Scale an RGB color toward black by `t` (0 = unchanged, 1 = black).
+fn darken(c: ratatui::style::Color, t: f32) -> ratatui::style::Color {
+    use ratatui::style::Color;
+    if let Color::Rgb(r, g, b) = c {
+        let f = |x: u8| (x as f32 * (1.0 - t)).round().clamp(0.0, 255.0) as u8;
+        Color::Rgb(f(r), f(g), f(b))
+    } else {
+        c
     }
 }
 
@@ -366,6 +431,30 @@ mod tests {
 
     fn e(name: &str, size: u64) -> DiskEntry {
         DiskEntry { name: name.into(), size, files: vec![] }
+    }
+
+    #[test]
+    fn scanning_shows_a_progress_bar() {
+        use crate::disk::DiskView;
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let mut dv = DiskView::new(std::path::PathBuf::from("/tmp"));
+        dv.scanning = true;
+        dv.scan_done = 3;
+        dv.scan_total = 12;
+        let theme = crate::ui::theme::Theme::mc();
+        let mut t = Terminal::new(TestBackend::new(80, 20)).unwrap();
+        t.draw(|f| render(f, f.area(), &mut dv, &theme)).unwrap();
+        let b = t.backend().buffer();
+        let mut s = String::new();
+        for y in 0..b.area.height {
+            for x in 0..b.area.width {
+                s.push_str(b[(x, y)].symbol());
+            }
+        }
+        assert!(s.contains("3 / 12 directories"), "progress label");
+        assert!(s.contains('█') && s.contains('░'), "determinate bar drawn");
+        assert!(s.contains("25%"), "percentage shown");
     }
 
     #[test]

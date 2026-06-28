@@ -21,6 +21,13 @@ pub enum AppEvent {
         id: TaskId,
         paths: Vec<std::path::PathBuf>,
     },
+    /// Progress of an in-flight disk-explorer scan: `done` of `total` immediate
+    /// subdirectories sized so far. `generation` guards against stale updates.
+    DiskScanProgress {
+        generation: u64,
+        done: usize,
+        total: usize,
+    },
     /// A disk-explorer background scan finished; `generation` lets the view drop
     /// results from a directory it has already navigated away from.
     DiskScanned {

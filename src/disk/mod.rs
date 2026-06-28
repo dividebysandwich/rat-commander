@@ -42,6 +42,9 @@ pub struct DiskView {
     pub entries: Vec<DiskEntry>,
     pub selected: usize,
     pub scanning: bool,
+    /// Scan progress: immediate subdirectories sized (`done`) of the total.
+    pub scan_done: usize,
+    pub scan_total: usize,
     /// Bumps on every scan so stale background results can be ignored.
     pub generation: u64,
     /// Box rectangles from the last render, for spatial arrow navigation.
@@ -55,6 +58,8 @@ impl DiskView {
             entries: Vec::new(),
             selected: 0,
             scanning: true,
+            scan_done: 0,
+            scan_total: 0,
             generation: 0,
             rects: Vec::new(),
         }
@@ -185,18 +190,33 @@ const TOP_FILES: usize = 32;
 /// on-disk size and its largest files (symlinks are skipped, never followed).
 /// Sorted largest-first.
 pub fn scan_dir(dir: &Path) -> Vec<DiskEntry> {
-    let mut out = Vec::new();
+    scan_dir_with(dir, |_, _| {})
+}
+
+/// Like [`scan_dir`], but invokes `progress(done, total)` after enumerating the
+/// subdirectories (done = 0) and again as each one is sized, so a long scan can
+/// drive a progress bar.
+pub fn scan_dir_with(dir: &Path, mut progress: impl FnMut(usize, usize)) -> Vec<DiskEntry> {
+    // First enumerate the immediate (non-symlink) subdirectories so we know the
+    // total up front, then size them one at a time.
+    let mut subdirs: Vec<(String, PathBuf)> = Vec::new();
     if let Ok(rd) = std::fs::read_dir(dir) {
         for de in rd.flatten() {
             let Ok(ft) = de.file_type() else { continue };
-            // Never count or descend into symlinks.
             if ft.is_symlink() || !ft.is_dir() {
                 continue;
             }
-            let name = de.file_name().to_string_lossy().into_owned();
-            let (size, files) = subtree_stats(&de.path());
-            out.push(DiskEntry { name, size, files });
+            subdirs.push((de.file_name().to_string_lossy().into_owned(), de.path()));
         }
+    }
+    let total = subdirs.len();
+    progress(0, total);
+
+    let mut out = Vec::with_capacity(total);
+    for (i, (name, path)) in subdirs.into_iter().enumerate() {
+        let (size, files) = subtree_stats(&path);
+        out.push(DiskEntry { name, size, files });
+        progress(i + 1, total);
     }
     out.sort_by(|a, b| b.size.cmp(&a.size).then(a.name.cmp(&b.name)));
     out

@@ -295,8 +295,12 @@ impl AppState {
         // Animate gradients when truecolor is on and either animations are
         // enabled, the (always-animated) process explorer is open, or a file
         // operation is running (so the progress bars pulse).
+        let scanning_disk = self.diskview.as_ref().is_some_and(|d| d.scanning);
         let animate = self.truecolor
-            && (self.config.animation || self.procview.is_some() || !self.tasks.is_empty());
+            && (self.config.animation
+                || self.procview.is_some()
+                || !self.tasks.is_empty()
+                || scanning_disk);
         if animate {
             self.anim_phase = self.anim_phase.wrapping_add(1);
             dirty = true;
@@ -323,6 +327,7 @@ impl AppState {
             || self.pending_esc.is_some()
             || self.procview.is_some()
             || !self.tasks.is_empty()
+            || self.diskview.as_ref().is_some_and(|d| d.scanning)
     }
 
     /// Load both panels' directories.
@@ -397,6 +402,15 @@ impl AppState {
                     self.dialog = None;
                 }
                 self.panelize_results(paths);
+            }
+            AppEvent::DiskScanProgress { generation, done, total } => {
+                if let Some(dv) = self.diskview.as_mut()
+                    && dv.generation == generation
+                    && dv.scanning
+                {
+                    dv.scan_done = done;
+                    dv.scan_total = total;
+                }
             }
             AppEvent::DiskScanned { generation, entries } => {
                 if let Some(dv) = self.diskview.as_mut()
@@ -1107,15 +1121,23 @@ impl AppState {
         };
         dv.generation = dv.generation.wrapping_add(1);
         dv.scanning = true;
+        dv.scan_done = 0;
+        dv.scan_total = 0;
         dv.entries.clear();
         dv.selected = 0;
         let generation = dv.generation;
         let cwd = dv.cwd.clone();
         let tx = self.tx.clone();
         tokio::spawn(async move {
-            let entries = tokio::task::spawn_blocking(move || crate::disk::scan_dir(&cwd))
-                .await
-                .unwrap_or_default();
+            let txp = tx.clone();
+            let entries = tokio::task::spawn_blocking(move || {
+                crate::disk::scan_dir_with(&cwd, |done, total| {
+                    // Progress is advisory; drop updates if the channel is full.
+                    let _ = txp.try_send(AppEvent::DiskScanProgress { generation, done, total });
+                })
+            })
+            .await
+            .unwrap_or_default();
             let _ = tx.send(AppEvent::DiskScanned { generation, entries }).await;
         });
     }

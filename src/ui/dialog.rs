@@ -2359,29 +2359,13 @@ fn pulse_gauge(f: &mut Frame, area: Rect, ratio: f64, label: &str, base: ratatui
     let label: Vec<char> = label.chars().take(w).collect();
     let lstart = (w - label.len()) / 2;
 
-    // The bright pulse position sweeps across and wraps with a trailing gap.
-    let band = (w as f64 * 0.33).max(5.0);
-    let period = w as f64 + band;
-    // The pulse moves as `anim` advances, which the app does while an operation
-    // is running (so the bars pulse during a copy even if animations are off).
-    let pos = if theme.truecolor {
-        (theme.anim as f64 * 3.2) % period
-    } else {
-        f64::NEG_INFINITY
-    };
-
     let empty_fg = theme.panel_border;
     let buf = f.buffer_mut();
     for x in 0..w {
         let in_label = x >= lstart && x < lstart + label.len();
         let lc = if in_label { Some(label[x - lstart]) } else { None };
         if x < filled {
-            let color = if theme.truecolor {
-                let t = (1.0 - (x as f64 - pos).abs() / (band * 0.5)).clamp(0.0, 1.0);
-                pulse_color(base, t)
-            } else {
-                base
-            };
+            let color = pulse_fill(theme, base, x, w);
             let (ch, fg, bg) = match lc {
                 Some(c) => (c, theme.dialog_bg, color),
                 None => ('█', color, theme.dialog_bg),
@@ -2413,6 +2397,26 @@ fn mix_rgb(a: ratatui::style::Color, b: ratatui::style::Color, t: f32) -> ratatu
         }
         _ => b,
     }
+}
+
+/// Color of filled cell `x` (of `w`) in an animated pulse bar over `base`: a
+/// bright band sweeps left→right as `theme.anim` advances (truecolor only;
+/// otherwise the solid `base`). Shared by the copy gauges and the disk scan bar
+/// so they pulse identically.
+pub(crate) fn pulse_fill(
+    theme: &Theme,
+    base: ratatui::style::Color,
+    x: usize,
+    w: usize,
+) -> ratatui::style::Color {
+    if !theme.truecolor {
+        return base;
+    }
+    let band = (w as f64 * 0.33).max(5.0);
+    let period = w as f64 + band;
+    let pos = (theme.anim as f64 * 3.2) % period;
+    let t = (1.0 - (x as f64 - pos).abs() / (band * 0.5)).clamp(0.0, 1.0);
+    pulse_color(base, t)
 }
 
 /// Brighten `base` toward a white-hot highlight by pulse intensity `t` (0..1).
