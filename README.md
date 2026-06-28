@@ -10,7 +10,8 @@ The installed executable is named **`rc`** for quick typing.
 
 <img width="1007" height="520" alt="image" src="https://github.com/user-attachments/assets/217837a9-4e0f-41e5-9018-b82cc4c8db2d" />
 
-<img width="1003" height="519" alt="image" src="https://github.com/user-attachments/assets/848b70d5-88cc-41bd-81f0-51b2b3c5ce27" />
+<img width="1004" height="659" alt="image" src="https://github.com/user-attachments/assets/5b13c3c9-e770-4ce6-ac2b-560e7b5c3bad" />
+
 
 
 ---
