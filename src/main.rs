@@ -12,6 +12,7 @@ mod ops;
 mod panel;
 mod proc;
 mod shell;
+mod syntax;
 mod ui;
 mod usermenu;
 mod util;

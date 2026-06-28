@@ -39,6 +39,9 @@ pub fn render(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) {
     }
 
     ensure_visible(ed);
+    // Highlight up to the bottom of the visible window before drawing.
+    let bottom = ed.top_line + ed.view_rows + 1;
+    ed.ensure_hl(bottom);
     render_status(f, status, ed, theme);
     let cursor_pos = render_text(f, text_area, ed, theme);
     render_footer(f, footer, ed, theme);
@@ -247,31 +250,34 @@ fn render_text(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) -> Op
         }
         let line_start = ed.buf.line_to_char(li);
         let chars: Vec<char> = ed.buf.line_text(li).chars().collect();
+        // Syntax foreground per character (None ⇒ all `panel_fg`).
+        let fg = ed.line_fg(li, chars.len(), theme.panel_fg);
 
-        // Build styled runs across the visible columns.
+        // Build styled runs across the visible columns, breaking on style change.
         let mut spans: Vec<Span> = Vec::new();
         let mut run = String::new();
-        let mut run_hl = false;
+        let mut run_style = normal;
         for vc in 0..cols {
             let ci = ed.left_col + vc;
-            let (ch, hl) = if ci < chars.len() {
+            let (ch, style) = if ci < chars.len() {
                 let abs = line_start + ci;
-                let highlighted = block.map(|(s, e)| abs >= s && abs < e).unwrap_or(false);
-                (chars[ci], highlighted)
+                if block.map(|(s, e)| abs >= s && abs < e).unwrap_or(false) {
+                    (chars[ci], block_style)
+                } else {
+                    let color = fg.as_ref().map(|v| v[ci]).unwrap_or(theme.panel_fg);
+                    (chars[ci], Style::default().fg(color).bg(theme.panel_bg))
+                }
             } else {
-                (' ', false)
+                (' ', normal)
             };
-            if hl != run_hl && !run.is_empty() {
-                spans.push(Span::styled(
-                    std::mem::take(&mut run),
-                    if run_hl { block_style } else { normal },
-                ));
+            if style != run_style && !run.is_empty() {
+                spans.push(Span::styled(std::mem::take(&mut run), run_style));
             }
-            run_hl = hl;
+            run_style = style;
             run.push(ch);
         }
         if !run.is_empty() {
-            spans.push(Span::styled(run, if run_hl { block_style } else { normal }));
+            spans.push(Span::styled(run, run_style));
         }
         lines.push(Line::from(spans));
     }

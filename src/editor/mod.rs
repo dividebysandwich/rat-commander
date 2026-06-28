@@ -62,6 +62,8 @@ pub struct EditorState {
     hex: Option<hex::HexEditor>,
     /// Last hex-mode search string (prefilled into the search dialog).
     last_hex_search: String,
+    /// Incremental syntax highlighter (text mode), when a syntax matched.
+    hl: Option<crate::syntax::Highlighter>,
 }
 
 /// Above this size a file is opened straight into hex mode (text mode loads the
@@ -88,7 +90,36 @@ impl EditorState {
             view_cols: 1,
             hex: None,
             last_hex_search: String::new(),
+            hl: None,
         }
+    }
+
+    /// Turn on syntax highlighting if a syntax matches the file name and the
+    /// content is within the size cap. `dark` selects a fitting bundled theme.
+    pub fn enable_syntax(&mut self, dark: bool) {
+        if self.buf.len_chars() <= crate::syntax::HL_MAX_BYTES {
+            self.hl = crate::syntax::Highlighter::for_file(&self.name, dark);
+        }
+    }
+
+    /// Ensure the highlighter has processed lines up to (and including) `upto`.
+    fn ensure_hl(&mut self, upto: usize) {
+        let total = self.buf.len_lines();
+        let Some(hl) = self.hl.as_mut() else {
+            return;
+        };
+        // Disjoint field borrows: `hl` (self.hl) vs. self.buf.
+        while hl.processed() < upto && hl.processed() < total {
+            let i = hl.processed();
+            let display = self.buf.line_text(i);
+            hl.process_next(&display);
+        }
+    }
+
+    /// Per-character foreground colors for `line` (length `len`), or `None` when
+    /// highlighting is off.
+    fn line_fg(&self, line: usize, len: usize, default: ratatui::style::Color) -> Option<Vec<ratatui::style::Color>> {
+        self.hl.as_ref().map(|hl| hl.line_fg(line, len, default))
     }
 
     /// Open a (local) file directly in hex mode without loading it into memory —
@@ -214,6 +245,21 @@ impl EditorState {
             return self.handle_hex_key(key);
         }
 
+        // Run the edit, then — if the buffer changed — invalidate the syntax
+        // highlight from the first affected line so only the suffix re-highlights.
+        let pre_rev = self.buf.revision();
+        let pre_line = self.cur_line();
+        let sig = self.handle_text_key(key, ctrl);
+        if self.buf.revision() != pre_rev {
+            let from = pre_line.min(self.cur_line());
+            if let Some(hl) = self.hl.as_mut() {
+                hl.invalidate(from);
+            }
+        }
+        sig
+    }
+
+    fn handle_text_key(&mut self, key: KeyEvent, ctrl: bool) -> EditorSignal {
         match key.code {
             KeyCode::F(10) | KeyCode::Esc => {
                 if self.dirty {
@@ -489,6 +535,10 @@ impl EditorState {
         self.cursor = self.cursor.min(self.buf.len_chars());
         self.dirty = true;
         self.clear_marks();
+        // The whole buffer was rewritten — re-highlight from the top.
+        if let Some(hl) = self.hl.as_mut() {
+            hl.invalidate(0);
+        }
         count
     }
 

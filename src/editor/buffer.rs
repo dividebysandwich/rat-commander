@@ -20,6 +20,9 @@ pub struct EditorBuffer {
     rope: Rope,
     undo: Vec<Edit>,
     redo: Vec<Edit>,
+    /// Bumped on every mutation; lets callers detect edits (e.g. to invalidate a
+    /// syntax-highlight cache) without diffing the rope.
+    revision: u64,
 }
 
 impl EditorBuffer {
@@ -28,7 +31,13 @@ impl EditorBuffer {
             rope: Rope::from_str(text),
             undo: Vec::new(),
             redo: Vec::new(),
+            revision: 0,
         }
+    }
+
+    /// A counter that increases on every buffer mutation.
+    pub fn revision(&self) -> u64 {
+        self.revision
     }
 
     /// The full buffer contents as a string.
@@ -113,6 +122,7 @@ impl EditorBuffer {
             inserted: text.to_string(),
         });
         self.redo.clear();
+        self.revision += 1;
         start + text.chars().count()
     }
 
@@ -137,6 +147,7 @@ impl EditorBuffer {
         }
         let cursor = e.at + e.removed.chars().count();
         self.redo.push(e);
+        self.revision += 1;
         Some(cursor)
     }
 
@@ -150,6 +161,7 @@ impl EditorBuffer {
         }
         let cursor = e.at + e.inserted.chars().count();
         self.undo.push(e);
+        self.revision += 1;
         Some(cursor)
     }
 

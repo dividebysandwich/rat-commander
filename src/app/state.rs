@@ -395,6 +395,17 @@ impl AppState {
         1 - self.active
     }
 
+    /// Whether the active UI theme has a dark background (picks a fitting syntax
+    /// highlighting theme).
+    fn dark_ui(&self) -> bool {
+        if let ratatui::style::Color::Rgb(r, g, b) = self.theme.panel_bg {
+            let luma = 0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32;
+            luma < 128.0
+        } else {
+            true
+        }
+    }
+
     /// Reload both panels after a filesystem-changing operation.
     pub async fn reload_all(&mut self) {
         for p in self.panels.iter_mut() {
@@ -482,13 +493,22 @@ impl AppState {
                 match kind {
                     FetchKind::View => {
                         // Page the downloaded copy from disk; it's deleted on close.
+                        let dark = self.dark_ui();
                         let t = temp.clone();
-                        let vs = tokio::task::spawn_blocking(move || {
-                            ViewerState::open_file(name, t.clone(), Some(t))
-                        })
-                        .await;
-                        match vs {
-                            Ok(Ok(v)) => self.viewer = Some(v),
+                        let scanned =
+                            tokio::task::spawn_blocking(move || crate::viewer::scan_file(&t)).await;
+                        match scanned {
+                            Ok(Ok((file, len, line_starts))) => {
+                                let mut v = ViewerState::from_scanned(
+                                    name,
+                                    file,
+                                    len,
+                                    line_starts,
+                                    Some(temp.clone()),
+                                );
+                                v.enable_syntax(dark);
+                                self.viewer = Some(v);
+                            }
                             Ok(Err(e)) => {
                                 let _ = std::fs::remove_file(&temp);
                                 self.show_error(format!("cannot open file: {e}"));
@@ -505,7 +525,9 @@ impl AppState {
                         match std::fs::read(&temp) {
                             Ok(bytes) => {
                                 let text = String::from_utf8_lossy(&bytes).into_owned();
-                                self.editor = Some(EditorState::new(name, orig_path, &text));
+                                let mut ed = EditorState::new(name, orig_path, &text);
+                                ed.enable_syntax(self.dark_ui());
+                                self.editor = Some(ed);
                             }
                             Err(e) => self.show_error(format!("cannot open file: {e}")),
                         }
@@ -1998,10 +2020,14 @@ impl AppState {
             // Local: page straight from disk — never load the whole file. The
             // line-index scan runs off-thread so it doesn't block the reactor.
             let local = path.path.clone();
-            let vs =
-                tokio::task::spawn_blocking(move || ViewerState::open_file(name, local, None)).await;
-            match vs {
-                Ok(Ok(v)) => self.viewer = Some(v),
+            let dark = self.dark_ui();
+            let scanned = tokio::task::spawn_blocking(move || crate::viewer::scan_file(&local)).await;
+            match scanned {
+                Ok(Ok((file, len, line_starts))) => {
+                    let mut v = ViewerState::from_scanned(name, file, len, line_starts, None);
+                    v.enable_syntax(dark);
+                    self.viewer = Some(v);
+                }
                 Ok(Err(e)) => self.show_error(format!("cannot open file: {e}")),
                 Err(_) => self.show_error("viewer failed to open file"),
             }
@@ -2048,7 +2074,9 @@ impl AppState {
             match load_file(&backend, &path).await {
                 Ok(data) => {
                     let text = String::from_utf8_lossy(&data).into_owned();
-                    self.editor = Some(EditorState::new(name, path, &text));
+                    let mut ed = EditorState::new(name, path, &text);
+                    ed.enable_syntax(self.dark_ui());
+                    self.editor = Some(ed);
                 }
                 Err(e) => self.show_error(format!("cannot open file: {e}")),
             }

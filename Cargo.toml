@@ -1,6 +1,6 @@
 [package]
 name = "rat-commander"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2024"
 description = "A self-contained Norton/Midnight-Commander-style TUI file manager"
 license = "GPL-2.0-only"
@@ -54,6 +54,10 @@ russh = "0.61.2"
 russh-sftp = "2.3.0"
 serde = { version = "1.0.228", features = ["derive"] }
 sevenz-rust2 = "0.21.1"
+# Syntax highlighting. Pure-Rust regex backend (no C `onig`) keeps the ARM
+# cross-compile builds working; bundles Sublime syntaxes + themes, and more
+# `.sublime-syntax`/theme files can be loaded later to extend it.
+syntect = { version = "5.2.0", default-features = false, features = ["default-fancy"] }
 suppaftp = { version = "9.0.0", default-features = false, features = ["tokio"] }
 tar = "0.4.46"
 thiserror = "2.0.18"

@@ -5,7 +5,7 @@ use crate::ui::theme::Theme;
 use crate::util::text::{ellipsize, pad_right};
 use ratatui::Frame;
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
@@ -36,6 +36,29 @@ pub fn render(f: &mut Frame, area: Rect, v: &mut ViewerState, theme: &Theme) {
     render_footer(f, footer, v, theme);
 }
 
+/// Build a styled line from `chars`, coloring each by `fg[base + j]` (falling
+/// back to `default`), merging adjacent same-color runs.
+fn build_spans(chars: &[char], base: usize, fg: &[Color], default: Color, bg: Color) -> Line<'static> {
+    let mut spans: Vec<Span> = Vec::new();
+    let mut run = String::new();
+    let mut cur = default;
+    for (j, &ch) in chars.iter().enumerate() {
+        let color = fg.get(base + j).copied().unwrap_or(default);
+        if color != cur && !run.is_empty() {
+            spans.push(Span::styled(std::mem::take(&mut run), Style::default().fg(cur).bg(bg)));
+        }
+        cur = color;
+        run.push(ch);
+    }
+    if !run.is_empty() {
+        spans.push(Span::styled(run, Style::default().fg(cur).bg(bg)));
+    }
+    if spans.is_empty() {
+        spans.push(Span::styled(String::new(), Style::default().fg(default).bg(bg)));
+    }
+    Line::from(spans)
+}
+
 fn render_header(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
     let mode = match v.mode {
         ViewMode::Text => "Text",
@@ -63,27 +86,49 @@ fn render_header(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
     );
 }
 
-fn render_text(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
-    let style = Style::default().fg(theme.panel_fg).bg(theme.panel_bg);
+fn render_text(f: &mut Frame, area: Rect, v: &mut ViewerState, theme: &Theme) {
+    let default = theme.panel_fg;
+    let bg = theme.panel_bg;
     let width = area.width as usize;
-    let mut lines: Vec<Line> = Vec::with_capacity(area.height as usize);
+    let rows = area.height as usize;
+    let highlighted = v.has_syntax();
+    let mut lines: Vec<Line> = Vec::with_capacity(rows);
     let mut line_idx = v.top;
 
-    while lines.len() < area.height as usize && line_idx < v.line_count() {
+    while lines.len() < rows && line_idx < v.line_count() {
         let raw = v.line_str(line_idx);
-        if v.wrap {
-            for chunk in wrap_chunks(&raw, width.max(1)) {
-                if lines.len() >= area.height as usize {
-                    break;
+        let chars: Vec<char> = raw.chars().collect();
+        // Per-character foreground colors (empty ⇒ everything uses `default`).
+        let fg: Vec<Color> = if highlighted {
+            let runs = v.line_runs(line_idx);
+            let mut out = Vec::with_capacity(chars.len());
+            for (n, color) in runs {
+                for _ in 0..n {
+                    if out.len() >= chars.len() {
+                        break;
+                    }
+                    out.push(color);
                 }
-                lines.push(Line::from(Span::styled(chunk, style)));
             }
-            if raw.is_empty() {
-                lines.push(Line::from(Span::styled(String::new(), style)));
+            out
+        } else {
+            Vec::new()
+        };
+
+        if v.wrap {
+            if chars.is_empty() {
+                lines.push(build_spans(&[], 0, &fg, default, bg));
+            } else {
+                let mut start = 0;
+                while start < chars.len() && lines.len() < rows {
+                    let end = (start + width.max(1)).min(chars.len());
+                    lines.push(build_spans(&chars[start..end], start, &fg, default, bg));
+                    start = end;
+                }
             }
         } else {
-            let shown: String = raw.chars().skip(v.h_offset).collect();
-            lines.push(Line::from(Span::styled(shown, style)));
+            let from = v.h_offset.min(chars.len());
+            lines.push(build_spans(&chars[from..], from, &fg, default, bg));
         }
         line_idx += 1;
     }
@@ -146,13 +191,4 @@ fn render_footer(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
         "Help", wrap, "Quit", mode, "Goto", "", "Search", "", "Next", "Quit",
     ];
     crate::ui::fkeys::render(f, area, &labels, theme);
-}
-
-/// Split a string into display-width chunks of at most `width` characters.
-fn wrap_chunks(s: &str, width: usize) -> Vec<String> {
-    if s.is_empty() {
-        return Vec::new();
-    }
-    let chars: Vec<char> = s.chars().collect();
-    chars.chunks(width).map(|c| c.iter().collect()).collect()
 }

@@ -57,6 +57,11 @@ The installed executable is named **`rc`** for quick typing.
 
 **Built-in viewer (F3)**
 - Text and **hex** modes, line wrap toggle, and search
+- **Syntax highlighting** (via [`syntect`](https://github.com/trishume/syntect),
+  the engine behind `bat`) for recognized source files, with a bundled theme
+  chosen to suit the active light/dark UI. Highlighting is incremental and
+  size-capped so it stays responsive; it's also extensible — extra Sublime
+  `.sublime-syntax`/theme files can be added later
 - **Paged from disk** — local files are read on demand (only a per-line offset
   index is kept), so arbitrarily large files open instantly without loading into
   memory; search streams the file in windows too
@@ -67,6 +72,9 @@ The installed executable is named **`rc`** for quick typing.
 - Block mark/copy/move/delete, search, **search & replace** (literal or regex),
   undo/redo, and a status bar showing the byte under the cursor, line/column and
   totals
+- **Syntax highlighting** (same `syntect` engine) that updates incrementally as
+  you type — only the edited line onward is re-highlighted — and coexists with
+  block selection highlighting
 - **Hex editor mode** (F9): an offset / hex / ASCII view that edits **in place** —
   only the visible window is read and only changed bytes are written back, so
   arbitrarily large files can be hex-edited (files too big to load as text open

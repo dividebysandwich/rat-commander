@@ -8,11 +8,12 @@
 
 pub mod render;
 
+use crate::syntax::{ColorRun, Highlighter};
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use std::cell::RefCell;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Maximum bytes read into an *in-memory* viewer (larger in-memory buffers are
 /// truncated with a note). File-backed sources are paged and never truncated.
@@ -82,6 +83,8 @@ pub struct ViewerState {
     truncated: bool,
     /// A temp file to delete when the viewer closes (a fetched remote file).
     temp: Option<PathBuf>,
+    /// Incremental syntax highlighter (text mode only), when a syntax matched.
+    hl: Option<Highlighter>,
     /// Byte offset of the start of each text line.
     line_starts: Vec<usize>,
     pub mode: ViewMode,
@@ -114,6 +117,7 @@ impl ViewerState {
             src: Source::Mem(data),
             truncated,
             temp: None,
+            hl: None,
             line_starts,
             mode: ViewMode::Text,
             wrap: false,
@@ -127,18 +131,22 @@ impl ViewerState {
         }
     }
 
-    /// A file-backed (paged) viewer. The file is opened and its line-start index
-    /// built by a single sequential scan (offsets only — the content is never
-    /// held in memory). When `temp` is set, that file is deleted on close.
-    pub fn open_file(name: String, path: PathBuf, temp: Option<PathBuf>) -> std::io::Result<Self> {
-        let mut file = File::open(&path)?;
-        let len = file.metadata()?.len() as usize;
-        let line_starts = scan_line_starts(&mut file, len)?;
-        Ok(ViewerState {
+    /// A file-backed (paged) viewer from an already-scanned file (built on the
+    /// main thread so the blocking scan can run off-thread). When `temp` is set,
+    /// that file is deleted on close.
+    pub fn from_scanned(
+        name: String,
+        file: File,
+        len: usize,
+        line_starts: Vec<usize>,
+        temp: Option<PathBuf>,
+    ) -> Self {
+        ViewerState {
             name,
             src: Source::File { file: RefCell::new(file), len },
             truncated: false,
             temp,
+            hl: None,
             line_starts,
             mode: ViewMode::Text,
             wrap: false,
@@ -149,7 +157,52 @@ impl ViewerState {
             last_match: None,
             view_rows: 1,
             view_cols: 1,
-        })
+        }
+    }
+
+    /// Convenience: open + scan a file in one call (used by tests).
+    pub fn open_file(name: String, path: PathBuf, temp: Option<PathBuf>) -> std::io::Result<Self> {
+        let (file, len, line_starts) = scan_file(&path)?;
+        Ok(Self::from_scanned(name, file, len, line_starts, temp))
+    }
+
+    /// Turn on syntax highlighting if a syntax matches the file name and the
+    /// content is within the size cap. `dark` selects a fitting bundled theme.
+    pub fn enable_syntax(&mut self, dark: bool) {
+        if self.src.len() <= crate::syntax::HL_MAX_BYTES {
+            self.hl = Highlighter::for_file(&self.name, dark);
+        }
+    }
+
+    fn has_syntax(&self) -> bool {
+        self.hl.is_some()
+    }
+
+    /// Color runs for line `li` (computing highlight up to it on demand). Empty
+    /// when highlighting is off. Returns owned runs so the caller can also read
+    /// the line text without a borrow conflict.
+    fn line_runs(&mut self, li: usize) -> Vec<ColorRun> {
+        let total = self.line_starts.len();
+        let Some(hl) = self.hl.as_mut() else {
+            return Vec::new();
+        };
+        // Disjoint field borrows: `hl` (self.hl) vs. self.src / self.line_starts.
+        while hl.processed() <= li && hl.processed() < total {
+            let i = hl.processed();
+            let start = self.line_starts[i];
+            let end = self
+                .line_starts
+                .get(i + 1)
+                .map(|&s| s.saturating_sub(1))
+                .unwrap_or_else(|| self.src.len());
+            let mut bytes = self.src.read_range(start, end.max(start));
+            if bytes.last() == Some(&b'\r') {
+                bytes.pop();
+            }
+            let display = String::from_utf8_lossy(&bytes).replace('\t', "    ");
+            hl.process_next(&display);
+        }
+        hl.line(li).to_vec()
     }
 
     /// 16 bytes (or fewer at EOF) of the hex row starting at byte `off`.
@@ -336,6 +389,16 @@ fn compute_line_starts(data: &[u8]) -> Vec<usize> {
     starts
 }
 
+/// Open a file and build its line-start index (offsets only). Returns the open
+/// handle, byte length, and index — all `Send`, so it can run in `spawn_blocking`
+/// and the (non-`Send`) [`ViewerState`] is then assembled on the main thread.
+pub fn scan_file(path: &Path) -> std::io::Result<(File, usize, Vec<usize>)> {
+    let mut file = File::open(path)?;
+    let len = file.metadata()?.len() as usize;
+    let line_starts = scan_line_starts(&mut file, len)?;
+    Ok((file, len, line_starts))
+}
+
 /// Build the line-start index for a file by scanning it sequentially in chunks.
 /// Only newline offsets are recorded — the file content is never held in memory.
 fn scan_line_starts(file: &mut File, len: usize) -> std::io::Result<Vec<usize>> {
@@ -419,5 +482,39 @@ mod tests {
         // The temp file is removed when the viewer is dropped.
         drop(v);
         assert!(!path.exists(), "temp file cleaned up on close");
+    }
+
+    #[test]
+    fn syntax_highlight_colors_the_body() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("rc_hl_{}_{nanos}.rs", std::process::id()));
+        std::fs::write(&path, b"fn main() { let x = 1; }\n").unwrap();
+
+        let mut v = ViewerState::open_file("a.rs".into(), path.clone(), Some(path.clone())).unwrap();
+        v.enable_syntax(true);
+        assert!(v.has_syntax(), "rust syntax should be detected");
+
+        let theme = crate::ui::theme::Theme::mc();
+        let mut t = Terminal::new(TestBackend::new(80, 6)).unwrap();
+        t.draw(|f| render::render(f, f.area(), &mut v, &theme)).unwrap();
+        let b = t.backend().buffer();
+
+        // Body is on row 1 (row 0 is the header). Collect text + distinct colors.
+        let mut text = String::new();
+        let mut colors = std::collections::HashSet::new();
+        for x in 0..b.area.width {
+            let cell = &b[(x, 1)];
+            text.push_str(cell.symbol());
+            colors.insert(format!("{:?}", cell.fg));
+        }
+        assert!(text.contains("fn main"), "code is rendered");
+        assert!(colors.len() > 1, "highlighting uses more than one color");
+
+        drop(v);
     }
 }
