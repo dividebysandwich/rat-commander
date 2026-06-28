@@ -85,6 +85,8 @@ The installed executable is named **`rc`** for quick typing.
   from the Raspberry Pi (arm) packages because the C++ `unrar` library doesn't
   build with those cross toolchains
 
+
+
 **Remote filesystems** (each connection mounts into a panel)
 - **SFTP** and **SCP** over SSH, and **FTP/FTPS**
 - Copy/move/delete works transparently between local, remote and archive panels
@@ -95,6 +97,7 @@ The installed executable is named **`rc`** for quick typing.
   a remote connection stays open
 
 <img width="576" height="217" alt="image" src="https://github.com/user-attachments/assets/792884cc-f9b9-495c-9cbc-9171d802a290" />
+
 
 
 **Look & feel**
@@ -111,6 +114,7 @@ The installed executable is named **`rc`** for quick typing.
 <img width="1006" height="657" alt="image" src="https://github.com/user-attachments/assets/579e86aa-f3d8-4f19-9f45-be46e0c36a42" />
 
 
+
 **Process explorer** (Command menu → *Process explorer…*)
 - A full-screen list of processes with **CPU% and memory** usage, sortable by
   **name, CPU, memory or PID** (the sort hotkey is shown in the column header,
@@ -120,6 +124,8 @@ The installed executable is named **`rc`** for quick typing.
   truecolor load colors when available. Updates ~3×/second (Linux `/proc`)
 
   <img width="1007" height="514" alt="image" src="https://github.com/user-attachments/assets/3dd795cf-bf59-4f8b-94de-b9d49ad5f989" />
+
+
 
 **Disk explorer** (Command menu → *Disk explorer…*)
 - A full-screen **treemap** of the current directory's subdirectories: each box's
@@ -135,7 +141,7 @@ The installed executable is named **`rc`** for quick typing.
   the terminal reports it) exits and points the active file panel at the selected
   directory, **Esc** closes
 
-<img width="1007" height="514" alt="image" src="https://github.com/user-attachments/assets/ace5cf64-b0ac-4b0b-a045-40f95c916ed1" />
+<img width="1004" height="659" alt="image" src="https://github.com/user-attachments/assets/3673b354-1fb7-4445-8e5e-ebdb356c0b96" />
 
 
 ---
