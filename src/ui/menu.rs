@@ -303,7 +303,7 @@ impl MenuBarState {
         f.render_widget(Clear, rect);
         let block = Block::default()
             .borders(Borders::ALL)
-            .style(Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg));
+            .style(Style::default().fg(theme.menu_fg).bg(theme.menu_bg));
         let inner = block.inner(rect);
         f.render_widget(block, rect);
 
@@ -313,7 +313,7 @@ impl MenuBarState {
             if matches!(it.action, MenuAction::Separator) {
                 lines.push(Line::from(Span::styled(
                     "─".repeat(inner.width as usize),
-                    Style::default().fg(theme.panel_border).bg(theme.dialog_bg),
+                    Style::default().fg(theme.panel_border).bg(theme.menu_bg),
                 )));
                 continue;
             }
@@ -324,12 +324,9 @@ impl MenuBarState {
                 ));
             }
             let style = if i == self.item {
-                Style::default()
-                    .bg(ratatui::style::Color::Cyan)
-                    .fg(theme.dialog_fg)
-                    .add_modifier(Modifier::BOLD)
+                theme.menu_selection
             } else {
-                Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg)
+                Style::default().fg(theme.menu_fg).bg(theme.menu_bg)
             };
             let mut label = format!(" {} ", it.label);
             let target = inner.width as usize;

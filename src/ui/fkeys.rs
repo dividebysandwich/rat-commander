@@ -3,7 +3,7 @@
 use crate::ui::theme::Theme;
 use ratatui::Frame;
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
@@ -55,12 +55,11 @@ pub fn render(f: &mut Frame, area: Rect, labels: &[&str], theme: &Theme) {
         .iter()
         .enumerate()
         .map(|(i, (ch, is_num))| {
-            let style = if theme.truecolor {
-                let bg = theme.gradient_at(i, total);
-                let s = Style::default().bg(bg).fg(theme.bar_fg);
-                if *is_num { s.add_modifier(Modifier::BOLD) } else { s }
-            } else if *is_num {
+            let style = if *is_num {
+                // Numbers always sit on their solid, contrasting key-cap color.
                 theme.fkey_num
+            } else if theme.truecolor {
+                Style::default().bg(theme.gradient_at(i, total)).fg(theme.bar_fg)
             } else {
                 theme.fkey_label
             };

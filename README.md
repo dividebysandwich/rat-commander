@@ -94,7 +94,8 @@ The installed executable is named **`rc`** for quick typing.
 **Look & feel**
 - Many color themes (Dracula, Nord, Gruvbox, Solarized, Tokyo Night, Catppuccin,
   One Dark, …) plus **MidnightCommander Classic** (bright classic-MC look),
-  **Monochrome**, **Amber CRT** and **Green CRT**
+  **Monochrome**, **Amber CRT** and **Green CRT**, and the playful
+  **Rainbow**, **Candy**, **Neon**, **Forest**, **Freedom** and **Movienight**
 - On truecolor terminals: animated gradient bars/cursor, rounded dialog borders
   and drop shadows
 - Optional **CPU histogram + memory** widget in the menu bar (wide screens)

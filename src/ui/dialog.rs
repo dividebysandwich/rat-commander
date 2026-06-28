@@ -17,9 +17,8 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Constraint, Direction, Layout, Position, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::symbols;
 use ratatui::widgets::{
-    Axis, Block, BorderType, Borders, Chart, Clear, Dataset, GraphType, Paragraph, Wrap,
+    Block, BorderType, Borders, Clear, Paragraph, Wrap,
 };
 
 /// The active modal dialog (only one at a time).
@@ -780,43 +779,49 @@ impl ProgressDialog {
         );
     }
 
-    /// A line chart of transfer speed (Y) against bytes transferred (X).
+    /// A sparkline of transfer speed over bytes transferred. Each column is a
+    /// vertical bar of partial-block glyphs, colored with a gradient that
+    /// brightens towards the top of the graph.
     fn render_speed_chart(&self, f: &mut Frame, area: Rect, theme: &Theme) {
         let base = Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg);
         if self.samples.len() < 2 {
-            f.render_widget(
-                Paragraph::new(Line::from("  measuring…")).style(base),
-                area,
-            );
+            f.render_widget(Paragraph::new(Line::from("  measuring…")).style(base), area);
             return;
         }
-        let x_max = (self.total_total.max(self.last_bytes)).max(1) as f64;
+        let (w, h) = (area.width as usize, area.height as usize);
+        if w == 0 || h == 0 {
+            return;
+        }
+        const BLOCKS: [char; 9] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
         let y_max = (self.peak_speed * 1.15).max(1.0);
+        let levels = h * 8;
+        let n = self.samples.len();
 
-        let datasets = vec![Dataset::default()
-            .marker(symbols::Marker::Braille)
-            .graph_type(GraphType::Line)
-            .style(Style::default().fg(theme.panel_border_active))
-            .data(&self.samples)];
+        // Vertical gradient: dim near the baseline, bright towards the top.
+        let accent = theme.panel_border_active;
+        let white = ratatui::style::Color::Rgb(0xff, 0xff, 0xff);
+        let top = mix_rgb(accent, white, 0.6);
+        let bottom = mix_rgb(accent, theme.dialog_bg, 0.45);
 
-        let chart = Chart::new(datasets)
-            .style(Style::default().bg(theme.dialog_bg))
-            .x_axis(
-                Axis::default()
-                    .style(base)
-                    .bounds([0.0, x_max])
-                    .labels([Span::raw("0"), Span::raw(human_size(x_max as u64))]),
-            )
-            .y_axis(
-                Axis::default()
-                    .style(base)
-                    .bounds([0.0, y_max])
-                    .labels([
-                        Span::raw("0"),
-                        Span::raw(format!("{}/s", human_size(y_max as u64))),
-                    ]),
-            );
-        f.render_widget(chart, area);
+        let buf = f.buffer_mut();
+        for col in 0..w {
+            // Map each column onto a sample (newest at the right edge).
+            let idx = if w <= 1 { n - 1 } else { col * (n - 1) / (w - 1) };
+            let v = self.samples[idx].1.max(0.0);
+            let filled = (((v / y_max) * levels as f64).round() as usize).min(levels);
+            for row in 0..h {
+                let from_bottom = h - 1 - row;
+                let cell = filled.saturating_sub(from_bottom * 8).min(8);
+                let t = if h <= 1 { 1.0 } else { 1.0 - row as f32 / (h - 1) as f32 };
+                let style = Style::default().fg(mix_rgb(bottom, top, t)).bg(theme.dialog_bg);
+                buf.set_string(
+                    area.x + col as u16,
+                    area.y + row as u16,
+                    BLOCKS[cell].to_string(),
+                    style,
+                );
+            }
+        }
     }
 
     /// Render an indeterminate scanning dialog (current path + sweep + count).
@@ -1412,10 +1417,7 @@ impl FormDialog {
         f.render_widget(block, rect);
 
         let base = Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg);
-        let focus_style = Style::default()
-            .fg(theme.dialog_fg)
-            .bg(ratatui::style::Color::Cyan)
-            .add_modifier(Modifier::BOLD);
+        let focus_style = theme.dialog_selection;
 
         // The Host field of a connect form gets a ▼ chevron to open the history.
         let connect_host = self.connect.as_ref().is_some_and(|c| !c.history.is_empty());
@@ -1568,10 +1570,7 @@ impl FormDialog {
             0
         };
         let normal = Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg);
-        let sel_style = Style::default()
-            .fg(theme.dialog_fg)
-            .bg(ratatui::style::Color::Cyan)
-            .add_modifier(Modifier::BOLD);
+        let sel_style = theme.dialog_selection;
         for vi in 0..visible {
             let idx = offset + vi;
             let Some(entry) = c.history.get(idx) else {
@@ -2403,6 +2402,19 @@ fn pulse_gauge(f: &mut Frame, area: Rect, ratio: f64, label: &str, base: ratatui
     }
 }
 
+/// Linearly blend two RGB colors: `t`=0 → `a`, `t`=1 → `b`. Non-RGB inputs
+/// fall back to `b`.
+fn mix_rgb(a: ratatui::style::Color, b: ratatui::style::Color, t: f32) -> ratatui::style::Color {
+    use ratatui::style::Color;
+    match (a, b) {
+        (Color::Rgb(ar, ag, ab), Color::Rgb(br, bg, bb)) => {
+            let f = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round().clamp(0.0, 255.0) as u8;
+            Color::Rgb(f(ar, br), f(ag, bg), f(ab, bb))
+        }
+        _ => b,
+    }
+}
+
 /// Brighten `base` toward a white-hot highlight by pulse intensity `t` (0..1).
 fn pulse_color(base: ratatui::style::Color, t: f64) -> ratatui::style::Color {
     if let ratatui::style::Color::Rgb(r, g, b) = base {
@@ -2508,10 +2520,7 @@ pub(crate) fn draw_input_field(
 pub(crate) fn radio_span(label: &str, selected: bool, focused: bool, theme: &Theme) -> Span<'static> {
     let mark = if selected { "(*) " } else { "( ) " };
     let style = if focused {
-        Style::default()
-            .fg(theme.dialog_fg)
-            .bg(ratatui::style::Color::Cyan)
-            .add_modifier(Modifier::BOLD)
+        theme.dialog_selection
     } else {
         Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg)
     };
@@ -2522,10 +2531,7 @@ pub(crate) fn radio_span(label: &str, selected: bool, focused: bool, theme: &The
 pub(crate) fn check_span(label: &str, checked: bool, focused: bool, theme: &Theme) -> Span<'static> {
     let mark = if checked { "[x] " } else { "[ ] " };
     let style = if focused {
-        Style::default()
-            .fg(theme.dialog_fg)
-            .bg(ratatui::style::Color::Cyan)
-            .add_modifier(Modifier::BOLD)
+        theme.dialog_selection
     } else {
         Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg)
     };
@@ -2856,6 +2862,16 @@ mod tests {
 
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    #[test]
+    fn mix_rgb_blends_endpoints() {
+        use ratatui::style::Color;
+        let a = Color::Rgb(0, 0, 0);
+        let b = Color::Rgb(100, 200, 50);
+        assert_eq!(mix_rgb(a, b, 0.0), a);
+        assert_eq!(mix_rgb(a, b, 1.0), b);
+        assert_eq!(mix_rgb(a, b, 0.5), Color::Rgb(50, 100, 25));
     }
 
     #[test]
