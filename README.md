@@ -79,6 +79,9 @@ The installed executable is named **`rc`** for quick typing.
 - **Syntax highlighting** (same `syntect` engine) that updates incrementally as
   you type — only the edited line onward is re-highlighted — and coexists with
   block selection highlighting
+
+ <img width="1007" height="658" alt="image" src="https://github.com/user-attachments/assets/bda0bce8-bf6d-49f8-8e63-a48fb7ec8b35" />
+
 - **Hex editor mode** (F9): an offset / hex / ASCII view that edits **in place** —
   only the visible window is read and only changed bytes are written back, so
   arbitrarily large files can be hex-edited (files too big to load as text open
@@ -86,7 +89,7 @@ The installed executable is named **`rc`** for quick typing.
   editing is overwrite-only (length-preserving), with streaming **search and
   replace** over hex-byte or text patterns
 
-  <img width="1007" height="658" alt="image" src="https://github.com/user-attachments/assets/bda0bce8-bf6d-49f8-8e63-a48fb7ec8b35" />
+<img width="1007" height="658" alt="image" src="https://github.com/user-attachments/assets/c2b437e0-33eb-49b2-973d-ebb4cf74450f" />
 
 
 
