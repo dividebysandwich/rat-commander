@@ -1,0 +1,47 @@
+%YAML 1.2
+---
+# Generic INI / config files. Simple and fancy-regex compatible.
+name: INI
+file_extensions:
+  - ini
+  - cfg
+  - conf
+  - editorconfig
+  - gitconfig
+  - npmrc
+  - inf
+  - prefs
+  - desktop
+scope: source.ini
+
+contexts:
+  main:
+    - match: '^\s*[;#].*$'
+      scope: comment.line.ini
+    - match: '^\s*(\[)([^\]]*)(\])'
+      captures:
+        1: punctuation.definition.section.begin.ini
+        2: entity.name.section.ini
+        3: punctuation.definition.section.end.ini
+    - match: '^\s*([^=:;#\s][^=:]*?)\s*([=:])'
+      captures:
+        1: variable.other.key.ini
+        2: punctuation.separator.key-value.ini
+    - include: values
+
+  values:
+    - match: '"'
+      scope: punctuation.definition.string.begin.ini
+      push:
+        - meta_scope: string.quoted.double.ini
+        - match: '"'
+          scope: punctuation.definition.string.end.ini
+          pop: true
+        - match: '\\.'
+          scope: constant.character.escape.ini
+        - match: '$'
+          pop: true
+    - match: '\b(true|false|yes|no|on|off)\b'
+      scope: constant.language.ini
+    - match: '\b\d+(\.\d+)?\b'
+      scope: constant.numeric.ini

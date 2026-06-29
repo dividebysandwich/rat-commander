@@ -1,0 +1,111 @@
+%YAML 1.2
+---
+# Minimal TOML syntax for rat-commander's bundled highlighter.
+# Kept deliberately simple and fancy-regex compatible (no Oniguruma-only
+# features), covering tables, keys, strings, numbers, dates, and booleans.
+name: TOML
+file_extensions:
+  - toml
+scope: source.toml
+
+contexts:
+  main:
+    - include: comments
+    - include: tables
+    - include: keys
+    - include: values
+
+  comments:
+    - match: '#.*$'
+      scope: comment.line.number-sign.toml
+
+  tables:
+    - match: '^\s*(\[\[)([^\]]*)(\]\])'
+      captures:
+        1: punctuation.definition.table.array.toml
+        2: entity.name.section.toml
+        3: punctuation.definition.table.array.toml
+    - match: '^\s*(\[)([^\]]*)(\])'
+      captures:
+        1: punctuation.definition.table.toml
+        2: entity.name.section.toml
+        3: punctuation.definition.table.toml
+
+  keys:
+    # bare or dotted key followed by '='
+    - match: '([A-Za-z0-9_.-]+)\s*(=)'
+      captures:
+        1: variable.other.key.toml
+        2: keyword.operator.assignment.toml
+    # quoted key followed by '='
+    - match: '("[^"]*"|''[^'']*'')\s*(=)'
+      captures:
+        1: variable.other.key.toml
+        2: keyword.operator.assignment.toml
+
+  values:
+    - include: comments
+    - include: strings
+    - include: constants
+    - include: numbers
+
+  strings:
+    - match: '"""'
+      scope: punctuation.definition.string.begin.toml
+      push:
+        - meta_scope: string.quoted.double.block.toml
+        - match: '"""'
+          scope: punctuation.definition.string.end.toml
+          pop: true
+        - match: '\\.'
+          scope: constant.character.escape.toml
+    - match: "'''"
+      scope: punctuation.definition.string.begin.toml
+      push:
+        - meta_scope: string.quoted.single.block.toml
+        - match: "'''"
+          scope: punctuation.definition.string.end.toml
+          pop: true
+    - match: '"'
+      scope: punctuation.definition.string.begin.toml
+      push:
+        - meta_scope: string.quoted.double.toml
+        - match: '"'
+          scope: punctuation.definition.string.end.toml
+          pop: true
+        - match: '\\.'
+          scope: constant.character.escape.toml
+        - match: '$'
+          pop: true
+    - match: "'"
+      scope: punctuation.definition.string.begin.toml
+      push:
+        - meta_scope: string.quoted.single.toml
+        - match: "'"
+          scope: punctuation.definition.string.end.toml
+          pop: true
+        - match: '$'
+          pop: true
+
+  constants:
+    - match: '\b(true|false)\b'
+      scope: constant.language.boolean.toml
+    - match: '\b(inf|nan)\b'
+      scope: constant.language.toml
+
+  numbers:
+    # RFC 3339 date-times / dates / times
+    - match: '\b\d{4}-\d{2}-\d{2}([Tt ]\d{2}:\d{2}:\d{2}(\.\d+)?([Zz]|[+-]\d{2}:\d{2})?)?\b'
+      scope: constant.other.datetime.toml
+    - match: '\b\d{2}:\d{2}:\d{2}(\.\d+)?\b'
+      scope: constant.other.time.toml
+    # integers with base prefixes
+    - match: '\b0x[0-9A-Fa-f_]+\b'
+      scope: constant.numeric.hex.toml
+    - match: '\b0o[0-7_]+\b'
+      scope: constant.numeric.octal.toml
+    - match: '\b0b[01_]+\b'
+      scope: constant.numeric.binary.toml
+    # floats and decimal integers (with optional underscores and exponent)
+    - match: '[+-]?\b[0-9][0-9_]*(\.[0-9_]+)?([eE][+-]?[0-9_]+)?\b'
+      scope: constant.numeric.toml

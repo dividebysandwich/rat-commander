@@ -1,0 +1,55 @@
+%YAML 1.2
+---
+# HashiCorp Configuration Language (Terraform, etc.).
+name: HCL
+file_extensions:
+  - hcl
+  - tf
+  - tfvars
+  - nomad
+scope: source.hcl
+
+contexts:
+  main:
+    - match: '#.*$|//.*$'
+      scope: comment.line.hcl
+    - match: '/\*'
+      scope: punctuation.definition.comment.begin.hcl
+      push:
+        - meta_scope: comment.block.hcl
+        - match: '\*/'
+          scope: punctuation.definition.comment.end.hcl
+          pop: true
+    - match: '\b(resource|provider|variable|module|data|output|locals|terraform|provisioner|backend|dynamic)\b'
+      scope: keyword.declaration.hcl
+    - match: '\b(for_each|count|depends_on|if|for|in)\b'
+      scope: keyword.control.hcl
+    - match: '\b(true|false|null)\b'
+      scope: constant.language.hcl
+    - include: strings
+    - match: '\b\d+(\.\d+)?\b'
+      scope: constant.numeric.hcl
+    - match: '([A-Za-z_][A-Za-z0-9_-]*)\s*(=)'
+      captures:
+        1: variable.other.key.hcl
+        2: keyword.operator.assignment.hcl
+
+  strings:
+    - match: '"'
+      scope: punctuation.definition.string.begin.hcl
+      push:
+        - meta_scope: string.quoted.double.hcl
+        - match: '"'
+          scope: punctuation.definition.string.end.hcl
+          pop: true
+        - match: '\$\{'
+          scope: punctuation.section.interpolation.begin.hcl
+          push:
+            - meta_scope: meta.interpolation.hcl
+            - match: '\}'
+              scope: punctuation.section.interpolation.end.hcl
+              pop: true
+        - match: '\\.'
+          scope: constant.character.escape.hcl
+        - match: '$'
+          pop: true

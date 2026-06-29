@@ -1,0 +1,51 @@
+%YAML 1.2
+---
+name: Protocol Buffer
+file_extensions:
+  - proto
+scope: source.proto
+
+contexts:
+  main:
+    - match: '//.*$'
+      scope: comment.line.double-slash.proto
+    - match: '/\*'
+      scope: punctuation.definition.comment.begin.proto
+      push:
+        - meta_scope: comment.block.proto
+        - match: '\*/'
+          scope: punctuation.definition.comment.end.proto
+          pop: true
+    - match: '\b(syntax|package|import|option|message|enum|service|rpc|returns|oneof|map|reserved|extend|extensions|group|public|weak)\b'
+      scope: keyword.declaration.proto
+    - match: '\b(repeated|optional|required|stream)\b'
+      scope: storage.modifier.proto
+    - match: '\b(double|float|int32|int64|uint32|uint64|sint32|sint64|fixed32|fixed64|sfixed32|sfixed64|bool|string|bytes)\b'
+      scope: support.type.proto
+    - match: '\b(true|false)\b'
+      scope: constant.language.proto
+    - include: strings
+    - match: '\b\d+(\.\d+)?\b'
+      scope: constant.numeric.proto
+
+  strings:
+    - match: '"'
+      scope: punctuation.definition.string.begin.proto
+      push:
+        - meta_scope: string.quoted.double.proto
+        - match: '"'
+          scope: punctuation.definition.string.end.proto
+          pop: true
+        - match: '\\.'
+          scope: constant.character.escape.proto
+        - match: '$'
+          pop: true
+    - match: "'"
+      scope: punctuation.definition.string.begin.proto
+      push:
+        - meta_scope: string.quoted.single.proto
+        - match: "'"
+          scope: punctuation.definition.string.end.proto
+          pop: true
+        - match: '$'
+          pop: true

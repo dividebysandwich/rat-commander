@@ -60,8 +60,10 @@ The installed executable is named **`rc`** for quick typing.
 - **Syntax highlighting** (via [`syntect`](https://github.com/trishume/syntect),
   the engine behind `bat`) for recognized source files, with a bundled theme
   chosen to suit the active light/dark UI. Highlighting is incremental and
-  size-capped so it stays responsive; it's also extensible — extra Sublime
-  `.sublime-syntax`/theme files can be added later
+  size-capped so it stays responsive. Beyond syntect's ~75 default languages,
+  extra formats — **TOML**, **INI/config**, **Dockerfile**, **HCL/Terraform**,
+  **GraphQL**, **Protobuf** and **CMake** — are bundled as embedded
+  `.sublime-syntax` files, and more can be dropped in to extend it
 - **Paged from disk** — local files are read on demand (only a per-line offset
   index is kept), so arbitrarily large files open instantly without loading into
   memory; search streams the file in windows too

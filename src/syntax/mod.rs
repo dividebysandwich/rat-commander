@@ -5,23 +5,48 @@
 //! line's color runs, so the viewer/editor only ever highlight lines up to what
 //! they display, and an edit invalidates just the affected suffix.
 //!
-//! The bundled Sublime syntaxes and themes are used as-is; the design is
-//! extensible — extra `.sublime-syntax` and `.tmTheme` files could be loaded
-//! into the static sets later without touching callers.
+//! syntect bundles ~75 Sublime syntaxes but lacks some common formats (TOML,
+//! etc.). Those are added from embedded `.sublime-syntax` files in [`EXTRA_SYNTAXES`]
+//! at startup; the same mechanism extends the set with more formats later.
 
 use ratatui::style::Color;
 use std::sync::LazyLock;
 use syntect::highlighting::{
     HighlightIterator, HighlightState, Highlighter as SynHighlighter, Theme, ThemeSet,
 };
-use syntect::parsing::{ParseState, ScopeStack, SyntaxSet};
+use syntect::parsing::{ParseState, ScopeStack, SyntaxDefinition, SyntaxSet};
 
 /// Documents larger than this are rendered without highlighting (keeps the
 /// incremental caches and per-line CPU cost bounded).
 pub const HL_MAX_BYTES: usize = 2 * 1024 * 1024;
 
-static SYNTAXES: LazyLock<SyntaxSet> = LazyLock::new(SyntaxSet::load_defaults_newlines);
+/// `.sublime-syntax` definitions bundled in addition to syntect's defaults, for
+/// formats the defaults don't ship. Each must be fancy-regex compatible.
+const EXTRA_SYNTAXES: &[&str] = &[
+    include_str!("syntaxes/toml.sublime-syntax"),
+    include_str!("syntaxes/ini.sublime-syntax"),
+    include_str!("syntaxes/dockerfile.sublime-syntax"),
+    include_str!("syntaxes/hcl.sublime-syntax"),
+    include_str!("syntaxes/graphql.sublime-syntax"),
+    include_str!("syntaxes/protobuf.sublime-syntax"),
+    include_str!("syntaxes/cmake.sublime-syntax"),
+];
+
+static SYNTAXES: LazyLock<SyntaxSet> = LazyLock::new(build_syntax_set);
 static THEMES: LazyLock<ThemeSet> = LazyLock::new(ThemeSet::load_defaults);
+
+/// Default syntect syntaxes plus our [`EXTRA_SYNTAXES`]. A malformed extra
+/// definition is skipped rather than panicking.
+fn build_syntax_set() -> SyntaxSet {
+    let mut builder = SyntaxSet::load_defaults_newlines().into_builder();
+    for src in EXTRA_SYNTAXES {
+        // `true` = lines include the trailing newline (matches load_defaults_newlines).
+        if let Ok(def) = SyntaxDefinition::load_from_str(src, true, None) {
+            builder.add(def);
+        }
+    }
+    builder.build()
+}
 
 /// A run of `count` characters sharing one foreground color.
 pub type ColorRun = (u32, Color);
@@ -41,8 +66,12 @@ impl Highlighter {
     /// bundled theme to suit a dark or light UI. Returns `None` when no syntax
     /// matches — callers then render plain text.
     pub fn for_file(file_name: &str, dark: bool) -> Option<Highlighter> {
+        // Try the whole file name first (so name-based syntaxes like `Dockerfile`,
+        // `CMakeLists.txt`, `Makefile` match), then fall back to the extension.
         let ext = file_name.rsplit('.').next().unwrap_or("");
-        let syntax = SYNTAXES.find_syntax_by_extension(ext)?;
+        let syntax = SYNTAXES
+            .find_syntax_by_extension(file_name)
+            .or_else(|| SYNTAXES.find_syntax_by_extension(ext))?;
         let theme_name = if dark { "base16-ocean.dark" } else { "InspiredGitHub" };
         let theme: &'static Theme = THEMES.themes.get(theme_name)?;
         let hl = SynHighlighter::new(theme);
@@ -149,6 +178,45 @@ mod tests {
     #[test]
     fn unknown_extension_has_no_highlighter() {
         assert!(Highlighter::for_file("notes.unknownext", true).is_none());
+    }
+
+    #[test]
+    fn toml_is_bundled_and_highlights() {
+        // syntect's defaults lack TOML; our embedded syntax adds it.
+        let mut h = Highlighter::for_file("Cargo.toml", true).expect("toml syntax bundled");
+        let line = "name = \"rc\"";
+        h.process_next(line);
+        let default = Color::Rgb(0, 0, 0);
+        let fg = h.line_fg(0, line.chars().count(), default);
+        // The key, the '=' operator, and the string should not all be one color.
+        let distinct: std::collections::HashSet<_> = fg.iter().collect();
+        assert!(distinct.len() > 1, "TOML line should be multi-colored: {distinct:?}");
+        // The string literal differs from the key.
+        let key_color = fg[0]; // 'n' of name
+        let str_color = fg[7]; // inside the quoted value
+        assert_ne!(key_color, str_color);
+    }
+
+    #[test]
+    fn easy_tier_syntaxes_are_bundled_and_highlight() {
+        // (file name, a representative line, two columns that should differ).
+        let cases: &[(&str, &str, usize, usize)] = &[
+            ("config.ini", "key = value ; note", 0, 6),
+            ("Dockerfile", "FROM alpine AS build", 0, 5),
+            ("main.tf", "resource \"aws_s3\" {", 0, 10),
+            ("schema.graphql", "type Query { id: ID }", 0, 5),
+            ("api.proto", "message Foo { int32 id = 1; }", 0, 8),
+            ("CMakeLists.txt", "project(demo VERSION 1.0)", 0, 9),
+        ];
+        for &(name, line, a, b) in cases {
+            let mut h = Highlighter::for_file(name, true)
+                .unwrap_or_else(|| panic!("{name}: syntax should be bundled"));
+            h.process_next(line);
+            let fg = h.line_fg(0, line.chars().count(), Color::Rgb(0, 0, 0));
+            let distinct: std::collections::HashSet<_> = fg.iter().collect();
+            assert!(distinct.len() > 1, "{name}: expected multiple colors");
+            assert_ne!(fg[a], fg[b], "{name}: columns {a}/{b} should differ");
+        }
     }
 
     #[test]

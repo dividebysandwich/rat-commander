@@ -1,0 +1,36 @@
+%YAML 1.2
+---
+name: CMake
+file_extensions:
+  - cmake
+  - CMakeLists.txt
+scope: source.cmake
+
+contexts:
+  main:
+    - match: '#.*$'
+      scope: comment.line.number-sign.cmake
+    - match: '(?i)\b(if|elseif|else|endif|foreach|endforeach|while|endwhile|function|endfunction|macro|endmacro|return|break|continue)\b'
+      scope: keyword.control.cmake
+    - match: '(?i)\b(set|unset|list|string|file|find_package|find_library|find_path|find_program|include|include_directories|add_executable|add_library|add_subdirectory|target_link_libraries|target_include_directories|target_compile_definitions|target_compile_features|target_compile_options|target_sources|install|project|cmake_minimum_required|cmake_policy|option|message|add_definitions|add_custom_command|add_custom_target|add_dependencies|enable_testing|add_test|configure_file|get_filename_component|set_target_properties|set_property|separate_arguments|math)\b'
+      scope: support.function.cmake
+    - match: '\$\{[^}]*\}'
+      scope: variable.other.cmake
+    - match: '\$<[^>]*>'
+      scope: variable.other.generator.cmake
+    - match: '\b(ON|OFF|TRUE|FALSE|YES|NO)\b'
+      scope: constant.language.cmake
+    - include: strings
+
+  strings:
+    - match: '"'
+      scope: punctuation.definition.string.begin.cmake
+      push:
+        - meta_scope: string.quoted.double.cmake
+        - match: '"'
+          scope: punctuation.definition.string.end.cmake
+          pop: true
+        - match: '\\.'
+          scope: constant.character.escape.cmake
+        - match: '\$\{[^}]*\}'
+          scope: variable.other.cmake
