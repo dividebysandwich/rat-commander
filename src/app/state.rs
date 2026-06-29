@@ -361,9 +361,9 @@ impl AppState {
             self.sampler.sample();
             dirty = true;
         }
-        // Refresh the process explorer ~3 times per second (every 3rd 100 ms tick).
+        // Refresh the process explorer on its (user-adjustable) interval.
         if let Some(pv) = self.procview.as_mut() {
-            if self.tick_count.is_multiple_of(3) {
+            if pv.tick_due() {
                 pv.refresh();
             }
             dirty = true;

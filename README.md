@@ -134,12 +134,17 @@ The installed executable is named **`rc`** for quick typing.
 
 
 **Process explorer** (Command menu → *Process explorer…*)
-- A full-screen list of processes with **CPU% and memory** usage, sortable by
-  **name, CPU, memory or PID** (the sort hotkey is shown in the column header,
-  e.g. `[C]PU%`), and **kill** (SIGTERM, or SIGKILL with `K`)
-- An animated **CPU-load line graph**, **btop-style per-core meters** (label +
-  recent-load sparkline + percentage), and a **memory bar graph** — all using
-  truecolor load colors when available. Updates ~3×/second (Linux `/proc`)
+- A full-screen list of processes with **CPU%, memory and thread count**, sortable
+  by **name, CPU, memory, threads or PID** (the sort hotkey is shown in the column
+  header, e.g. `[C]PU%`), and **kill** (SIGTERM, or SIGKILL with `K`)
+- A btop-style layout: an animated **CPU-load line graph** and **per-core meters**
+  (the CPU model name is shown on the core panel's border) on top, with **memory,
+  disk-I/O and network sparklines** stacked down the left (the network panel shows
+  download above, upload below) and the process table on the right — all using
+  truecolor load colors when available (Linux `/proc`)
+- The **update interval** is adjustable with **`+`/`-`** (100 ms steps, min 100 ms)
+  and shown on the top-right border; when a **battery** is present its charge and a
+  mini bar graph are shown centered on the top border
 
   <img width="1007" height="514" alt="image" src="https://github.com/user-attachments/assets/3dd795cf-bf59-4f8b-94de-b9d49ad5f989" />
 

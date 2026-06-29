@@ -15,7 +15,7 @@ use ratatui::widgets::{Axis, Block, BorderType, Borders, Chart, Dataset, GraphTy
 const LEVELS: [char; 9] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 
 pub fn render(f: &mut Frame, area: Rect, pv: &mut ProcView, theme: &Theme) {
-    let block = Block::default()
+    let mut block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Plain)
         .border_style(Style::default().fg(theme.panel_border_active).bg(theme.panel_bg))
@@ -26,7 +26,22 @@ pub fn render(f: &mut Frame, area: Rect, pv: &mut ProcView, theme: &Theme) {
                 .bg(theme.panel_bg)
                 .add_modifier(Modifier::BOLD),
         ))
+        // Update interval on the top-right border.
+        .title(
+            Line::from(Span::styled(
+                format!(" {}ms ", pv.interval_ms),
+                Style::default()
+                    .fg(theme.panel_border_active)
+                    .bg(theme.panel_bg)
+                    .add_modifier(Modifier::BOLD),
+            ))
+            .right_aligned(),
+        )
         .style(theme.panel_base());
+    // Battery (percentage + mini bar) centered on the top border, if present.
+    if let Some((pct, charging)) = pv.battery {
+        block = block.title(battery_title(pct, charging, theme));
+    }
     let inner = block.inner(area);
     f.render_widget(block, area);
     if inner.width < 10 || inner.height < 6 {
@@ -36,30 +51,54 @@ pub fn render(f: &mut Frame, area: Rect, pv: &mut ProcView, theme: &Theme) {
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(11), // graphs
-            Constraint::Min(3),     // process table
+            Constraint::Length(11), // CPU graph + per-core meters
+            Constraint::Min(3),     // sys panels (left) + process table (right)
             Constraint::Length(1),  // footer
         ])
         .split(inner);
 
     render_graphs(f, rows[0], pv, theme);
-    render_table(f, rows[1], pv, theme);
+    render_body(f, rows[1], pv, theme);
     render_footer(f, rows[2], pv, theme);
 }
 
 fn render_graphs(f: &mut Frame, area: Rect, pv: &ProcView, theme: &Theme) {
     let cols = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(38),
-            Constraint::Percentage(42),
-            Constraint::Percentage(20),
-        ])
+        .constraints([Constraint::Percentage(45), Constraint::Percentage(55)])
         .split(area);
 
     render_cpu_chart(f, cols[0], pv, theme);
     render_cores(f, cols[1], pv, theme);
-    render_memory(f, cols[2], pv, theme);
+}
+
+/// The lower region: stacked memory/disk/network sparkline panels on the left,
+/// the process table on the right (btop-style).
+fn render_body(f: &mut Frame, area: Rect, pv: &mut ProcView, theme: &Theme) {
+    // Reserve a sensible fixed width for the sys panels when there's room.
+    let left_w = (area.width / 3).clamp(18, 40);
+    let cols = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Length(left_w), Constraint::Min(24)])
+        .split(area);
+
+    render_sys_panels(f, cols[0], pv, theme);
+    render_table(f, cols[1], pv, theme);
+}
+
+/// Stack the memory, disk and network sparkline panels in the left column.
+fn render_sys_panels(f: &mut Frame, area: Rect, pv: &ProcView, theme: &Theme) {
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Ratio(1, 3),
+            Constraint::Ratio(1, 3),
+            Constraint::Ratio(1, 3),
+        ])
+        .split(area);
+    render_mem_panel(f, rows[0], pv, theme);
+    render_disk_panel(f, rows[1], pv, theme);
+    render_net_panel(f, rows[2], pv, theme);
 }
 
 /// Sub-block with a title; returns its interior rect.
@@ -118,7 +157,13 @@ fn render_cpu_chart(f: &mut Frame, area: Rect, pv: &ProcView, theme: &Theme) {
 }
 
 fn render_cores(f: &mut Frame, area: Rect, pv: &ProcView, theme: &Theme) {
-    let inner = titled(f, area, format!(" Cores ({}) ", pv.ncores), theme);
+    // Show the CPU model name on the panel border (falling back to "Cores").
+    let title = if pv.cpu_name.is_empty() {
+        format!(" Cores ({}) ", pv.ncores)
+    } else {
+        format!(" {} ({} cores) ", pv.cpu_name, pv.ncores)
+    };
+    let inner = titled(f, area, title, theme);
     if pv.cores.is_empty() || inner.height == 0 || inner.width < 8 {
         f.render_widget(
             Paragraph::new(Line::from("  n/a")).style(theme.panel_base()),
@@ -211,58 +256,122 @@ fn draw_core_cell(
     );
 }
 
-fn render_memory(f: &mut Frame, area: Rect, pv: &ProcView, theme: &Theme) {
+fn render_mem_panel(f: &mut Frame, area: Rect, pv: &ProcView, theme: &Theme) {
     let pct = if pv.mem_total > 0 {
         100.0 * pv.mem_used as f32 / pv.mem_total as f32
     } else {
         0.0
     };
-    let inner = titled(f, area, format!(" Mem {pct:>3.0}% "), theme);
-    if inner.height == 0 || inner.width == 0 {
-        return;
-    }
-    let label = format!("{} / {}", human_size(pv.mem_used), human_size(pv.mem_total));
-    draw_hbar(f, inner, pct, &label, theme);
+    let title = format!(
+        " Mem {pct:.0}%  {}/{} ",
+        human_size(pv.mem_used),
+        human_size(pv.mem_total)
+    );
+    let inner = titled(f, area, title, theme);
+    // Memory sparkline is load-colored (green→red) by each sample's value.
+    let samples: Vec<f64> = pv.mem_history.iter().copied().collect();
+    draw_sparkline(f, inner, &samples, 100.0, &|v| load_color(v as f32, theme), theme);
 }
 
-/// A horizontal bar-graph meter filling `area` to `pct`, with `label` overlaid
-/// on the middle row. The filled portion uses a truecolor load color.
-fn draw_hbar(f: &mut Frame, area: Rect, pct: f32, label: &str, theme: &Theme) {
-    let w = area.width as usize;
-    if w == 0 || area.height == 0 {
+fn render_disk_panel(f: &mut Frame, area: Rect, pv: &ProcView, theme: &Theme) {
+    let title = format!(" Disk {}/s ", human_size(pv.disk_rate as u64));
+    let inner = titled(f, area, title, theme);
+    let samples: Vec<f64> = pv.disk_history.iter().copied().collect();
+    let max = peak(&samples);
+    let color = theme.exec_fg;
+    draw_sparkline(f, inner, &samples, max, &|_| color, theme);
+}
+
+fn render_net_panel(f: &mut Frame, area: Rect, pv: &ProcView, theme: &Theme) {
+    let title = format!(
+        " Net ▼{}/s ▲{}/s ",
+        human_size(pv.net_down as u64),
+        human_size(pv.net_up as u64)
+    );
+    let inner = titled(f, area, title, theme);
+    if inner.width == 0 || inner.height == 0 {
         return;
     }
-    let filled = ((pct.clamp(0.0, 100.0) / 100.0) * w as f32).round() as usize;
-    let fill = Style::default().fg(load_color(pct, theme)).bg(theme.panel_bg);
-    let empty = Style::default().fg(theme.panel_border).bg(theme.panel_bg);
-    let mid = area.height / 2;
-    let label = ellipsize(label, w);
-    let label_start = (w.saturating_sub(label.chars().count())) / 2;
-    let label_chars: Vec<char> = label.chars().collect();
+    let down: Vec<f64> = pv.net_down_history.iter().copied().collect();
+    let up: Vec<f64> = pv.net_up_history.iter().copied().collect();
+    // Shared scale so the two halves are comparable; split interior in two.
+    let max = peak(&down).max(peak(&up));
+    if inner.height >= 2 {
+        let half = inner.height / 2;
+        let top = Rect { height: half, ..inner };
+        let bottom = Rect { y: inner.y + half, height: inner.height - half, ..inner };
+        draw_sparkline(f, top, &down, max, &|_| theme.panel_border_active, theme);
+        draw_sparkline(f, bottom, &up, max, &|_| theme.header_fg, theme);
+    } else {
+        draw_sparkline(f, inner, &down, max, &|_| theme.panel_border_active, theme);
+    }
+}
 
+/// The peak of `samples`, floored at 1.0 so a flat/empty series doesn't divide
+/// by zero and stays drawn near the baseline.
+fn peak(samples: &[f64]) -> f64 {
+    samples.iter().copied().fold(1.0, f64::max)
+}
+
+/// Draw a multi-row block-glyph sparkline filling `area`, newest sample at the
+/// right edge, each bar scaled to `max` and colored by `colorer(value)`.
+fn draw_sparkline(
+    f: &mut Frame,
+    area: Rect,
+    samples: &[f64],
+    max: f64,
+    colorer: &dyn Fn(f64) -> ratatui::style::Color,
+    theme: &Theme,
+) {
+    let (w, h) = (area.width as usize, area.height as usize);
+    if w == 0 || h == 0 {
+        return;
+    }
+    let levels = h * 8;
+    let n = samples.len();
     let buf = f.buffer_mut();
-    for row in 0..area.height {
-        for col in 0..w {
-            // Overlay the label on the middle row.
-            let lbl_idx = col.checked_sub(label_start).filter(|&i| i < label_chars.len());
-            let (ch, style) = if row == mid && let Some(i) = lbl_idx {
-                let st = if col < filled {
-                    Style::default()
-                        .fg(theme.panel_bg)
-                        .bg(load_color(pct, theme))
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(theme.panel_fg).bg(theme.panel_bg).add_modifier(Modifier::BOLD)
-                };
-                (label_chars[i], st)
-            } else if col < filled {
-                ('█', fill)
+    for col in 0..w {
+        // Right-align: the rightmost column is the newest sample.
+        let from_right = w - 1 - col;
+        let v = if from_right < n { samples[n - 1 - from_right] } else { 0.0 };
+        let frac = if max > 0.0 { (v / max).clamp(0.0, 1.0) } else { 0.0 };
+        let filled = (frac * levels as f64).round() as usize;
+        for row in 0..h {
+            let from_bottom = h - 1 - row;
+            let cell = filled.saturating_sub(from_bottom * 8).min(8);
+            let (ch, color) = if cell == 0 {
+                (' ', theme.panel_border)
             } else {
-                ('░', empty)
+                (LEVELS[cell], colorer(v))
             };
-            buf.set_string(area.x + col as u16, area.y + row, ch.to_string(), style);
+            buf.set_string(
+                area.x + col as u16,
+                area.y + row as u16,
+                ch.to_string(),
+                Style::default().fg(color).bg(theme.panel_bg),
+            );
         }
     }
+}
+
+/// A centered top-border title showing battery charge: "BAT[+] 86% ▆▆▆▆░░".
+fn battery_title(pct: u8, charging: bool, theme: &Theme) -> Line<'static> {
+    let header = Style::default()
+        .fg(theme.header_fg)
+        .bg(theme.panel_bg)
+        .add_modifier(Modifier::BOLD);
+    // Full at 100% = green, empty = red.
+    let color = load_color(100.0 - pct as f32, theme);
+    const CELLS: usize = 6;
+    let filled = ((pct as usize * CELLS) + 50) / 100;
+    let bar: String = (0..CELLS).map(|i| if i < filled { '█' } else { '░' }).collect();
+    Line::from(vec![
+        Span::styled(if charging { " BAT+ " } else { " BAT " }, header),
+        Span::styled(format!("{pct}% "), header),
+        Span::styled(bar, Style::default().fg(color).bg(theme.panel_bg)),
+        Span::styled(" ", header),
+    ])
+    .centered()
 }
 
 /// A green→yellow→red color reflecting a 0..=100 load value (truecolor only).
@@ -290,12 +399,15 @@ fn render_table(f: &mut Frame, area: Rect, pv: &mut ProcView, theme: &Theme) {
         return;
     }
     let width = area.width as usize;
-    // Column widths: PID, CPU%, MEM, MEM%, then the name fills the rest.
+    // Column widths: PID, THR, CPU%, MEM, MEM%, then the name fills the rest.
     let pid_w = 7;
+    let thr_w = 5;
     let cpu_w = 7;
     let mem_w = 9;
     let memp_w = 6;
-    let name_w = width.saturating_sub(pid_w + cpu_w + mem_w + memp_w + 4).max(4);
+    let name_w = width
+        .saturating_sub(pid_w + thr_w + cpu_w + mem_w + memp_w + 5)
+        .max(4);
 
     let arrow = |k: ProcSort| -> &'static str {
         if pv.sort == k {
@@ -307,12 +419,14 @@ fn render_table(f: &mut Frame, area: Rect, pv: &mut ProcView, theme: &Theme) {
     // Bracketed letters show the sort hotkey, e.g. [C]PU%; the active column
     // also gets a ▼/▲ direction arrow.
     let pid_h = format!("[P]ID{}", arrow(ProcSort::Pid));
+    let thr_h = format!("[T]HR{}", arrow(ProcSort::Threads));
     let cpu_h = format!("[C]PU%{}", arrow(ProcSort::Cpu));
     let mem_h = format!("[M]EM{}", arrow(ProcSort::Mem));
     let name_h = pad_right("[N]AME", name_w);
     let header = format!(
-        "{}{}{}{}  {}",
+        "{}{}{}{}{}  {}",
         pad_left(&pid_h, pid_w),
+        pad_left(&thr_h, thr_w + 1),
         pad_left(&cpu_h, cpu_w + 1),
         pad_left(&mem_h, mem_w + 1),
         pad_left("MEM%", memp_w + 1),
@@ -352,8 +466,9 @@ fn render_table(f: &mut Frame, area: Rect, pv: &mut ProcView, theme: &Theme) {
             continue;
         };
         let text = format!(
-            "{}{}{}{}  {}",
+            "{}{}{}{}{}  {}",
             pad_left(&p.pid.to_string(), pid_w),
+            pad_left(&p.threads.to_string(), thr_w + 1),
             pad_left(&format!("{:.1}", p.cpu), cpu_w + 1),
             pad_left(&human_size(p.rss), mem_w + 1),
             pad_left(&format!("{:.1}", p.mem_pct), memp_w + 1),
@@ -369,7 +484,7 @@ fn render_table(f: &mut Frame, area: Rect, pv: &mut ProcView, theme: &Theme) {
 }
 
 fn render_footer(f: &mut Frame, area: Rect, _pv: &ProcView, theme: &Theme) {
-    let hint = "↑↓ PgUp/Dn move   c CPU  m Mem  n Name  p PID   r reverse   k kill  K force   Esc close";
+    let hint = "↑↓ move   c CPU  m Mem  t Thr  n Name  p PID   r reverse   +/- rate   k kill  K force   Esc close";
     // Highlighted bar (matching the F-key row) so the hints are clearly visible.
     let line = pad_right(&format!(" {hint}"), area.width as usize);
     f.render_widget(

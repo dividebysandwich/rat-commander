@@ -311,7 +311,8 @@ mod feature_tests {
         t.draw(|f| draw(f, &mut st)).unwrap();
         let text = text_of(&t);
         assert!(text.contains("Process Explorer"), "explorer renders over the UI");
-        assert!(text.contains("Cores"), "per-core graph present");
+        // The core panel border shows the CPU name "(N cores)", or "Cores (N)".
+        assert!(text.to_lowercase().contains("cores"), "per-core graph present");
         assert!(text.contains("Mem"), "memory graph present");
     }
 

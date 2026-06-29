@@ -12,6 +12,8 @@ use std::collections::{HashMap, VecDeque};
 pub const CPU_HISTORY: usize = 160;
 /// Number of per-core samples kept for the small per-core graphs.
 pub const CORE_HISTORY: usize = 48;
+/// Number of samples kept for the memory / disk / network sparklines.
+pub const SYS_HISTORY: usize = 120;
 
 /// One process row.
 #[derive(Debug, Clone)]
@@ -24,6 +26,8 @@ pub struct ProcInfo {
     pub rss: u64,
     /// RSS as a percentage of total RAM.
     pub mem_pct: f32,
+    /// Number of threads.
+    pub threads: u32,
 }
 
 /// Which column the list is sorted by.
@@ -33,6 +37,7 @@ pub enum ProcSort {
     Mem,
     Name,
     Pid,
+    Threads,
 }
 
 /// Result of routing a key to the process explorer.
@@ -61,16 +66,38 @@ pub struct ProcView {
     pub core_history: Vec<VecDeque<f32>>,
     pub mem_total: u64,
     pub mem_used: u64,
+    /// Memory-used percentage history (0..=100) for the memory sparkline.
+    pub mem_history: VecDeque<f64>,
+    /// Combined disk read+write rate (bytes/s) and its history.
+    pub disk_rate: f64,
+    pub disk_history: VecDeque<f64>,
+    /// Network receive/transmit rates (bytes/s) and their histories.
+    pub net_down: f64,
+    pub net_up: f64,
+    pub net_down_history: VecDeque<f64>,
+    pub net_up_history: VecDeque<f64>,
+    /// CPU model name (from `/proc/cpuinfo`), shown on the core panel border.
+    pub cpu_name: String,
+    /// Battery percentage and charging state, if a battery is present.
+    pub battery: Option<(u8, bool)>,
+    /// Refresh interval in milliseconds (adjustable with +/-, min 100 ms).
+    pub interval_ms: u64,
     /// Visible table rows, set by the renderer for paging math.
     pub view_rows: usize,
 
     // --- sampling state ---
+    /// 100 ms ticks accumulated since the last refresh.
+    tick_accum: u64,
     refresh_count: u64,
     prev_pid: HashMap<i32, u64>,
     prev_total: u64,
     prev_idle: u64,
     prev_cores: Vec<(u64, u64)>, // (idle_all, total) per core
     last_total_delta: u64,
+    prev_disk_bytes: u64,
+    prev_net_rx: u64,
+    prev_net_tx: u64,
+    last_instant: Option<std::time::Instant>,
 }
 
 impl ProcView {
@@ -90,13 +117,28 @@ impl ProcView {
             core_history: Vec::new(),
             mem_total: 0,
             mem_used: 0,
+            mem_history: VecDeque::with_capacity(SYS_HISTORY),
+            disk_rate: 0.0,
+            disk_history: VecDeque::with_capacity(SYS_HISTORY),
+            net_down: 0.0,
+            net_up: 0.0,
+            net_down_history: VecDeque::with_capacity(SYS_HISTORY),
+            net_up_history: VecDeque::with_capacity(SYS_HISTORY),
+            cpu_name: read_cpu_name(),
+            battery: None,
+            interval_ms: 300,
             view_rows: 1,
+            tick_accum: 0,
             refresh_count: 0,
             prev_pid: HashMap::new(),
             prev_total: 0,
             prev_idle: 0,
             prev_cores: Vec::new(),
             last_total_delta: 0,
+            prev_disk_bytes: 0,
+            prev_net_rx: 0,
+            prev_net_tx: 0,
+            last_instant: None,
         };
         // Baseline sample so the next refresh can compute deltas.
         v.refresh();
@@ -150,9 +192,22 @@ impl ProcView {
                 self.set_sort(ProcSort::Pid);
                 ProcSignal::Stay
             }
+            KeyCode::Char('t') | KeyCode::Char('T') => {
+                self.set_sort(ProcSort::Threads);
+                ProcSignal::Stay
+            }
             KeyCode::Char('r') | KeyCode::Char('R') => {
                 self.reverse = !self.reverse;
                 self.resort_keep_cursor();
+                ProcSignal::Stay
+            }
+            // Update interval: + slower, - faster (100 ms steps, min 100 ms).
+            KeyCode::Char('+') | KeyCode::Char('=') => {
+                self.interval_ms = (self.interval_ms + 100).min(10_000);
+                ProcSignal::Stay
+            }
+            KeyCode::Char('-') | KeyCode::Char('_') => {
+                self.interval_ms = self.interval_ms.saturating_sub(100).max(100);
                 ProcSignal::Stay
             }
             // Kill: SIGTERM (k/F8/F9/Delete) or SIGKILL (K).
@@ -190,7 +245,7 @@ impl ProcView {
         } else {
             self.sort = key;
             // Numeric columns default to descending, names to ascending.
-            self.reverse = matches!(key, ProcSort::Cpu | ProcSort::Mem);
+            self.reverse = matches!(key, ProcSort::Cpu | ProcSort::Mem | ProcSort::Threads);
         }
         self.resort_keep_cursor();
     }
@@ -211,6 +266,7 @@ impl ProcView {
             ProcSort::Mem => self.procs.sort_by_key(|p| p.rss),
             ProcSort::Name => self.procs.sort_by_key(|p| p.name.to_lowercase()),
             ProcSort::Pid => self.procs.sort_by_key(|p| p.pid),
+            ProcSort::Threads => self.procs.sort_by_key(|p| p.threads),
         }
         if self.reverse {
             self.procs.reverse();
@@ -240,6 +296,18 @@ impl ProcView {
     pub fn cpu_last(&self) -> f32 {
         self.cpu_now
     }
+
+    /// Called every 100 ms tick; returns true (and resets) when the refresh
+    /// interval has elapsed, so the caller should `refresh()`.
+    pub fn tick_due(&mut self) -> bool {
+        self.tick_accum += 1;
+        if self.tick_accum * 100 >= self.interval_ms {
+            self.tick_accum = 0;
+            true
+        } else {
+            false
+        }
+    }
 }
 
 impl Default for ProcView {
@@ -262,6 +330,13 @@ fn push_core_hist(hist: &mut VecDeque<f32>, v: f32) {
     hist.push_back(v);
 }
 
+fn push_sys(hist: &mut VecDeque<f64>, v: f64) {
+    if hist.len() >= SYS_HISTORY {
+        hist.pop_front();
+    }
+    hist.push_back(v);
+}
+
 // ---------------------------------------------------------------------------
 // Sampling (Linux /proc)
 // ---------------------------------------------------------------------------
@@ -273,8 +348,19 @@ impl ProcView {
         // Remember which process the cursor is on so it stays put across the
         // re-sort (and only moves if that process is gone).
         let anchor = self.procs.get(self.cursor).map(|p| p.pid);
+        // Seconds since the last sample, for rate (disk/net) computation.
+        let now = std::time::Instant::now();
+        let dt = self
+            .last_instant
+            .map(|prev| now.duration_since(prev).as_secs_f64())
+            .unwrap_or(0.0);
+        self.last_instant = Some(now);
+
         self.sample_cpu();
         self.sample_mem();
+        self.sample_disk(dt);
+        self.sample_net(dt);
+        self.sample_battery();
         self.sample_procs();
         self.sort_procs();
         self.restore_cursor(anchor);
@@ -290,6 +376,15 @@ impl ProcView {
             for (i, &v) in self.cores.iter().enumerate() {
                 push_core_hist(&mut self.core_history[i], v);
             }
+            let mem_pct = if self.mem_total > 0 {
+                100.0 * self.mem_used as f64 / self.mem_total as f64
+            } else {
+                0.0
+            };
+            push_sys(&mut self.mem_history, mem_pct);
+            push_sys(&mut self.disk_history, self.disk_rate);
+            push_sys(&mut self.net_down_history, self.net_down);
+            push_sys(&mut self.net_up_history, self.net_up);
         }
     }
 
@@ -356,6 +451,103 @@ impl ProcView {
         }
     }
 
+    /// Combined read+write throughput across whole disks (bytes/s).
+    fn sample_disk(&mut self, dt: f64) {
+        // Only count whole-block devices (those listed in /sys/block), skipping
+        // partitions, loop/ram/zram and device-mapper to avoid double counting.
+        let whole: std::collections::HashSet<String> = std::fs::read_dir("/sys/block")
+            .map(|rd| {
+                rd.flatten()
+                    .map(|e| e.file_name().to_string_lossy().into_owned())
+                    .filter(|n| {
+                        !(n.starts_with("loop")
+                            || n.starts_with("ram")
+                            || n.starts_with("zram")
+                            || n.starts_with("dm-")
+                            || n.starts_with("sr"))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let mut bytes = 0u64;
+        if let Ok(stats) = std::fs::read_to_string("/proc/diskstats") {
+            for line in stats.lines() {
+                let f: Vec<&str> = line.split_whitespace().collect();
+                if f.len() < 10 {
+                    continue;
+                }
+                if !whole.contains(f[2]) {
+                    continue;
+                }
+                let read_sectors: u64 = f[5].parse().unwrap_or(0);
+                let write_sectors: u64 = f[9].parse().unwrap_or(0);
+                bytes = bytes.saturating_add((read_sectors + write_sectors) * 512);
+            }
+        }
+        if self.prev_disk_bytes != 0 && dt > 0.0 {
+            self.disk_rate = bytes.saturating_sub(self.prev_disk_bytes) as f64 / dt;
+        }
+        self.prev_disk_bytes = bytes;
+    }
+
+    /// Read the first battery's charge percentage and charging state, if any.
+    fn sample_battery(&mut self) {
+        let Ok(rd) = std::fs::read_dir("/sys/class/power_supply") else {
+            self.battery = None;
+            return;
+        };
+        for e in rd.flatten() {
+            let name = e.file_name();
+            if !name.to_string_lossy().starts_with("BAT") {
+                continue;
+            }
+            let dir = e.path();
+            let Some(pct) = std::fs::read_to_string(dir.join("capacity"))
+                .ok()
+                .and_then(|s| s.trim().parse::<u8>().ok())
+            else {
+                continue;
+            };
+            let charging = std::fs::read_to_string(dir.join("status"))
+                .map(|s| s.trim().eq_ignore_ascii_case("Charging"))
+                .unwrap_or(false);
+            self.battery = Some((pct.min(100), charging));
+            return;
+        }
+        self.battery = None;
+    }
+
+    /// Aggregate receive/transmit throughput across interfaces (bytes/s),
+    /// excluding loopback.
+    fn sample_net(&mut self, dt: f64) {
+        let (mut rx, mut tx) = (0u64, 0u64);
+        if let Ok(s) = std::fs::read_to_string("/proc/net/dev") {
+            for line in s.lines() {
+                let Some((iface, rest)) = line.split_once(':') else {
+                    continue;
+                };
+                if iface.trim() == "lo" {
+                    continue;
+                }
+                let f: Vec<&str> = rest.split_whitespace().collect();
+                if f.len() < 9 {
+                    continue;
+                }
+                rx = rx.saturating_add(f[0].parse::<u64>().unwrap_or(0));
+                tx = tx.saturating_add(f[8].parse::<u64>().unwrap_or(0));
+            }
+        }
+        if self.prev_net_rx != 0 && dt > 0.0 {
+            self.net_down = rx.saturating_sub(self.prev_net_rx) as f64 / dt;
+        }
+        if self.prev_net_tx != 0 && dt > 0.0 {
+            self.net_up = tx.saturating_sub(self.prev_net_tx) as f64 / dt;
+        }
+        self.prev_net_rx = rx;
+        self.prev_net_tx = tx;
+    }
+
     fn sample_procs(&mut self) {
         let Ok(rd) = std::fs::read_dir("/proc") else {
             return;
@@ -373,7 +565,7 @@ impl ProcView {
             let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else {
                 continue;
             };
-            let Some((name, jiffies)) = parse_proc_stat(&stat) else {
+            let Some((name, jiffies, threads)) = parse_proc_stat(&stat) else {
                 continue;
             };
             let prev = self.prev_pid.get(&pid).copied().unwrap_or(jiffies);
@@ -396,6 +588,7 @@ impl ProcView {
                 cpu: cpu.clamp(0.0, 100.0 * self.ncores as f32),
                 rss,
                 mem_pct,
+                threads,
             });
         }
         self.prev_pid = next_prev;
@@ -408,6 +601,25 @@ impl ProcView {
     pub fn refresh(&mut self) {
         // No /proc on this platform; nothing to sample.
     }
+}
+
+/// The CPU model name from `/proc/cpuinfo` (empty if unavailable).
+#[cfg(target_os = "linux")]
+fn read_cpu_name() -> String {
+    std::fs::read_to_string("/proc/cpuinfo")
+        .ok()
+        .and_then(|s| {
+            s.lines().find_map(|l| {
+                l.strip_prefix("model name")
+                    .map(|r| r.trim_start_matches([' ', '\t', ':']).trim().to_string())
+            })
+        })
+        .unwrap_or_default()
+}
+
+#[cfg(not(target_os = "linux"))]
+fn read_cpu_name() -> String {
+    String::new()
 }
 
 /// Parse the numeric fields following the `cpu`/`cpuN` label. Returns
@@ -428,20 +640,21 @@ fn parse_cpu_fields(rest: &str) -> Option<(u64, u64)> {
     Some((idle_all, total))
 }
 
-/// Parse a `/proc/<pid>/stat` line into `(comm, utime+stime)`. The command name
-/// can contain spaces and parentheses, so we split on the last `)`.
+/// Parse a `/proc/<pid>/stat` line into `(comm, utime+stime, num_threads)`. The
+/// command name can contain spaces and parentheses, so we split on the last `)`.
 #[cfg(target_os = "linux")]
-fn parse_proc_stat(stat: &str) -> Option<(String, u64)> {
+fn parse_proc_stat(stat: &str) -> Option<(String, u64, u32)> {
     let open = stat.find('(')?;
     let close = stat.rfind(')')?;
     let comm = stat.get(open + 1..close)?.to_string();
     let rest = stat.get(close + 1..)?;
     let fields: Vec<&str> = rest.split_whitespace().collect();
     // After the ')' the tokens start at field 3 (state); utime is field 14,
-    // stime field 15 → indices 11 and 12 here.
+    // stime field 15, num_threads field 20 → indices 11, 12 and 17 here.
     let utime = fields.get(11)?.parse::<u64>().ok()?;
     let stime = fields.get(12)?.parse::<u64>().ok()?;
-    Some((comm, utime + stime))
+    let threads = fields.get(17).and_then(|t| t.parse::<u32>().ok()).unwrap_or(1);
+    Some((comm, utime + stime, threads))
 }
 
 /// Resident set size in bytes from `/proc/<pid>/statm` (resident pages).
@@ -468,9 +681,10 @@ mod tests {
         // comm contains spaces and parentheses; it is wrapped in one outer pair.
         let line = "1234 (weird (name) x) S 1 1234 1234 0 -1 0 0 0 0 0 \
                     111 222 0 0 20 0 1 0 999 0 0";
-        let (name, jiffies) = super::parse_proc_stat(line).unwrap();
+        let (name, jiffies, threads) = super::parse_proc_stat(line).unwrap();
         assert_eq!(name, "weird (name) x");
         assert_eq!(jiffies, 111 + 222);
+        assert_eq!(threads, 1);
     }
 
     #[cfg(target_os = "linux")]
@@ -496,9 +710,9 @@ mod tests {
         use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
         let mut pv = ProcView::new();
         pv.procs = vec![
-            ProcInfo { pid: 1, name: "a".into(), cpu: 10.0, rss: 0, mem_pct: 0.0 },
-            ProcInfo { pid: 2, name: "b".into(), cpu: 50.0, rss: 0, mem_pct: 0.0 },
-            ProcInfo { pid: 3, name: "c".into(), cpu: 30.0, rss: 0, mem_pct: 0.0 },
+            ProcInfo { pid: 1, name: "a".into(), cpu: 10.0, rss: 0, mem_pct: 0.0, threads: 1 },
+            ProcInfo { pid: 2, name: "b".into(), cpu: 50.0, rss: 0, mem_pct: 0.0, threads: 1 },
+            ProcInfo { pid: 3, name: "c".into(), cpu: 30.0, rss: 0, mem_pct: 0.0, threads: 1 },
         ];
         pv.sort = super::ProcSort::Pid;
         pv.reverse = false;
@@ -528,5 +742,50 @@ mod tests {
         assert!(s.contains("Process Explorer"), "title present");
         assert!(s.contains("CPU"), "cpu graph label present");
         assert!(s.contains("PID"), "table header present");
+        assert!(s.contains("[T]HR"), "threads column present");
+        assert!(s.contains("Mem"), "memory panel present");
+        assert!(s.contains("Disk"), "disk panel present");
+        assert!(s.contains("Net"), "network panel present");
+        assert!(s.contains("300ms"), "update interval shown on the border");
+    }
+
+    #[test]
+    fn interval_keys_adjust_and_clamp() {
+        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mut pv = super::ProcView::new();
+        pv.interval_ms = 300;
+        let key = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
+        pv.handle_key(key('+'));
+        assert_eq!(pv.interval_ms, 400, "+ raises the interval by 100ms");
+        for _ in 0..5 {
+            pv.handle_key(key('-'));
+        }
+        assert_eq!(pv.interval_ms, 100, "- lowers but never below 100ms");
+    }
+
+    #[test]
+    fn tick_due_fires_each_interval() {
+        let mut pv = super::ProcView::new();
+        pv.interval_ms = 300;
+        assert!(!pv.tick_due(), "100ms < 300ms");
+        assert!(!pv.tick_due(), "200ms < 300ms");
+        assert!(pv.tick_due(), "300ms reaches the interval");
+        assert!(!pv.tick_due(), "counter reset after firing");
+    }
+
+    #[test]
+    fn sort_by_threads_orders_descending() {
+        use super::{ProcInfo, ProcView};
+        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mut pv = ProcView::new();
+        pv.procs = vec![
+            ProcInfo { pid: 1, name: "a".into(), cpu: 0.0, rss: 0, mem_pct: 0.0, threads: 4 },
+            ProcInfo { pid: 2, name: "b".into(), cpu: 0.0, rss: 0, mem_pct: 0.0, threads: 32 },
+            ProcInfo { pid: 3, name: "c".into(), cpu: 0.0, rss: 0, mem_pct: 0.0, threads: 9 },
+        ];
+        pv.cursor = 0;
+        pv.handle_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+        let threads: Vec<u32> = pv.procs.iter().map(|p| p.threads).collect();
+        assert_eq!(threads, vec![32, 9, 4], "threads sort is descending by default");
     }
 }
