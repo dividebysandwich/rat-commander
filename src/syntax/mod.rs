@@ -30,6 +30,13 @@ const EXTRA_SYNTAXES: &[&str] = &[
     include_str!("syntaxes/graphql.sublime-syntax"),
     include_str!("syntaxes/protobuf.sublime-syntax"),
     include_str!("syntaxes/cmake.sublime-syntax"),
+    include_str!("syntaxes/typescript.sublime-syntax"),
+    include_str!("syntaxes/kotlin.sublime-syntax"),
+    include_str!("syntaxes/swift.sublime-syntax"),
+    include_str!("syntaxes/scss.sublime-syntax"),
+    include_str!("syntaxes/elixir.sublime-syntax"),
+    include_str!("syntaxes/zig.sublime-syntax"),
+    include_str!("syntaxes/nix.sublime-syntax"),
 ];
 
 static SYNTAXES: LazyLock<SyntaxSet> = LazyLock::new(build_syntax_set);
@@ -217,6 +224,32 @@ mod tests {
             assert!(distinct.len() > 1, "{name}: expected multiple colors");
             assert_ne!(fg[a], fg[b], "{name}: columns {a}/{b} should differ");
         }
+    }
+
+    #[test]
+    fn extra_tier_syntaxes_are_bundled_and_highlight() {
+        // (file name, representative line, two columns expected to differ).
+        let cases: &[(&str, &str, usize, usize)] = &[
+            ("app.ts", "let n = 42;", 0, 8),
+            ("Main.kt", "val n = 42", 0, 8),
+            ("App.swift", "let n = 42", 0, 8),
+            ("style.scss", "$color: #fff;", 0, 8),
+            ("mod.ex", "def foo do :ok end", 0, 4),
+            ("main.zig", "const x = 42;", 0, 10),
+            ("default.nix", "let x = true;", 0, 8),
+        ];
+        for &(name, line, a, b) in cases {
+            let mut h = Highlighter::for_file(name, true)
+                .unwrap_or_else(|| panic!("{name}: syntax should be bundled"));
+            h.process_next(line);
+            let fg = h.line_fg(0, line.chars().count(), Color::Rgb(0, 0, 0));
+            let distinct: std::collections::HashSet<_> = fg.iter().collect();
+            assert!(distinct.len() > 1, "{name}: expected multiple colors");
+            assert_ne!(fg[a], fg[b], "{name}: columns {a}/{b} should differ");
+        }
+        // TSX / Sass also resolve (share the TS / SCSS grammars).
+        assert!(Highlighter::for_file("Component.tsx", true).is_some());
+        assert!(Highlighter::for_file("legacy.sass", true).is_some());
     }
 
     #[test]

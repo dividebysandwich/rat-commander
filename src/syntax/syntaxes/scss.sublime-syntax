@@ -1,0 +1,66 @@
+%YAML 1.2
+---
+# SCSS / Sass. Indented Sass shares the same tokens (sans braces/semicolons).
+name: SCSS
+file_extensions:
+  - scss
+  - sass
+scope: source.scss
+
+contexts:
+  main:
+    - match: '//.*$'
+      scope: comment.line.double-slash.scss
+    - match: '/\*'
+      scope: punctuation.definition.comment.begin.scss
+      push:
+        - meta_scope: comment.block.scss
+        - match: '\*/'
+          scope: punctuation.definition.comment.end.scss
+          pop: true
+    - match: '@[A-Za-z-]+'
+      scope: keyword.control.at-rule.scss
+    - match: '\$[A-Za-z0-9_-]+'
+      scope: variable.other.scss
+    - match: '!\s*(important|default|global|optional)\b'
+      scope: keyword.other.important.scss
+    - include: strings
+    - match: '#[0-9A-Fa-f]{3,8}\b'
+      scope: constant.other.color.rgb-value.scss
+    - match: '\b\d+(\.\d+)?(px|em|rem|ex|ch|vw|vh|vmin|vmax|%|pt|pc|cm|mm|in|deg|rad|grad|turn|s|ms|fr|dpi)?\b'
+      scope: constant.numeric.scss
+    - match: '\b(true|false|null)\b'
+      scope: constant.language.scss
+    - match: '&'
+      scope: entity.name.selector.parent.scss
+    - match: '([-A-Za-z]+)\s*(:)'
+      captures:
+        1: support.type.property-name.scss
+        2: punctuation.separator.key-value.scss
+
+  strings:
+    - match: '"'
+      scope: punctuation.definition.string.begin.scss
+      push:
+        - meta_scope: string.quoted.double.scss
+        - match: '"'
+          scope: punctuation.definition.string.end.scss
+          pop: true
+        - match: '#\{'
+          scope: punctuation.section.interpolation.begin.scss
+          push:
+            - meta_scope: meta.interpolation.scss
+            - match: '\}'
+              scope: punctuation.section.interpolation.end.scss
+              pop: true
+        - match: '$'
+          pop: true
+    - match: "'"
+      scope: punctuation.definition.string.begin.scss
+      push:
+        - meta_scope: string.quoted.single.scss
+        - match: "'"
+          scope: punctuation.definition.string.end.scss
+          pop: true
+        - match: '$'
+          pop: true

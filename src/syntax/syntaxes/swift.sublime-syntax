@@ -1,0 +1,85 @@
+%YAML 1.2
+---
+name: Swift
+file_extensions:
+  - swift
+scope: source.swift
+
+contexts:
+  main:
+    - include: comments
+    - include: strings
+    - include: keywords
+    - include: attributes
+    - include: types
+    - include: numbers
+
+  comments:
+    - match: '//.*$'
+      scope: comment.line.double-slash.swift
+    - match: '/\*'
+      scope: punctuation.definition.comment.begin.swift
+      push:
+        - meta_scope: comment.block.swift
+        - match: '\*/'
+          scope: punctuation.definition.comment.end.swift
+          pop: true
+
+  keywords:
+    - match: '\b(if|else|guard|switch|case|default|for|while|repeat|do|catch|throw|throws|rethrows|try|return|break|continue|fallthrough|defer|where|in|as|is|async|await)\b'
+      scope: keyword.control.swift
+    - match: '\b(class|struct|enum|protocol|extension|func|var|let|init|deinit|subscript|typealias|associatedtype|import|open|public|internal|fileprivate|private|static|final|lazy|weak|unowned|mutating|nonmutating|override|required|convenience|dynamic|indirect|infix|prefix|postfix|operator|some|any|inout)\b'
+      scope: keyword.declaration.swift
+    - match: '\b(true|false|nil|self|Self|super)\b'
+      scope: constant.language.swift
+
+  attributes:
+    - match: '@[A-Za-z_][A-Za-z0-9_]*'
+      scope: variable.annotation.swift
+
+  types:
+    - match: '\b(Int|UInt|Int8|Int16|Int32|Int64|UInt8|UInt16|UInt32|UInt64|Float|Double|Bool|String|Character|Void|Optional|Array|Dictionary|Set)\b'
+      scope: support.type.swift
+    - match: '\b([A-Z][A-Za-z0-9_]*)\b'
+      scope: entity.name.type.swift
+
+  numbers:
+    - match: '\b0[xX][0-9A-Fa-f_]+\b'
+      scope: constant.numeric.hex.swift
+    - match: '\b0[bB][01_]+\b'
+      scope: constant.numeric.binary.swift
+    - match: '\b0[oO][0-7_]+\b'
+      scope: constant.numeric.octal.swift
+    - match: '\b[0-9][0-9_]*(\.[0-9_]+)?([eE][+-]?[0-9_]+)?\b'
+      scope: constant.numeric.swift
+
+  strings:
+    - match: '"""'
+      scope: punctuation.definition.string.begin.swift
+      push:
+        - meta_scope: string.quoted.triple.swift
+        - match: '"""'
+          scope: punctuation.definition.string.end.swift
+          pop: true
+        - include: string-body
+    - match: '"'
+      scope: punctuation.definition.string.begin.swift
+      push:
+        - meta_scope: string.quoted.double.swift
+        - match: '"'
+          scope: punctuation.definition.string.end.swift
+          pop: true
+        - include: string-body
+        - match: '$'
+          pop: true
+
+  string-body:
+    - match: '\\\('
+      scope: punctuation.section.interpolation.begin.swift
+      push:
+        - meta_scope: meta.interpolation.swift
+        - match: '\)'
+          scope: punctuation.section.interpolation.end.swift
+          pop: true
+    - match: '\\.'
+      scope: constant.character.escape.swift

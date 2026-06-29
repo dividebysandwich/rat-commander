@@ -1,0 +1,95 @@
+%YAML 1.2
+---
+name: Kotlin
+file_extensions:
+  - kt
+  - kts
+scope: source.kotlin
+
+contexts:
+  main:
+    - include: comments
+    - include: strings
+    - include: keywords
+    - include: annotations
+    - include: types
+    - include: numbers
+
+  comments:
+    - match: '//.*$'
+      scope: comment.line.double-slash.kotlin
+    - match: '/\*'
+      scope: punctuation.definition.comment.begin.kotlin
+      push:
+        - meta_scope: comment.block.kotlin
+        - match: '\*/'
+          scope: punctuation.definition.comment.end.kotlin
+          pop: true
+
+  keywords:
+    - match: '\b(if|else|when|for|while|do|return|break|continue|throw|try|catch|finally|in|is|as)\b'
+      scope: keyword.control.kotlin
+    - match: '\b(package|import|class|interface|object|fun|val|var|typealias|constructor|init|companion|enum|sealed|data|inline|infix|operator|suspend|override|open|abstract|final|private|protected|public|internal|lateinit|const|vararg|reified|crossinline|noinline|by|where|out|annotation)\b'
+      scope: keyword.declaration.kotlin
+    - match: '\b(true|false|null|this|super)\b'
+      scope: constant.language.kotlin
+
+  annotations:
+    - match: '@[A-Za-z_][A-Za-z0-9_.]*'
+      scope: variable.annotation.kotlin
+
+  types:
+    - match: '\b(Int|Long|Short|Byte|Float|Double|Boolean|Char|String|Unit|Any|Nothing|Array|List|Map|Set|MutableList|MutableMap|MutableSet)\b'
+      scope: support.type.kotlin
+    - match: '\b([A-Z][A-Za-z0-9_]*)\b'
+      scope: entity.name.type.kotlin
+
+  numbers:
+    - match: '\b0[xX][0-9A-Fa-f_]+[uUlL]*\b'
+      scope: constant.numeric.hex.kotlin
+    - match: '\b0[bB][01_]+[uUlL]*\b'
+      scope: constant.numeric.binary.kotlin
+    - match: '\b[0-9][0-9_]*(\.[0-9_]+)?([eE][+-]?[0-9_]+)?[fFuUlL]*\b'
+      scope: constant.numeric.kotlin
+
+  strings:
+    - match: '"""'
+      scope: punctuation.definition.string.begin.kotlin
+      push:
+        - meta_scope: string.quoted.triple.kotlin
+        - match: '"""'
+          scope: punctuation.definition.string.end.kotlin
+          pop: true
+        - include: interpolation
+    - match: '"'
+      scope: punctuation.definition.string.begin.kotlin
+      push:
+        - meta_scope: string.quoted.double.kotlin
+        - match: '"'
+          scope: punctuation.definition.string.end.kotlin
+          pop: true
+        - match: '\\.'
+          scope: constant.character.escape.kotlin
+        - include: interpolation
+        - match: '$'
+          pop: true
+    - match: "'"
+      scope: punctuation.definition.string.begin.kotlin
+      push:
+        - meta_scope: string.quoted.single.kotlin
+        - match: '\\.'
+          scope: constant.character.escape.kotlin
+        - match: "'"
+          scope: punctuation.definition.string.end.kotlin
+          pop: true
+
+  interpolation:
+    - match: '\$[A-Za-z_][A-Za-z0-9_]*'
+      scope: variable.other.interpolated.kotlin
+    - match: '\$\{'
+      scope: punctuation.section.interpolation.begin.kotlin
+      push:
+        - meta_scope: meta.interpolation.kotlin
+        - match: '\}'
+          scope: punctuation.section.interpolation.end.kotlin
+          pop: true

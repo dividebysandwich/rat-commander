@@ -1,0 +1,57 @@
+%YAML 1.2
+---
+name: Zig
+file_extensions:
+  - zig
+scope: source.zig
+
+contexts:
+  main:
+    - match: '//.*$'
+      scope: comment.line.double-slash.zig
+    # Multiline string: lines beginning with `\\`.
+    - match: '\\\\.*$'
+      scope: string.quoted.multiline.zig
+    - include: strings
+    - match: '@[A-Za-z_][A-Za-z0-9_]*'
+      scope: support.function.builtin.zig
+    - match: '\b(if|else|while|for|switch|return|break|continue|defer|errdefer|try|catch|unreachable|async|await|suspend|resume|nosuspend|and|or|orelse)\b'
+      scope: keyword.control.zig
+    - match: '\b(const|var|fn|pub|comptime|inline|export|extern|threadlocal|struct|enum|union|error|test|usingnamespace|packed|align|linksection|callconv|noalias|volatile|allowzero|anytype|anyframe)\b'
+      scope: keyword.declaration.zig
+    - match: '\b(true|false|null|undefined)\b'
+      scope: constant.language.zig
+    - match: '\b(i\d+|u\d+|usize|isize|f16|f32|f64|f128|bool|void|noreturn|type|anyerror|c_int|c_uint|c_long|c_short|c_char|comptime_int|comptime_float)\b'
+      scope: support.type.zig
+    - match: '\b([A-Z][A-Za-z0-9_]*)\b'
+      scope: entity.name.type.zig
+    - match: '\b0[xX][0-9A-Fa-f_]+\b'
+      scope: constant.numeric.hex.zig
+    - match: '\b0[bB][01_]+\b'
+      scope: constant.numeric.binary.zig
+    - match: '\b0[oO][0-7_]+\b'
+      scope: constant.numeric.octal.zig
+    - match: '\b[0-9][0-9_]*(\.[0-9_]+)?([eE][+-]?[0-9_]+)?\b'
+      scope: constant.numeric.zig
+
+  strings:
+    - match: '"'
+      scope: punctuation.definition.string.begin.zig
+      push:
+        - meta_scope: string.quoted.double.zig
+        - match: '"'
+          scope: punctuation.definition.string.end.zig
+          pop: true
+        - match: '\\.'
+          scope: constant.character.escape.zig
+        - match: '$'
+          pop: true
+    - match: "'"
+      scope: punctuation.definition.string.begin.zig
+      push:
+        - meta_scope: string.quoted.single.zig
+        - match: '\\.'
+          scope: constant.character.escape.zig
+        - match: "'"
+          scope: punctuation.definition.string.end.zig
+          pop: true

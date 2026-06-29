@@ -1,0 +1,60 @@
+%YAML 1.2
+---
+name: Elixir
+file_extensions:
+  - ex
+  - exs
+scope: source.elixir
+
+contexts:
+  main:
+    - match: '#.*$'
+      scope: comment.line.number-sign.elixir
+    - include: strings
+    - match: '\b(def|defp|defmodule|defmacro|defmacrop|defstruct|defprotocol|defimpl|defguard|defguardp|defdelegate|defexception|do|end|fn|if|unless|else|case|cond|when|with|for|try|catch|rescue|after|raise|throw|import|alias|require|use|quote|unquote|receive)\b'
+      scope: keyword.control.elixir
+    - match: '\b(true|false|nil)\b'
+      scope: constant.language.elixir
+    - match: '@[A-Za-z_][A-Za-z0-9_]*'
+      scope: variable.other.readwrite.module.elixir
+    - match: ':[A-Za-z_][A-Za-z0-9_]*[!?]?'
+      scope: constant.other.symbol.elixir
+    - match: '\b([A-Z][A-Za-z0-9_]*)\b'
+      scope: entity.name.class.elixir
+    - match: '\|>|->|<-|::|\+\+|--|=~|&&|\|\||\\\\'
+      scope: keyword.operator.elixir
+    - match: '\b0[xX][0-9A-Fa-f_]+\b'
+      scope: constant.numeric.hex.elixir
+    - match: '\b[0-9][0-9_]*(\.[0-9_]+)?([eE][+-]?[0-9_]+)?\b'
+      scope: constant.numeric.elixir
+
+  strings:
+    - match: '"""'
+      scope: punctuation.definition.string.begin.elixir
+      push:
+        - meta_scope: string.quoted.heredoc.elixir
+        - match: '"""'
+          scope: punctuation.definition.string.end.elixir
+          pop: true
+        - include: string-body
+    - match: '"'
+      scope: punctuation.definition.string.begin.elixir
+      push:
+        - meta_scope: string.quoted.double.elixir
+        - match: '"'
+          scope: punctuation.definition.string.end.elixir
+          pop: true
+        - include: string-body
+        - match: '$'
+          pop: true
+
+  string-body:
+    - match: '\\.'
+      scope: constant.character.escape.elixir
+    - match: '#\{'
+      scope: punctuation.section.interpolation.begin.elixir
+      push:
+        - meta_scope: meta.interpolation.elixir
+        - match: '\}'
+          scope: punctuation.section.interpolation.end.elixir
+          pop: true

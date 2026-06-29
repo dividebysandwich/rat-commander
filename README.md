@@ -62,7 +62,8 @@ The installed executable is named **`rc`** for quick typing.
   chosen to suit the active light/dark UI. Highlighting is incremental and
   size-capped so it stays responsive. Beyond syntect's ~75 default languages,
   extra formats — **TOML**, **INI/config**, **Dockerfile**, **HCL/Terraform**,
-  **GraphQL**, **Protobuf** and **CMake** — are bundled as embedded
+  **GraphQL**, **Protobuf**, **CMake**, **TypeScript/TSX**, **Kotlin**, **Swift**,
+  **SCSS/Sass**, **Elixir**, **Zig** and **Nix** — are bundled as embedded
   `.sublime-syntax` files, and more can be dropped in to extend it
 - **Paged from disk** — local files are read on demand (only a per-line offset
   index is kept), so arbitrarily large files open instantly without loading into
