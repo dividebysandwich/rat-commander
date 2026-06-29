@@ -151,7 +151,7 @@ The installed executable is named **`rc`** for quick typing.
   and shown on the top-right border; when a **battery** is present its charge and a
   mini bar graph are shown centered on the top border
 
-  <img width="1007" height="514" alt="image" src="https://github.com/user-attachments/assets/3dd795cf-bf59-4f8b-94de-b9d49ad5f989" />
+<img width="1007" height="657" alt="image" src="https://github.com/user-attachments/assets/7f62aca4-73a2-4e18-9c09-b32a4fc2eebf" />
 
 
 
