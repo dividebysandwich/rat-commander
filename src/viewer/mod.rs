@@ -9,7 +9,10 @@
 pub mod render;
 
 use crate::syntax::{ColorRun, Highlighter};
-use ratatui::crossterm::event::{KeyCode, KeyEvent};
+use ratatui::crossterm::event::{
+    KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
+use ratatui::layout::Rect;
 use std::cell::RefCell;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
@@ -102,6 +105,10 @@ pub struct ViewerState {
     /// Viewport size, updated by the renderer each frame.
     view_rows: usize,
     view_cols: usize,
+    /// Content body and footer (F-key bar) rects, recorded by the renderer for
+    /// mouse hit-testing.
+    content_area: Rect,
+    footer_area: Rect,
 }
 
 impl ViewerState {
@@ -128,6 +135,8 @@ impl ViewerState {
             last_match: None,
             view_rows: 1,
             view_cols: 1,
+            content_area: Rect::default(),
+            footer_area: Rect::default(),
         }
     }
 
@@ -157,6 +166,8 @@ impl ViewerState {
             last_match: None,
             view_rows: 1,
             view_cols: 1,
+            content_area: Rect::default(),
+            footer_area: Rect::default(),
         }
     }
 
@@ -264,6 +275,67 @@ impl ViewerState {
             _ => {}
         }
         ViewerSignal::Stay
+    }
+
+    /// Route a mouse event. The wheel scrolls; a click in the lower half of the
+    /// body scrolls down a page and the upper half scrolls up; the F-key bar
+    /// acts as buttons.
+    pub fn handle_mouse(&mut self, ev: MouseEvent) -> ViewerSignal {
+        let (col, row) = (ev.column, ev.row);
+
+        // F-key bar clicks (when not capturing a search query).
+        if matches!(ev.kind, MouseEventKind::Down(MouseButton::Left))
+            && row == self.footer_area.y
+            && self.search_input.is_none()
+        {
+            let labels = self.footer_labels();
+            return match crate::ui::fkeys::index_at(self.footer_area, &labels, col, row) {
+                Some(i) => self.activate_fkey(i),
+                None => ViewerSignal::Stay,
+            };
+        }
+
+        match ev.kind {
+            MouseEventKind::ScrollDown => self.scroll(3),
+            MouseEventKind::ScrollUp => self.scroll(-3),
+            MouseEventKind::Down(MouseButton::Left) => {
+                let a = self.content_area;
+                let inside = a.height > 0
+                    && row >= a.y
+                    && row < a.y + a.height
+                    && col >= a.x
+                    && col < a.x + a.width;
+                if inside {
+                    // Below the vertical center pages down; above it pages up.
+                    let mid = a.y + a.height / 2;
+                    let page = (self.view_rows as isize - 1).max(1);
+                    self.scroll(if row >= mid { page } else { -page });
+                }
+            }
+            _ => {}
+        }
+        ViewerSignal::Stay
+    }
+
+    /// The F-key bar labels for the current mode (kept in sync with the footer
+    /// renderer, which calls this).
+    pub(crate) fn footer_labels(&self) -> [&'static str; 10] {
+        let wrap = if self.wrap { "Unwrap" } else { "Wrap" };
+        let mode = if self.mode == ViewMode::Hex { "Text" } else { "Hex" };
+        ["Help", wrap, "Quit", mode, "Goto", "", "Search", "", "Next", "Quit"]
+    }
+
+    /// Perform the action of F-key index `i` (0-based) from a bar click.
+    fn activate_fkey(&mut self, i: usize) -> ViewerSignal {
+        let code = match i {
+            1 => KeyCode::F(2),               // Wrap / Unwrap
+            2 | 9 => return ViewerSignal::Close, // Quit
+            3 => KeyCode::F(4),               // Text / Hex
+            6 => KeyCode::F(7),               // Search
+            8 => KeyCode::Char('n'),          // Next match
+            _ => return ViewerSignal::Stay,   // Help / Goto / empty: no-op
+        };
+        self.handle_key(KeyEvent::new(code, KeyModifiers::NONE))
     }
 
     fn handle_search_key(&mut self, key: KeyEvent) {
@@ -447,6 +519,58 @@ mod tests {
         // Next wraps forward to the uppercase TWO on line 3.
         v.find_next();
         assert_eq!(v.top, 3);
+    }
+
+    fn mouse(kind: MouseEventKind, col: u16, row: u16) -> MouseEvent {
+        MouseEvent { kind, column: col, row, modifiers: KeyModifiers::NONE }
+    }
+
+    /// Body at rows 1..11, F-key bar at row 12, as the renderer would record.
+    fn with_layout(v: &mut ViewerState) {
+        v.content_area = Rect::new(0, 1, 40, 10);
+        v.footer_area = Rect::new(0, 12, 40, 1);
+        v.view_rows = 10;
+        v.view_cols = 40;
+    }
+
+    fn many_lines(n: usize) -> Vec<u8> {
+        (0..n).map(|i| format!("line{i}\n")).collect::<String>().into_bytes()
+    }
+
+    #[test]
+    fn click_below_center_pages_down_above_pages_up() {
+        let mut v = ViewerState::new("t".into(), many_lines(100));
+        with_layout(&mut v);
+        assert_eq!(v.top, 0);
+        // Center of the body is row 6; a click below it pages down (view_rows-1).
+        v.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 5, 8));
+        assert_eq!(v.top, 9, "click below center pages down");
+        // A click above center pages back up.
+        v.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 5, 2));
+        assert_eq!(v.top, 0, "click above center pages up");
+    }
+
+    #[test]
+    fn wheel_scrolls_the_view() {
+        let mut v = ViewerState::new("t".into(), many_lines(100));
+        with_layout(&mut v);
+        v.handle_mouse(mouse(MouseEventKind::ScrollDown, 5, 5));
+        assert_eq!(v.top, 3, "wheel down scrolls three lines");
+        v.handle_mouse(mouse(MouseEventKind::ScrollUp, 5, 5));
+        assert_eq!(v.top, 0, "wheel up scrolls three lines back");
+    }
+
+    #[test]
+    fn fkey_bar_click_runs_the_function() {
+        let mut v = ViewerState::new("t".into(), many_lines(10));
+        with_layout(&mut v);
+        // Footer width 40, 10 labels → 4 cells each; F4 (Hex) spans cols 12-15.
+        assert_eq!(v.mode, ViewMode::Text);
+        v.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 12, 12));
+        assert_eq!(v.mode, ViewMode::Hex, "clicking F4 toggles hex mode");
+        // F10 (Quit) spans cols 36-39 → closes.
+        let sig = v.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 36, 12));
+        assert!(matches!(sig, ViewerSignal::Close), "clicking F10 quits");
     }
 
     #[test]

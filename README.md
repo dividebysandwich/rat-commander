@@ -69,6 +69,8 @@ The installed executable is named **`rc`** for quick typing.
 - **Paged from disk** — local files are read on demand (only a per-line offset
   index is kept), so arbitrarily large files open instantly without loading into
   memory; search streams the file in windows too
+- **Mouse**: the wheel scrolls, and clicking the lower half of the page scrolls
+  down (upper half scrolls up); the F-key bar at the bottom works as buttons
 - Opening a **large remote file** (View or Edit) streams it with a **progress
   dialog you can abort** (Esc); the viewer then pages from the downloaded copy
 
@@ -79,6 +81,9 @@ The installed executable is named **`rc`** for quick typing.
 - **Syntax highlighting** (same `syntect` engine) that updates incrementally as
   you type — only the edited line onward is re-highlighted — and coexists with
   block selection highlighting
+- **Mouse**: click to place the cursor, click-and-drag to mark a block (as F3
+  would), the wheel scrolls, and the F-key bar works as buttons (in both text and
+  hex modes, where a click also lands the byte cursor on the chosen cell)
 
  <img width="1007" height="658" alt="image" src="https://github.com/user-attachments/assets/bda0bce8-bf6d-49f8-8e63-a48fb7ec8b35" />
 

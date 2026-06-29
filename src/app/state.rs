@@ -682,14 +682,22 @@ impl AppState {
             return Flow::Continue;
         }
 
-        // Other full-screen overlays don't use the mouse yet; swallow the event
-        // so it can't move the hidden file-panel cursor underneath them.
-        if self.editor.is_some()
-            || self.viewer.is_some()
-            || self.procview.is_some()
-            || self.diskview.is_some()
-            || self.diffview.is_some()
-        {
+        // The editor and viewer handle their own mouse (cursor/marking/scroll).
+        if self.editor.is_some() {
+            let sig = self.editor.as_mut().unwrap().handle_mouse(ev);
+            self.apply_editor_signal(sig).await;
+            return Flow::Continue;
+        }
+        if let Some(v) = self.viewer.as_mut() {
+            if let ViewerSignal::Close = v.handle_mouse(ev) {
+                self.viewer = None;
+            }
+            return Flow::Continue;
+        }
+
+        // The remaining full-screen overlays don't use the mouse yet; swallow the
+        // event so it can't move the hidden file-panel cursor underneath them.
+        if self.procview.is_some() || self.diskview.is_some() || self.diffview.is_some() {
             return Flow::Continue;
         }
 
@@ -756,6 +764,36 @@ impl AppState {
         }
     }
 
+    /// Apply an [`EditorSignal`] (from a key or a mouse gesture): save, close,
+    /// or raise the relevant modal dialog.
+    async fn apply_editor_signal(&mut self, signal: EditorSignal) {
+        match signal {
+            EditorSignal::Stay => {}
+            EditorSignal::Close => {
+                self.editor = None;
+                self.reload_all().await;
+            }
+            EditorSignal::Save { close_after } => {
+                if close_after {
+                    self.save_editor(true).await;
+                } else {
+                    let name = self.editor.as_ref().map(|e| e.name.clone()).unwrap_or_default();
+                    self.dialog = Some(Dialog::Confirm(ConfirmDialog::save_editor(&name)));
+                }
+            }
+            EditorSignal::ConfirmQuit => {
+                let name = self.editor.as_ref().map(|e| e.name.clone()).unwrap_or_default();
+                self.dialog = Some(Dialog::Confirm(ConfirmDialog::editor_quit(&name)));
+            }
+            EditorSignal::OpenSearch => {
+                self.dialog = Some(Dialog::SearchReplace(self.editor_search_dialog(false)));
+            }
+            EditorSignal::OpenReplace => {
+                self.dialog = Some(Dialog::SearchReplace(self.editor_search_dialog(true)));
+            }
+        }
+    }
+
     async fn route_key(&mut self, key: KeyEvent) -> Flow {
         if self.dialog.is_some() {
             let res = self.dialog.as_mut().unwrap().handle_key(key);
@@ -770,39 +808,7 @@ impl AppState {
         }
         if self.editor.is_some() {
             let signal = self.editor.as_mut().unwrap().handle_key(key);
-            match signal {
-                EditorSignal::Stay => {}
-                EditorSignal::Close => {
-                    self.editor = None;
-                    self.reload_all().await;
-                }
-                EditorSignal::Save { close_after } => {
-                    if close_after {
-                        self.save_editor(true).await;
-                    } else {
-                        let name = self
-                            .editor
-                            .as_ref()
-                            .map(|e| e.name.clone())
-                            .unwrap_or_default();
-                        self.dialog = Some(Dialog::Confirm(ConfirmDialog::save_editor(&name)));
-                    }
-                }
-                EditorSignal::ConfirmQuit => {
-                    let name = self
-                        .editor
-                        .as_ref()
-                        .map(|e| e.name.clone())
-                        .unwrap_or_default();
-                    self.dialog = Some(Dialog::Confirm(ConfirmDialog::editor_quit(&name)));
-                }
-                EditorSignal::OpenSearch => {
-                    self.dialog = Some(Dialog::SearchReplace(self.editor_search_dialog(false)));
-                }
-                EditorSignal::OpenReplace => {
-                    self.dialog = Some(Dialog::SearchReplace(self.editor_search_dialog(true)));
-                }
-            }
+            self.apply_editor_signal(signal).await;
             return Flow::Continue;
         }
         if let Some(v) = self.viewer.as_mut() {

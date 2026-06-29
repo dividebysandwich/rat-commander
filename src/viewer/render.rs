@@ -27,6 +27,8 @@ pub fn render(f: &mut Frame, area: Rect, v: &mut ViewerState, theme: &Theme) {
 
     v.view_rows = content.height as usize;
     v.view_cols = content.width as usize;
+    v.content_area = content;
+    v.footer_area = footer;
 
     render_header(f, header, v, theme);
     match v.mode {
@@ -185,10 +187,6 @@ fn render_footer(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
     }
 
     // Same full-width, number+label styling as the main program.
-    let wrap = if v.wrap { "Unwrap" } else { "Wrap" };
-    let mode = if v.mode == ViewMode::Hex { "Text" } else { "Hex" };
-    let labels: [&str; 10] = [
-        "Help", wrap, "Quit", mode, "Goto", "", "Search", "", "Next", "Quit",
-    ];
+    let labels = v.footer_labels();
     crate::ui::fkeys::render(f, area, &labels, theme);
 }

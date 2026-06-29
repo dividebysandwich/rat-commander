@@ -10,7 +10,10 @@ pub mod render;
 
 use crate::vfs::VfsPath;
 use buffer::EditorBuffer;
-use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::crossterm::event::{
+    KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
+use ratatui::layout::Rect;
 use std::path::Path;
 
 /// What the app should do after the editor handles a key.
@@ -58,6 +61,12 @@ pub struct EditorState {
     status: String,
     view_rows: usize,
     view_cols: usize,
+    /// Text body and footer (F-key bar) rects, recorded by the renderer for
+    /// mouse hit-testing.
+    text_area: Rect,
+    footer_area: Rect,
+    /// Where a left-drag selection began (char index), while a drag is active.
+    mouse_anchor: Option<usize>,
     /// When `Some`, the editor is in (in-place, file-backed) hex mode.
     hex: Option<hex::HexEditor>,
     /// Last hex-mode search string (prefilled into the search dialog).
@@ -88,6 +97,9 @@ impl EditorState {
             status: String::new(),
             view_rows: 1,
             view_cols: 1,
+            text_area: Rect::default(),
+            footer_area: Rect::default(),
+            mouse_anchor: None,
             hex: None,
             last_hex_search: String::new(),
             hl: None,
@@ -257,6 +269,157 @@ impl EditorState {
             }
         }
         sig
+    }
+
+    /// Route a mouse event: a left click positions the cursor, a left-drag marks
+    /// a block (like F3), the wheel scrolls, and the F-key bar acts as buttons.
+    pub fn handle_mouse(&mut self, ev: MouseEvent) -> EditorSignal {
+        let (col, row) = (ev.column, ev.row);
+
+        // A click on the F-key bar acts as that function key (when the bar is
+        // actually showing — a status message replaces it).
+        if matches!(ev.kind, MouseEventKind::Down(MouseButton::Left))
+            && row == self.footer_area.y
+            && self.status.is_empty()
+        {
+            let labels: &[&str] = if self.is_hex() {
+                &crate::ui::fkeys::HEX_LABELS
+            } else {
+                &crate::ui::fkeys::EDITOR_LABELS
+            };
+            return match crate::ui::fkeys::index_at(self.footer_area, labels, col, row) {
+                Some(i) => self.handle_key(KeyEvent::new(KeyCode::F(i as u8 + 1), KeyModifiers::NONE)),
+                None => EditorSignal::Stay,
+            };
+        }
+
+        if self.is_hex() {
+            return self.handle_hex_mouse(ev);
+        }
+
+        match ev.kind {
+            MouseEventKind::ScrollUp => {
+                self.status.clear();
+                self.move_vertical(-3);
+            }
+            MouseEventKind::ScrollDown => {
+                self.status.clear();
+                self.move_vertical(3);
+            }
+            MouseEventKind::Down(MouseButton::Left) => {
+                self.status.clear();
+                if let Some(c) = self.char_at_screen(col, row) {
+                    self.cursor = c;
+                    self.goal_col = None;
+                    self.clear_marks();
+                    self.mouse_anchor = Some(c);
+                }
+            }
+            MouseEventKind::Drag(MouseButton::Left) => {
+                if let Some(c) = self.char_at_screen(col, row) {
+                    // Begin marking on the first drag away from the press point.
+                    if self.anchor.is_none()
+                        && let Some(a) = self.mouse_anchor
+                        && a != c
+                    {
+                        self.anchor = Some(a);
+                    }
+                    self.cursor = c;
+                    self.goal_col = None;
+                }
+            }
+            MouseEventKind::Up(MouseButton::Left) => {
+                // Finalize a drag selection so it sticks (like a second F3).
+                if let Some(a) = self.anchor.take() {
+                    self.block = Some(order(a, self.cursor));
+                }
+                self.mouse_anchor = None;
+            }
+            _ => {}
+        }
+        EditorSignal::Stay
+    }
+
+    /// Mouse handling in hex mode: the wheel scrolls and a click places the byte
+    /// cursor on the clicked hex/ASCII cell.
+    fn handle_hex_mouse(&mut self, ev: MouseEvent) -> EditorSignal {
+        match ev.kind {
+            MouseEventKind::ScrollUp => {
+                if let Some(h) = self.hex.as_mut() {
+                    h.move_rows(-3);
+                }
+            }
+            MouseEventKind::ScrollDown => {
+                if let Some(h) = self.hex.as_mut() {
+                    h.move_rows(3);
+                }
+            }
+            MouseEventKind::Down(MouseButton::Left) => {
+                if let Some((off, ascii)) = self.hex_cell_at(ev.column, ev.row)
+                    && let Some(h) = self.hex.as_mut()
+                {
+                    h.cursor = off;
+                    h.ascii_pane = ascii;
+                    h.nibble_low = false;
+                }
+            }
+            _ => {}
+        }
+        EditorSignal::Stay
+    }
+
+    /// Map a screen point to a char index in text mode (clamped to the buffer).
+    fn char_at_screen(&self, col: u16, row: u16) -> Option<usize> {
+        let a = self.text_area;
+        if a.width == 0
+            || a.height == 0
+            || col < a.x
+            || col >= a.x + a.width
+            || row < a.y
+            || row >= a.y + a.height
+        {
+            return None;
+        }
+        let lines = self.buf.len_lines();
+        if lines == 0 {
+            return Some(0);
+        }
+        let line = (self.top_line + (row - a.y) as usize).min(lines - 1);
+        let col_in = (self.left_col + (col - a.x) as usize).min(self.buf.line_len(line));
+        Some(self.line_start_char(line) + col_in)
+    }
+
+    /// Map a screen point in hex mode to `(byte offset, ascii_pane)`, mirroring
+    /// the column layout in `render_hex` (offset col + hex cells at x=10, ASCII
+    /// at x=60). `None` when the click misses a real byte.
+    fn hex_cell_at(&self, col: u16, row: u16) -> Option<(u64, bool)> {
+        let a = self.text_area;
+        let h = self.hex.as_ref()?;
+        if row < a.y || row >= a.y + a.height || col < a.x {
+            return None;
+        }
+        let bpr = hex::BYTES_PER_ROW as usize;
+        let base = h.top + (row - a.y) as u64 * hex::BYTES_PER_ROW;
+        let x = (col - a.x) as usize;
+        let (j, ascii) = if x >= 60 && x < 60 + bpr {
+            (x - 60, true)
+        } else if x >= 10 {
+            // Hex cells: cell j starts at 10 + 3*j (+1 once past the 8-byte gap).
+            let rel = x - 10;
+            let mut hit = None;
+            for j in 0..bpr {
+                let start = 3 * j + usize::from(j >= 8);
+                if rel >= start && rel < start + 2 {
+                    hit = Some(j);
+                    break;
+                }
+            }
+            (hit?, false)
+        } else {
+            return None;
+        };
+        let off = base + j as u64;
+        (off < h.len).then_some((off, ascii))
     }
 
     fn handle_text_key(&mut self, key: KeyEvent, ctrl: bool) -> EditorSignal {
@@ -796,6 +959,78 @@ mod tests {
         assert!(s.contains("Save") && s.contains("Text"), "F-key bar in hex mode");
         assert!(!s.contains("Hex mode"), "no persistent mode banner");
         std::fs::remove_file(&p).ok();
+    }
+
+    fn mouse(kind: MouseEventKind, col: u16, row: u16) -> MouseEvent {
+        MouseEvent { kind, column: col, row, modifiers: KeyModifiers::NONE }
+    }
+
+    /// Place the text body at (0,1) and the F-key bar at row 7, as the renderer
+    /// would, so mouse hit-testing has geometry to work with.
+    fn with_layout(e: &mut EditorState) {
+        e.text_area = Rect::new(0, 1, 20, 5);
+        e.footer_area = Rect::new(0, 7, 20, 1);
+        e.view_rows = 5;
+        e.view_cols = 20;
+    }
+
+    #[test]
+    fn click_moves_cursor() {
+        let mut e = ed("abcdef\nghijkl\nmnopqr");
+        with_layout(&mut e);
+        // Row 1 is the first text line; column 3 → char index 3 on line 0.
+        e.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 3, 1));
+        assert_eq!(e.cur_line(), 0);
+        assert_eq!(e.cur_col(), 3);
+        // Second text line, column 2.
+        e.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 2, 2));
+        assert_eq!(e.cur_line(), 1);
+        assert_eq!(e.cur_col(), 2);
+    }
+
+    #[test]
+    fn drag_marks_a_block_but_a_click_does_not() {
+        let mut e = ed("abcdef\nghijkl");
+        with_layout(&mut e);
+        // Press at col 0, drag to col 3, release → block [0,3) like F3.
+        e.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 0, 1));
+        assert_eq!(e.block_range(), None, "a bare press starts no selection");
+        e.handle_mouse(mouse(MouseEventKind::Drag(MouseButton::Left), 3, 1));
+        assert_eq!(e.block_range(), Some((0, 3)), "dragging extends a live block");
+        e.handle_mouse(mouse(MouseEventKind::Up(MouseButton::Left), 3, 1));
+        assert_eq!(e.block_range(), Some((0, 3)), "release finalizes the block");
+        e.handle_key(key(KeyCode::F(5))); // copy
+        assert_eq!(e.clipboard, "abc");
+
+        // A plain click (down then up, no drag) leaves no selection and the
+        // arrow keys do not extend one.
+        e.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 1, 1));
+        e.handle_mouse(mouse(MouseEventKind::Up(MouseButton::Left), 1, 1));
+        e.handle_key(key(KeyCode::Right));
+        assert_eq!(e.block_range(), None, "a click leaves no anchor to extend");
+    }
+
+    #[test]
+    fn wheel_scrolls_the_cursor() {
+        let mut e = ed("l0\nl1\nl2\nl3\nl4\nl5");
+        with_layout(&mut e);
+        assert_eq!(e.cur_line(), 0);
+        e.handle_mouse(mouse(MouseEventKind::ScrollDown, 1, 3));
+        assert_eq!(e.cur_line(), 3, "wheel down advances three lines");
+        e.handle_mouse(mouse(MouseEventKind::ScrollUp, 1, 3));
+        assert_eq!(e.cur_line(), 0, "wheel up rewinds three lines");
+    }
+
+    #[test]
+    fn fkey_bar_click_acts_as_that_key() {
+        let mut e = ed("abcdef");
+        with_layout(&mut e);
+        // Footer width 20, 10 labels → 2 cells each; F3 ("Mark") spans cols 4-5.
+        e.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 4, 7));
+        assert!(e.anchor.is_some(), "clicking F3 starts a mark");
+        // F10 ("Quit") spans cols 18-19; with no unsaved changes it closes.
+        let sig = e.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 18, 7));
+        assert!(matches!(sig, EditorSignal::Close), "clicking F10 quits");
     }
 
     #[test]

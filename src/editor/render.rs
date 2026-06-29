@@ -27,6 +27,8 @@ pub fn render(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) {
 
     ed.view_rows = text_area.height as usize;
     ed.view_cols = text_area.width as usize;
+    ed.text_area = text_area;
+    ed.footer_area = footer;
 
     if ed.is_hex() {
         let cursor_pos = render_hex(f, text_area, ed, theme);
