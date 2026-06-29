@@ -86,70 +86,70 @@ impl MenuBarState {
     pub fn new(active: usize) -> Self {
         let panel_menu = |side: usize| Menu {
             items: vec![
-                item("Full view", MenuAction::SetFormat(side, ViewFormat::Full)),
-                item("Brief view", MenuAction::SetFormat(side, ViewFormat::Brief)),
+                item("&Full view", MenuAction::SetFormat(side, ViewFormat::Full)),
+                item("&Brief view", MenuAction::SetFormat(side, ViewFormat::Brief)),
                 sep(),
-                item("Sort: Name", MenuAction::SetSort(side, SortKey::Name)),
-                item("Sort: Extension", MenuAction::SetSort(side, SortKey::Extension)),
-                item("Sort: Size", MenuAction::SetSort(side, SortKey::Size)),
-                item("Sort: Modify time", MenuAction::SetSort(side, SortKey::ModifyTime)),
-                item("Sort: Unsorted", MenuAction::SetSort(side, SortKey::Unsorted)),
+                item("Sort: &Name", MenuAction::SetSort(side, SortKey::Name)),
+                item("Sort: &Extension", MenuAction::SetSort(side, SortKey::Extension)),
+                item("Sort: &Size", MenuAction::SetSort(side, SortKey::Size)),
+                item("Sort: &Modify time", MenuAction::SetSort(side, SortKey::ModifyTime)),
+                item("Sort: &Unsorted", MenuAction::SetSort(side, SortKey::Unsorted)),
                 sep(),
-                item("Reverse order", MenuAction::ToggleReverse(side)),
+                item("&Reverse order", MenuAction::ToggleReverse(side)),
                 sep(),
-                item("SFTP connection...", MenuAction::Connect(side, Protocol::Sftp)),
-                item("FTP connection...", MenuAction::Connect(side, Protocol::Ftp)),
-                item("SCP connection...", MenuAction::Connect(side, Protocol::Scp)),
-                item("Disconnect (local)", MenuAction::Disconnect(side)),
+                item("SFT&P connection...", MenuAction::Connect(side, Protocol::Sftp)),
+                item("F&TP connection...", MenuAction::Connect(side, Protocol::Ftp)),
+                item("S&CP connection...", MenuAction::Connect(side, Protocol::Scp)),
+                item("&Disconnect (local)", MenuAction::Disconnect(side)),
             ],
         };
 
         let file = Menu {
             items: vec![
-                item("View          F3", MenuAction::View),
-                item("Edit          F4", MenuAction::Edit),
-                item("Copy          F5", MenuAction::Copy),
-                item("Rename/Move   F6", MenuAction::Move),
-                item("Make directory F7", MenuAction::Mkdir),
-                item("Delete        F8", MenuAction::Delete),
+                item("&View          F3", MenuAction::View),
+                item("&Edit          F4", MenuAction::Edit),
+                item("&Copy          F5", MenuAction::Copy),
+                item("&Rename/Move   F6", MenuAction::Move),
+                item("&Make directory F7", MenuAction::Mkdir),
+                item("&Delete        F8", MenuAction::Delete),
                 sep(),
-                item("Chmod", MenuAction::Chmod),
-                item("Chown", MenuAction::Chown),
-                item("Symlink", MenuAction::Symlink),
+                item("C&hmod", MenuAction::Chmod),
+                item("Cho&wn", MenuAction::Chown),
+                item("&Symlink", MenuAction::Symlink),
                 sep(),
-                item("Compress...", MenuAction::Compress),
+                item("Com&press...", MenuAction::Compress),
                 sep(),
-                item("Select group   +", MenuAction::SelectGroup),
-                item("Unselect group -", MenuAction::UnselectGroup),
-                item("Invert selection *", MenuAction::Invert),
+                item("Select &group   +", MenuAction::SelectGroup),
+                item("U&nselect group -", MenuAction::UnselectGroup),
+                item("&Invert selection *", MenuAction::Invert),
                 sep(),
-                item("Quit          F10", MenuAction::Quit),
+                item("&Quit          F10", MenuAction::Quit),
             ],
         };
 
         let mut command_items = vec![
-            item("Find file...", MenuAction::FindFile),
-            item("Compare directories...", MenuAction::CompareDirs),
-            item("Compare files...", MenuAction::CompareFiles),
-            item("Process explorer...", MenuAction::ProcExplorer),
-            item("Disk explorer...", MenuAction::DiskExplorer),
+            item("&Find file...", MenuAction::FindFile),
+            item("Compare &directories...", MenuAction::CompareDirs),
+            item("Compare fi&les...", MenuAction::CompareFiles),
+            item("&Process explorer...", MenuAction::ProcExplorer),
+            item("Disk &explorer...", MenuAction::DiskExplorer),
         ];
         // The disk mounter relies on Linux `/proc`+`/sys` and `mount`/`sudo`;
         // it isn't offered on other platforms.
         #[cfg(target_os = "linux")]
-        command_items.push(item("Disk manager...", MenuAction::DiskManager));
+        command_items.push(item("Disk &manager...", MenuAction::DiskManager));
         command_items.extend([
             sep(),
-            item("Swap panels", MenuAction::SwapPanels),
-            item("Re-read directories", MenuAction::Refresh),
-            item("Toggle split V/H", MenuAction::ToggleSplit),
+            item("S&wap panels", MenuAction::SwapPanels),
+            item("&Re-read directories", MenuAction::Refresh),
+            item("&Toggle split V/H", MenuAction::ToggleSplit),
         ]);
         let command = Menu { items: command_items };
 
         let options = Menu {
             items: vec![
-                item("Settings...", MenuAction::Settings),
-                item("Confirmations...", MenuAction::Confirmations),
+                item("&Settings...", MenuAction::Settings),
+                item("&Confirmations...", MenuAction::Confirmations),
             ],
         };
 
@@ -165,7 +165,7 @@ impl MenuBarState {
 
     pub fn handle_key(&mut self, key: KeyEvent) -> MenuSignal {
         match key.code {
-            KeyCode::Esc | KeyCode::F(9) => MenuSignal::Close,
+            KeyCode::Esc | KeyCode::F(9) | KeyCode::F(10) => MenuSignal::Close,
             KeyCode::Left => {
                 self.active = (self.active + self.menus.len() - 1) % self.menus.len();
                 self.item = self.first_selectable(0, 1);
@@ -192,8 +192,32 @@ impl MenuBarState {
                     MenuSignal::Stay
                 }
             }
+            KeyCode::Char(c) => self.activate_hotkey(c),
             _ => MenuSignal::Stay,
         }
+    }
+
+    /// Handle a typed letter: an accelerator in the open dropdown activates that
+    /// item; otherwise a top-bar letter (L/F/C/O/R) switches to that menu.
+    fn activate_hotkey(&mut self, c: char) -> MenuSignal {
+        let lc = c.to_ascii_lowercase();
+        if let Some(idx) = self.menus[self.active]
+            .items
+            .iter()
+            .position(|it| it.action.selectable() && it.hotkey() == Some(lc))
+        {
+            self.item = idx;
+            return MenuSignal::Activate(self.menus[self.active].items[idx].action);
+        }
+        if let Some(ti) = TITLES
+            .iter()
+            .position(|t| t.chars().next().map(|x| x.to_ascii_lowercase()) == Some(lc))
+        {
+            self.active = ti;
+            self.item = self.first_selectable(0, 1);
+            return MenuSignal::Stay;
+        }
+        MenuSignal::Stay
     }
 
     /// First selectable item at or after `start`, scanning by `dir`.
@@ -289,7 +313,8 @@ impl MenuBarState {
                 theme.menubar
             };
             x += text.chars().count() as u16;
-            spans.push(Span::styled(text, style));
+            // The title's first letter (after the leading space) is its hotkey.
+            spans.extend(label_spans(&text, Some(1), style, theme).spans);
         }
         f.render_widget(Paragraph::new(Line::from(spans)), bar);
 
@@ -298,7 +323,7 @@ impl MenuBarState {
         let width = menu
             .items
             .iter()
-            .map(|it| it.label.chars().count())
+            .map(|it| it.label.chars().filter(|&c| c != '&').count())
             .max()
             .unwrap_or(8) as u16
             + 4;
@@ -338,12 +363,14 @@ impl MenuBarState {
             } else {
                 Style::default().fg(theme.menu_fg).bg(theme.menu_bg)
             };
-            let mut label = format!(" {} ", it.label);
+            let (display, hk) = split_hotkey(it.label);
+            let mut text = format!(" {display}");
             let target = inner.width as usize;
-            while label.chars().count() < target {
-                label.push(' ');
+            while text.chars().count() < target {
+                text.push(' ');
             }
-            lines.push(Line::from(Span::styled(label, style)));
+            // The hotkey sits one column right of its index (the leading space).
+            lines.push(label_spans(&text, hk.map(|i| i + 1), style, theme));
         }
         f.render_widget(Paragraph::new(lines), inner);
     }
@@ -363,5 +390,134 @@ fn sep() -> MenuItem {
     MenuItem {
         label: "",
         action: MenuAction::Separator,
+    }
+}
+
+impl MenuItem {
+    /// The lower-cased accelerator key for this item, if its label marks one
+    /// with `&` (e.g. `"&Copy"` → `'c'`, `"Select &group"` → `'g'`).
+    fn hotkey(&self) -> Option<char> {
+        let (display, idx) = split_hotkey(self.label);
+        idx.and_then(|i| display.chars().nth(i)).map(|c| c.to_ascii_lowercase())
+    }
+}
+
+/// Strip the `&` accelerator marker from `label`, returning the display text and
+/// the char index (within that text) of the highlighted hotkey, if any.
+fn split_hotkey(label: &str) -> (String, Option<usize>) {
+    match label.find('&') {
+        Some(byte_pos) => {
+            let idx = label[..byte_pos].chars().count();
+            let display: String = label.chars().filter(|&c| c != '&').collect();
+            (display, Some(idx))
+        }
+        None => (label.to_string(), None),
+    }
+}
+
+/// Render `text` with the char at `pos` painted in the hotkey accent color.
+fn label_spans(text: &str, pos: Option<usize>, base: Style, theme: &Theme) -> Line<'static> {
+    let chars: Vec<char> = text.chars().collect();
+    match pos {
+        Some(p) if p < chars.len() => {
+            let hot = base.fg(theme.hotkey_fg).add_modifier(Modifier::BOLD);
+            Line::from(vec![
+                Span::styled(chars[..p].iter().collect::<String>(), base),
+                Span::styled(chars[p].to_string(), hot),
+                Span::styled(chars[p + 1..].iter().collect::<String>(), base),
+            ])
+        }
+        _ => Line::from(Span::styled(text.to_string(), base)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::crossterm::event::KeyModifiers;
+
+    fn key(c: char) -> KeyEvent {
+        KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)
+    }
+
+    #[test]
+    fn split_hotkey_extracts_marker() {
+        assert_eq!(split_hotkey("&Copy"), ("Copy".to_string(), Some(0)));
+        assert_eq!(split_hotkey("Select &group"), ("Select group".to_string(), Some(7)));
+        assert_eq!(split_hotkey("U&nselect"), ("Unselect".to_string(), Some(1)));
+        assert_eq!(split_hotkey("plain"), ("plain".to_string(), None));
+    }
+
+    #[test]
+    fn item_hotkeys_match_the_request() {
+        // File menu (active index 1): the requested accelerators.
+        let m = MenuBarState::new(1);
+        let file = &m.menus[1];
+        let hk = |action_label: char| {
+            file.items.iter().find(|it| it.hotkey() == Some(action_label)).map(|it| it.action)
+        };
+        assert!(matches!(hk('v'), Some(MenuAction::View)));
+        assert!(matches!(hk('e'), Some(MenuAction::Edit)));
+        assert!(matches!(hk('c'), Some(MenuAction::Copy)));
+        assert!(matches!(hk('r'), Some(MenuAction::Move)));
+        assert!(matches!(hk('m'), Some(MenuAction::Mkdir)));
+        assert!(matches!(hk('d'), Some(MenuAction::Delete)));
+        assert!(matches!(hk('g'), Some(MenuAction::SelectGroup)));
+        assert!(matches!(hk('n'), Some(MenuAction::UnselectGroup)));
+        assert!(matches!(hk('i'), Some(MenuAction::Invert)));
+        assert!(matches!(hk('q'), Some(MenuAction::Quit)));
+    }
+
+    #[test]
+    fn typing_an_item_hotkey_activates_it() {
+        // File menu: 'c' → Copy, 'g' → Select group.
+        let mut m = MenuBarState::new(1);
+        assert!(matches!(m.handle_key(key('c')), MenuSignal::Activate(MenuAction::Copy)));
+        let mut m = MenuBarState::new(1);
+        assert!(matches!(m.handle_key(key('g')), MenuSignal::Activate(MenuAction::SelectGroup)));
+        // Command menu (index 2): 'f' → Find file, 'w' → Swap panels.
+        let mut m = MenuBarState::new(2);
+        assert!(matches!(m.handle_key(key('f')), MenuSignal::Activate(MenuAction::FindFile)));
+        let mut m = MenuBarState::new(2);
+        assert!(matches!(m.handle_key(key('w')), MenuSignal::Activate(MenuAction::SwapPanels)));
+    }
+
+    #[test]
+    fn f10_and_f9_and_esc_close_the_menu() {
+        for code in [KeyCode::F(10), KeyCode::F(9), KeyCode::Esc] {
+            let mut m = MenuBarState::new(1);
+            let sig = m.handle_key(KeyEvent::new(code, KeyModifiers::NONE));
+            assert!(matches!(sig, MenuSignal::Close), "{code:?} should close the menu");
+        }
+    }
+
+    #[test]
+    fn hotkeys_are_unique_within_each_menu() {
+        let m = MenuBarState::new(0);
+        for (mi, menu) in m.menus.iter().enumerate() {
+            let mut seen = Vec::new();
+            for it in &menu.items {
+                if let Some(hk) = it.hotkey() {
+                    assert!(!seen.contains(&hk), "duplicate hotkey {hk:?} in menu {mi}");
+                    seen.push(hk);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn top_bar_letter_switches_menu_when_unclaimed() {
+        // From the File menu, 'o' has no item → switches to Options (index 3),
+        // and 'l' switches to the Left panel menu (index 0).
+        let mut m = MenuBarState::new(1);
+        assert!(matches!(m.handle_key(key('o')), MenuSignal::Stay));
+        assert_eq!(m.active, 3);
+        let mut m = MenuBarState::new(1);
+        assert!(matches!(m.handle_key(key('l')), MenuSignal::Stay));
+        assert_eq!(m.active, 0);
+        // An item accelerator still wins over a top letter: 'c' in File is Copy,
+        // not "Command".
+        let mut m = MenuBarState::new(1);
+        assert!(matches!(m.handle_key(key('c')), MenuSignal::Activate(MenuAction::Copy)));
     }
 }

@@ -86,6 +86,9 @@ pub struct Theme {
     pub menu_fg: Color,
     /// Highlight style for the selected item in a pulldown menu.
     pub menu_selection: Style,
+    /// Foreground for menu/menu-bar **hotkey** letters (the underlined accelerator
+    /// char), drawn over both the bar and the dropdown.
+    pub hotkey_fg: Color,
     pub input_bg: Color,
     pub input_fg: Color,
     pub button: Style,
@@ -185,6 +188,7 @@ impl Theme {
                 .bg(p.bright_blue)
                 .fg(best_contrast(p.bright_blue, p.bg, p.bright_white))
                 .add_modifier(Modifier::BOLD),
+            hotkey_fg: p.bright_yellow,
             input_bg: p.blue,
             input_fg: best_contrast(p.blue, p.bg, p.bright_white),
             button: Style::default().bg(surface).fg(p.fg),
@@ -235,6 +239,8 @@ impl Theme {
             theme.menu_fg = white;
             theme.menu_selection =
                 Style::default().bg(black).fg(white).add_modifier(Modifier::BOLD);
+            // Classic MC paints menu accelerators in vivid yellow.
+            theme.hotkey_fg = rgb(0xffff00);
 
             // Function-key numbers sit on a black cap (like the real program).
             theme.fkey_num = Style::default().bg(black).fg(white).add_modifier(Modifier::BOLD);

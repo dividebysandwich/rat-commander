@@ -35,6 +35,12 @@ The installed executable is named **`rc`** for quick typing.
 - Command line at the bottom; type **`cd <dir>`** to change the active panel
   (supports `~`, `..`, absolute and relative paths); drop to a full-screen shell
   with **Ctrl-O**
+- **Menu hotkeys**: each top menu and dropdown item has an accelerator letter —
+  **L**eft / **F**ile / **C**ommand / **O**ptions / **R**ight on the bar, and
+  **V**iew / **E**dit / **C**opy / **Q**uit etc. in the File menu. Open the bar
+  with **F9** (or **Alt+letter** to jump straight to a menu), then drive it with
+  plain letter keys; **F10**/Esc closes it. The accelerators are only highlighted
+  while the menu is open or while **Alt** is held to arm them
 - **Mouse support**: left-click a file to move the cursor, right-click to
   invert its mark, drag to carry the cursor (right-drag inverts the mark of every
   file it passes over); click the menu bar to open menus and pick items, click the

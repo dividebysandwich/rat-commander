@@ -82,7 +82,8 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
         ])
         .split(area);
 
-    menubar::render(f, rows[0], &theme);
+    // Accelerator letters show while the menu is open, or when Alt arms them.
+    menubar::render(f, rows[0], &theme, state.menu.is_some() || state.alt_hint);
 
     // System-status widget on the right of the menu bar (wide screens only).
     if state.config.system_status && area.width >= menubar::STATUS_MIN_WIDTH {

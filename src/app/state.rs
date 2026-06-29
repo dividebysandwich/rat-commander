@@ -122,6 +122,9 @@ pub struct AppState {
     /// When a lone Esc has been pressed and we're waiting to see whether the
     /// next key is a digit (Esc-prefix function-key alias, MC style).
     pending_esc: Option<Instant>,
+    /// Set while Alt arms the menu accelerators (so the closed menu bar shows its
+    /// highlighted hotkey letters as a hint). Cleared by the next non-Alt key.
+    pub alt_hint: bool,
     /// The progress dialog set aside while an overwrite prompt is shown; restored
     /// once the user answers so the operation's progress keeps displaying.
     stashed_progress: Option<ProgressDialog>,
@@ -166,6 +169,15 @@ fn parse_cd(cmd: &str) -> Option<&str> {
         return Some("");
     }
     t.strip_prefix("cd ").map(str::trim)
+}
+
+/// The top-menu index whose title starts with `c` (case-insensitive): L→0 Left,
+/// F→1 File, C→2 Command, O→3 Options, R→4 Right. Used for Alt+letter shortcuts.
+fn menu_title_index(c: char) -> Option<usize> {
+    let lc = c.to_ascii_lowercase();
+    crate::ui::menubar::TITLES
+        .iter()
+        .position(|t| t.chars().next().map(|x| x.to_ascii_lowercase()) == Some(lc))
 }
 
 /// A human label for a viewer goto mode (used in the "invalid value" message).
@@ -367,6 +379,7 @@ impl AppState {
             pending_run: None,
             pending_quit: false,
             pending_esc: None,
+            alt_hint: false,
             stashed_progress: None,
             last_area: Rect::new(0, 0, 0, 0),
             paint_last: None,
@@ -605,6 +618,23 @@ impl AppState {
     /// (panels, editor, viewer); dialogs and the pulldown menu keep Esc as an
     /// immediate cancel.
     pub async fn handle_key(&mut self, key: KeyEvent) -> Flow {
+        // Alt arms the menu accelerators in panel mode: it lights up the bar's
+        // hotkey letters, and Alt+<letter> opens that top menu directly. (Once a
+        // menu is open it captures plain letters, so Alt is no longer needed.)
+        if self.in_panel_mode() {
+            self.alt_hint = key.modifiers.contains(KeyModifiers::ALT);
+            if self.alt_hint
+                && let KeyCode::Char(c) = key.code
+                && let Some(idx) = menu_title_index(c)
+            {
+                self.menu = Some(MenuBarState::new(idx));
+                self.alt_hint = false;
+                return Flow::Continue;
+            }
+        } else {
+            self.alt_hint = false;
+        }
+
         let prefixable = self.dialog.is_none() && self.menu.is_none();
         if prefixable {
             if self.pending_esc.take().is_some() {
@@ -630,6 +660,19 @@ impl AppState {
             }
         }
         self.route_key(key).await
+    }
+
+    /// Whether the base two-panel view has focus (no dialog, menu, or
+    /// full-screen overlay is up) — i.e. the menu bar is visible and idle.
+    fn in_panel_mode(&self) -> bool {
+        self.dialog.is_none()
+            && self.menu.is_none()
+            && self.editor.is_none()
+            && self.viewer.is_none()
+            && self.procview.is_none()
+            && self.diskview.is_none()
+            && self.diffview.is_none()
+            && self.mountview.is_none()
     }
 
     /// Deliver a held Esc once its function-key window has elapsed without a
@@ -3579,6 +3622,40 @@ mod tests {
         .await;
         assert!(st.dialog.is_none());
         assert!(st.mountview.as_ref().unwrap().status.contains("mkfs failed"));
+    }
+
+    #[test]
+    fn menu_title_index_maps_first_letters() {
+        assert_eq!(menu_title_index('l'), Some(0));
+        assert_eq!(menu_title_index('F'), Some(1));
+        assert_eq!(menu_title_index('c'), Some(2));
+        assert_eq!(menu_title_index('O'), Some(3));
+        assert_eq!(menu_title_index('r'), Some(4));
+        assert_eq!(menu_title_index('x'), None);
+    }
+
+    #[tokio::test]
+    async fn alt_arms_hint_and_alt_letter_opens_menu() {
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
+        st.init().await;
+        assert!(!st.alt_hint && st.menu.is_none());
+
+        // Alt+F opens the File menu directly (no hint left dangling).
+        st.handle_key(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::ALT)).await;
+        assert!(st.menu.is_some(), "Alt+F opens a menu");
+        assert!(!st.alt_hint);
+        // Once open, a plain letter drives it (Alt no longer needed): 'q' = Quit.
+        // Close it back first to keep the test focused on arming below.
+        st.menu = None;
+
+        // A non-menu Alt key just arms the accelerator hint (menu stays closed).
+        st.handle_key(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::ALT)).await;
+        assert!(st.alt_hint, "Alt arms the accelerator hint");
+        assert!(st.menu.is_none());
+        // The next ordinary key clears the hint.
+        st.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)).await;
+        assert!(!st.alt_hint, "a non-Alt key disarms the hint");
     }
 
     #[tokio::test]
