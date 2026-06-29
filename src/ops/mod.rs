@@ -29,6 +29,8 @@ pub struct OpRequest {
     pub sources: Vec<VfsPath>,
     pub dst_fs: Option<Arc<dyn Vfs>>,
     pub dst_dir: Option<VfsPath>,
+    /// Overwrite existing destinations without prompting (confirm-overwrite off).
+    pub overwrite_all: bool,
 }
 
 /// A handle to a running task, stored by the app so the progress dialog's

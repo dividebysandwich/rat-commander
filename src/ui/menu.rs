@@ -43,6 +43,7 @@ pub enum MenuAction {
     Connect(usize, Protocol),
     Disconnect(usize),
     Settings,
+    Confirmations,
     Quit,
 }
 
@@ -140,7 +141,10 @@ impl MenuBarState {
         };
 
         let options = Menu {
-            items: vec![item("Settings...", MenuAction::Settings)],
+            items: vec![
+                item("Settings...", MenuAction::Settings),
+                item("Confirmations...", MenuAction::Confirmations),
+            ],
         };
 
         let active = active.min(4);

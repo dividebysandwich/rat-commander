@@ -14,6 +14,8 @@ pub const CPU_HISTORY: usize = 160;
 pub const CORE_HISTORY: usize = 48;
 /// Number of samples kept for the memory / disk / network sparklines.
 pub const SYS_HISTORY: usize = 120;
+/// Number of CPU samples kept per process for the in-row sparkline.
+pub const PROC_CPU_HISTORY: usize = 16;
 
 /// One process row.
 #[derive(Debug, Clone)]
@@ -76,6 +78,8 @@ pub struct ProcView {
     pub net_up: f64,
     pub net_down_history: VecDeque<f64>,
     pub net_up_history: VecDeque<f64>,
+    /// Recent CPU% history per process (by PID) for the in-row sparkline.
+    pub proc_cpu_history: HashMap<i32, VecDeque<f32>>,
     /// CPU model name (from `/proc/cpuinfo`), shown on the core panel border.
     pub cpu_name: String,
     /// Battery percentage and charging state, if a battery is present.
@@ -124,6 +128,7 @@ impl ProcView {
             net_up: 0.0,
             net_down_history: VecDeque::with_capacity(SYS_HISTORY),
             net_up_history: VecDeque::with_capacity(SYS_HISTORY),
+            proc_cpu_history: HashMap::new(),
             cpu_name: read_cpu_name(),
             battery: None,
             interval_ms: 300,
@@ -582,15 +587,24 @@ impl ProcView {
                 0.0
             };
             next_prev.insert(pid, jiffies);
+            let cpu = cpu.clamp(0.0, 100.0 * self.ncores as f32);
+            // Append to this process's CPU sparkline history.
+            let h = self.proc_cpu_history.entry(pid).or_default();
+            if h.len() >= PROC_CPU_HISTORY {
+                h.pop_front();
+            }
+            h.push_back(cpu);
             procs.push(ProcInfo {
                 pid,
                 name,
-                cpu: cpu.clamp(0.0, 100.0 * self.ncores as f32),
+                cpu,
                 rss,
                 mem_pct,
                 threads,
             });
         }
+        // Drop history for processes that have exited.
+        self.proc_cpu_history.retain(|pid, _| next_prev.contains_key(pid));
         self.prev_pid = next_prev;
         self.procs = procs;
     }
@@ -743,6 +757,7 @@ mod tests {
         assert!(s.contains("CPU"), "cpu graph label present");
         assert!(s.contains("PID"), "table header present");
         assert!(s.contains("[T]HR"), "threads column present");
+        assert!(s.contains("cpu"), "per-process cpu sparkline column header present");
         assert!(s.contains("Mem"), "memory panel present");
         assert!(s.contains("Disk"), "disk panel present");
         assert!(s.contains("Net"), "network panel present");

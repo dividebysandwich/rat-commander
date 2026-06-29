@@ -848,9 +848,20 @@ impl AppState {
             }
             MenuAction::Disconnect(side) => self.disconnect(side).await,
             MenuAction::Settings => self.open_settings(),
-            MenuAction::Quit => self.dialog = Some(Dialog::Confirm(ConfirmDialog::quit())),
+            MenuAction::Confirmations => self.open_confirmations(),
+            MenuAction::Quit => return self.request_quit(),
         }
         Flow::Continue
+    }
+
+    /// Quit, prompting for confirmation only when `confirm_exit` is enabled.
+    fn request_quit(&mut self) -> Flow {
+        if self.config.confirm_exit {
+            self.dialog = Some(Dialog::Confirm(ConfirmDialog::quit()));
+            Flow::Continue
+        } else {
+            Flow::Quit
+        }
     }
 
     async fn handle_dialog_result(&mut self, res: DialogResult) -> Flow {
@@ -972,7 +983,6 @@ impl AppState {
                 self.config.viewer = v.viewer;
                 self.config.use_internal_viewer = v.use_internal_viewer;
                 self.config.use_internal_editor = v.use_internal_editor;
-                self.config.confirm_delete = v.confirm_delete;
                 self.config.theme = v.theme;
                 self.config.truecolor = Some(v.truecolor);
                 self.config.animation = v.animation;
@@ -983,6 +993,18 @@ impl AppState {
                 if let Err(e) = self.config.save() {
                     self.show_error(format!("could not save settings: {e}"));
                 }
+            }
+            Submit::Confirmations(v) => {
+                self.config.confirm_delete = v.delete;
+                self.config.confirm_overwrite = v.overwrite;
+                self.config.confirm_execute = v.execute;
+                self.config.confirm_exit = v.exit;
+                if let Err(e) = self.config.save() {
+                    self.show_error(format!("could not save settings: {e}"));
+                }
+            }
+            Submit::OpenWith(path) => {
+                tokio::spawn(async move { launch_default(path).await });
             }
         }
     }
@@ -1090,6 +1112,7 @@ impl AppState {
             sources,
             dst_fs,
             dst_dir,
+            overwrite_all: !self.config.confirm_overwrite,
         };
         let handle = spawn_op(id, req, self.tx.clone());
         self.tasks.insert(id, handle);
@@ -1113,7 +1136,7 @@ impl AppState {
 
         match key.code {
             // -- Quit / function keys --
-            KeyCode::F(10) => self.dialog = Some(Dialog::Confirm(ConfirmDialog::quit())),
+            KeyCode::F(10) => return self.request_quit(),
             KeyCode::Char('q') if ctrl => return Flow::Quit, // immediate fallback if F10 is intercepted
             KeyCode::F(1) => self.open_help(),
             KeyCode::F(2) => self.open_user_menu(),
@@ -1458,7 +1481,7 @@ impl AppState {
     /// Open the local file under the cursor with the system default program
     /// (xdg-open), but only if a MIME handler is actually defined for it. Runs
     /// detached so the TUI keeps running.
-    fn open_with_default(&self) {
+    fn open_with_default(&mut self) {
         let p = &self.panels[self.active];
         if p.cwd.scheme != "file" {
             return;
@@ -1469,8 +1492,14 @@ impl AppState {
         if e.kind != VfsKind::File {
             return;
         }
+        let name = e.name.clone();
         let path = p.cwd.path.join(&e.name);
-        tokio::spawn(async move { launch_default(path).await });
+        // When "confirm execute" is on, ask before launching the default app.
+        if self.config.confirm_execute {
+            self.dialog = Some(Dialog::Confirm(ConfirmDialog::execute(&name, path)));
+        } else {
+            tokio::spawn(async move { launch_default(path).await });
+        }
     }
 
     fn cycle_sort(&mut self) {
@@ -1561,6 +1590,10 @@ impl AppState {
         // Remember the current theme so Esc can revert a live preview.
         self.theme_backup = Some(self.config.theme.clone());
         self.dialog = Some(Dialog::Form(FormDialog::settings(&self.config, self.truecolor)));
+    }
+
+    fn open_confirmations(&mut self) {
+        self.dialog = Some(Dialog::Form(FormDialog::confirmations(&self.config)));
     }
 
     fn open_chmod(&mut self) {
@@ -3177,6 +3210,22 @@ mod tests {
         assert!(st.viewer.is_none());
         st.open_help();
         assert!(st.viewer.is_some(), "F1 should open the help viewer");
+    }
+
+    #[tokio::test]
+    async fn confirm_exit_gates_the_quit_prompt() {
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
+        // With confirmation off, F10 quits immediately.
+        st.config.confirm_exit = false;
+        let flow = st.handle_key(KeyEvent::new(KeyCode::F(10), KeyModifiers::NONE)).await;
+        assert!(matches!(flow, Flow::Quit));
+        assert!(st.dialog.is_none(), "no prompt when confirmation is off");
+        // With confirmation on, F10 raises the quit dialog instead.
+        st.config.confirm_exit = true;
+        let flow = st.handle_key(KeyEvent::new(KeyCode::F(10), KeyModifiers::NONE)).await;
+        assert!(matches!(flow, Flow::Continue));
+        assert!(st.dialog.is_some(), "prompt shown when confirmation is on");
     }
 
     #[test]

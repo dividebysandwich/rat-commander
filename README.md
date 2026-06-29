@@ -1,10 +1,11 @@
 # rat-commander (`rc`)
 
-A self-contained, [Midnight Commander](https://midnight-commander.org/)-style
-two-panel terminal file manager written in Rust with
+A self-contained and terminal file manager with modern features and built-in tools, 
+while also staying true to the heritage of classic such as Norton Commander and 
+[Midnight Commander](https://midnight-commander.org/). Written in Rust with
 [Ratatui](https://ratatui.rs/). It aims to need **no external tools** for its
-core features: the viewer, editor, archive handling, and remote (FTP/SFTP/SCP)
-clients are all built in.
+core features: the viewer/editor with syntax highlighting, archive handling, remote (FTP/SFTP/SCP)
+clients, disk explorer and process explorer are all built in. 
 
 The installed executable is named **`rc`** for quick typing.
 
@@ -93,6 +94,9 @@ The installed executable is named **`rc`** for quick typing.
   **None**, **Smaller**, **Size differs**) with an optional "don't overwrite with
   a zero-length file" guard
 - `chmod`, `chown`, symlink creation, and make-directory dialogs
+- **Confirmations** dialog (F9 → Options → *Confirmations…*) toggles whether to
+  confirm **delete** (on), **overwrite** (on), **execute / open with default app**
+  (off) and **exit** (on)
 
 **Archives — browsed like directories**
 - Open `.zip`, `.tar`, `.tar.gz`, `.tar.bz2`, `.tar.xz`, `.7z` and `.rar`
@@ -134,9 +138,10 @@ The installed executable is named **`rc`** for quick typing.
 
 
 **Process explorer** (Command menu → *Process explorer…*)
-- A full-screen list of processes with **CPU%, memory and thread count**, sortable
-  by **name, CPU, memory, threads or PID** (the sort hotkey is shown in the column
-  header, e.g. `[C]PU%`), and **kill** (SIGTERM, or SIGKILL with `K`)
+- A full-screen list of processes with **CPU%, memory and thread count** (plus a
+  small **per-process CPU sparkline** column), sortable by **name, CPU, memory,
+  threads or PID** (the sort hotkey is shown in the column header, e.g. `[C]PU%`),
+  and **kill** (SIGTERM, or SIGKILL with `K`)
 - A btop-style layout: an animated **CPU-load line graph** and **per-core meters**
   (the CPU model name is shown on the core panel's border) on top, with **memory,
   disk-I/O and network sparklines** stacked down the left (the network panel shows

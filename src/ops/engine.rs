@@ -38,7 +38,9 @@ pub async fn run(
         tx,
         cancel,
         reply_rx,
-        policy: None,
+        // Start with an "overwrite all" policy when confirmation is disabled, so
+        // conflicts resolve silently instead of prompting.
+        policy: req.overwrite_all.then_some(OverwriteRule::All),
         skip_empty: false,
         files_total: 0,
         files_done: 0,
@@ -467,6 +469,7 @@ mod tests {
             sources: vec![VfsPath::local(&src)],
             dst_fs: Some(fs.clone()),
             dst_dir: Some(VfsPath::local(&dst_dir)),
+            overwrite_all: false,
         };
         // The app would create dst_dir first; mirror that here.
         std::fs::create_dir_all(&dst_dir).unwrap();
@@ -507,6 +510,7 @@ mod tests {
             sources: vec![VfsPath::local(&src)],
             dst_fs: Some(fs.clone()),
             dst_dir: Some(VfsPath::local(&dst_dir)),
+            overwrite_all: false,
         };
         let handle = tokio::spawn(run(7, req, tx, CancelToken::new(), reply_rx));
 
@@ -564,6 +568,7 @@ mod tests {
                 sources: vec![VfsPath::local(&file)],
                 dst_fs: Some(fs.clone()),
                 dst_dir: Some(VfsPath::local(&root)),
+                overwrite_all: false,
             };
             let outcome = run(9, req, tx, CancelToken::new(), reply_rx).await;
             assert!(matches!(outcome, TaskOutcome::Done), "{kind:?}: {outcome:?}");
@@ -591,6 +596,7 @@ mod tests {
             sources: vec![VfsPath::local(&dir)],
             dst_fs: Some(fs.clone()),
             dst_dir: Some(VfsPath::local(&dir)),
+            overwrite_all: false,
         };
         let outcome = run(10, req, tx, CancelToken::new(), reply_rx).await;
         assert!(matches!(outcome, TaskOutcome::Done), "{outcome:?}");
@@ -614,6 +620,7 @@ mod tests {
             sources: vec![VfsPath::local(&victim)],
             dst_fs: None,
             dst_dir: None,
+            overwrite_all: false,
         };
         let (_reply_tx, reply_rx) = mpsc::channel(1);
         let outcome = run(2, req, tx, CancelToken::new(), reply_rx).await;

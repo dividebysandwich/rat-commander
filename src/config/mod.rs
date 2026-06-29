@@ -55,6 +55,12 @@ pub struct Config {
     pub use_internal_editor: bool,
     /// Ask for confirmation before deleting.
     pub confirm_delete: bool,
+    /// Ask before overwriting an existing destination during copy/move.
+    pub confirm_overwrite: bool,
+    /// Ask before opening/executing a file with its default application.
+    pub confirm_execute: bool,
+    /// Ask for confirmation before quitting.
+    pub confirm_exit: bool,
     /// Active color theme (palette name).
     pub theme: String,
     /// 24-bit color override; `None` = auto-detect from the terminal.
@@ -77,6 +83,9 @@ impl Default for Config {
             use_internal_viewer: true,
             use_internal_editor: true,
             confirm_delete: true,
+            confirm_overwrite: true,
+            confirm_execute: false,
+            confirm_exit: true,
             theme: "Midnight Commander".to_string(),
             truecolor: None,
             animation: true,

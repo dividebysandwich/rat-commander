@@ -89,6 +89,8 @@ pub enum Submit {
         name: String,
     },
     Settings(SettingsValues),
+    /// Confirmation toggles from the Confirmations dialog.
+    Confirmations(ConfirmValues),
     /// Compress these (local) sources into an archive of the given name.
     Compress(Vec<VfsPath>, String),
     /// Open a remote connection on the given panel side.
@@ -99,6 +101,8 @@ pub enum Submit {
     KillProcess { pid: i32, force: bool },
     /// Compare the two panels' directories and mark the differing files.
     CompareDirs(CompareMode),
+    /// Open/execute a local file with its default application (confirmed).
+    OpenWith(std::path::PathBuf),
 }
 
 /// How the directory-comparison tool decides which files differ.
@@ -119,11 +123,19 @@ pub struct SettingsValues {
     pub viewer: String,
     pub use_internal_viewer: bool,
     pub use_internal_editor: bool,
-    pub confirm_delete: bool,
     pub theme: String,
     pub truecolor: bool,
     pub animation: bool,
     pub system_status: bool,
+}
+
+/// Values collected by the Confirmations form (which actions need confirming).
+#[derive(Debug, Clone, Copy)]
+pub struct ConfirmValues {
+    pub delete: bool,
+    pub overwrite: bool,
+    pub execute: bool,
+    pub exit: bool,
 }
 
 impl Dialog {
@@ -437,6 +449,18 @@ impl ConfirmDialog {
             Submit::Quit,
             "Yes",
             "No",
+            None,
+        )
+    }
+
+    /// Confirm opening/executing a file with its default application.
+    pub fn execute(name: &str, path: std::path::PathBuf) -> Self {
+        Self::yes_no(
+            "Open file",
+            format!("Open \"{name}\" with its default application?"),
+            Submit::OpenWith(path),
+            "Open",
+            "Cancel",
             None,
         )
     }
@@ -1151,6 +1175,7 @@ fn edit_text(value: &mut String, cursor: &mut usize, key: KeyEvent) {
 /// What a form's values should become on submit.
 pub enum FormPurpose {
     Settings,
+    Confirmations,
     Chmod(VfsPath),
     Chown(VfsPath),
     /// Create a symlink inside this directory.
@@ -1189,12 +1214,27 @@ impl FormDialog {
             Field::text("External viewer", cfg.viewer.clone()),
             Field::check("Use internal viewer", cfg.use_internal_viewer),
             Field::check("Use internal editor", cfg.use_internal_editor),
-            Field::check("Confirm before delete", cfg.confirm_delete),
         ]);
         FormDialog {
             title: "Settings".to_string(),
             form,
             purpose: FormPurpose::Settings,
+            connect: None,
+        }
+    }
+
+    /// Build the Confirmations form (which actions require a confirmation).
+    pub fn confirmations(cfg: &crate::config::Config) -> Self {
+        let form = Form::new(vec![
+            Field::check("Confirm delete", cfg.confirm_delete),
+            Field::check("Confirm overwrite", cfg.confirm_overwrite),
+            Field::check("Confirm execute", cfg.confirm_execute),
+            Field::check("Confirm exit", cfg.confirm_exit),
+        ]);
+        FormDialog {
+            title: "Confirmations".to_string(),
+            form,
+            purpose: FormPurpose::Confirmations,
             connect: None,
         }
     }
@@ -1399,7 +1439,12 @@ impl FormDialog {
                 viewer: fields[5].as_text().trim().to_string(),
                 use_internal_viewer: fields[6].as_bool(),
                 use_internal_editor: fields[7].as_bool(),
-                confirm_delete: fields[8].as_bool(),
+            }),
+            FormPurpose::Confirmations => Submit::Confirmations(ConfirmValues {
+                delete: fields[0].as_bool(),
+                overwrite: fields[1].as_bool(),
+                execute: fields[2].as_bool(),
+                exit: fields[3].as_bool(),
             }),
             FormPurpose::Chmod(p) => Submit::Chmod(p.clone(), self.chmod_mode()),
             FormPurpose::Chown(p) => Submit::Chown(
@@ -2916,6 +2961,26 @@ mod tests {
 
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    #[test]
+    fn confirmations_form_collects_toggles() {
+        let cfg = crate::config::Config::default(); // delete=T, overwrite=T, execute=F, exit=T
+        // Submitting the defaults reflects the config.
+        let mut d = FormDialog::confirmations(&cfg);
+        match d.handle_key(key(KeyCode::Enter)) {
+            DialogResult::Submit(Submit::Confirmations(v)) => {
+                assert!(v.delete && v.overwrite && !v.execute && v.exit);
+            }
+            _ => panic!("expected Confirmations submit"),
+        }
+        // Space toggles the focused field (Confirm delete); Enter then submits.
+        let mut d = FormDialog::confirmations(&cfg);
+        d.handle_key(key(KeyCode::Char(' ')));
+        match d.handle_key(key(KeyCode::Enter)) {
+            DialogResult::Submit(Submit::Confirmations(v)) => assert!(!v.delete),
+            _ => panic!("expected Confirmations submit"),
+        }
     }
 
     #[test]

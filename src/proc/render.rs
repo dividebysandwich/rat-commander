@@ -399,14 +399,16 @@ fn render_table(f: &mut Frame, area: Rect, pv: &mut ProcView, theme: &Theme) {
         return;
     }
     let width = area.width as usize;
-    // Column widths: PID, THR, CPU%, MEM, MEM%, then the name fills the rest.
+    // Columns: PID, THR, CPU%, <cpu sparkline>, MEM, MEM%, then the name fills the
+    // rest. The sparkline column has a 1-space separator on each side.
+    const SPARK_W: usize = 8;
     let pid_w = 7;
     let thr_w = 5;
     let cpu_w = 7;
     let mem_w = 9;
     let memp_w = 6;
     let name_w = width
-        .saturating_sub(pid_w + thr_w + cpu_w + mem_w + memp_w + 5)
+        .saturating_sub(pid_w + thr_w + cpu_w + mem_w + memp_w + SPARK_W + 7)
         .max(4);
 
     let arrow = |k: ProcSort| -> &'static str {
@@ -424,13 +426,15 @@ fn render_table(f: &mut Frame, area: Rect, pv: &mut ProcView, theme: &Theme) {
     let mem_h = format!("[M]EM{}", arrow(ProcSort::Mem));
     let name_h = pad_right("[N]AME", name_w);
     let header = format!(
-        "{}{}{}{}{}  {}",
+        "{}{}{} {:^sw$} {}{}  {}",
         pad_left(&pid_h, pid_w),
         pad_left(&thr_h, thr_w + 1),
         pad_left(&cpu_h, cpu_w + 1),
+        "cpu",
         pad_left(&mem_h, mem_w + 1),
         pad_left("MEM%", memp_w + 1),
         name_h,
+        sw = SPARK_W,
     );
     f.render_widget(
         Paragraph::new(Line::from(Span::styled(
@@ -465,22 +469,62 @@ fn render_table(f: &mut Frame, area: Rect, pv: &mut ProcView, theme: &Theme) {
             lines.push(Line::from(""));
             continue;
         };
-        let text = format!(
-            "{}{}{}{}{}  {}",
+        let cur = idx == pv.cursor;
+        let row_style = if cur { theme.cursor } else { normal };
+        let row_bg = if cur {
+            theme.cursor.bg.unwrap_or(theme.panel_bg)
+        } else {
+            theme.panel_bg
+        };
+        // Left columns + trailing separator space before the sparkline.
+        let left = format!(
+            "{}{}{} ",
             pad_left(&p.pid.to_string(), pid_w),
             pad_left(&p.threads.to_string(), thr_w + 1),
             pad_left(&format!("{:.1}", p.cpu), cpu_w + 1),
+        );
+        // Leading separator space + right columns + name.
+        let right = format!(
+            " {}{}  {}",
             pad_left(&human_size(p.rss), mem_w + 1),
             pad_left(&format!("{:.1}", p.mem_pct), memp_w + 1),
             pad_right(&ellipsize(&p.name, name_w), name_w),
         );
-        if idx == pv.cursor {
-            lines.push(Line::from(Span::styled(text, theme.cursor)));
-        } else {
-            lines.push(Line::from(Span::styled(text, normal)));
-        }
+        let mut spans = vec![Span::styled(left, row_style)];
+        spans.extend(cpu_spark_spans(pv.proc_cpu_history.get(&p.pid), SPARK_W, row_bg, theme));
+        spans.push(Span::styled(right, row_style));
+        lines.push(Line::from(spans));
     }
     f.render_widget(Paragraph::new(lines), body);
+}
+
+/// Build a `width`-cell colored CPU sparkline for one process row (newest at the
+/// right), each cell load-colored; idle cells show a faint baseline dot.
+fn cpu_spark_spans(
+    history: Option<&std::collections::VecDeque<f32>>,
+    width: usize,
+    bg: ratatui::style::Color,
+    theme: &Theme,
+) -> Vec<Span<'static>> {
+    let mut samples = vec![0.0f32; width];
+    if let Some(h) = history {
+        let take = h.len().min(width);
+        for k in 0..take {
+            samples[width - take + k] = h[h.len() - take + k];
+        }
+    }
+    samples
+        .iter()
+        .map(|&s| {
+            let level = ((s.clamp(0.0, 100.0) / 100.0) * 8.0).round() as usize;
+            let (ch, fg) = if level == 0 {
+                ('·', theme.panel_border)
+            } else {
+                (LEVELS[level.min(8)], load_color(s, theme))
+            };
+            Span::styled(ch.to_string(), Style::default().fg(fg).bg(bg))
+        })
+        .collect()
 }
 
 fn render_footer(f: &mut Frame, area: Rect, _pv: &ProcView, theme: &Theme) {
