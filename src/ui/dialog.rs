@@ -30,6 +30,8 @@ pub enum Dialog {
     /// A non-dismissible "working…" spinner shown while a blocking background
     /// operation (e.g. formatting a disk) runs.
     Busy(BusyDialog),
+    /// The viewer's "Goto" dialog (line / percent / byte offset).
+    Goto(GotoDialog),
     Message(MessageDialog),
     Form(FormDialog),
     Select(SelectDialog),
@@ -126,6 +128,8 @@ pub enum Submit {
     Format(crate::mount::FormatSpec),
     /// Run the (confirmed) format request.
     DoFormat(crate::mount::FormatSpec),
+    /// Jump the viewer to a position (value + how to interpret it).
+    ViewerGoto(String, crate::viewer::GotoMode),
 }
 
 /// How the directory-comparison tool decides which files differ.
@@ -169,6 +173,7 @@ impl Dialog {
             Dialog::Confirm(d) => d.handle_key(key),
             Dialog::Progress(d) => d.handle_key(key),
             Dialog::Busy(_) => DialogResult::None, // ignore keys while working
+            Dialog::Goto(d) => d.handle_key(key),
             Dialog::Message(_) => DialogResult::Cancel, // any key closes
             Dialog::Form(d) => d.handle_key(key),
             Dialog::Select(d) => d.handle_key(key),
@@ -186,6 +191,7 @@ impl Dialog {
             Dialog::Confirm(d) => d.render(f, area, theme),
             Dialog::Progress(d) => d.render(f, area, theme),
             Dialog::Busy(d) => d.render(f, area, theme),
+            Dialog::Goto(d) => d.render(f, area, theme),
             Dialog::Message(d) => d.render(f, area, theme),
             Dialog::Form(d) => d.render(f, area, theme),
             Dialog::Select(d) => d.render(f, area, theme),
@@ -216,6 +222,8 @@ impl Dialog {
             Dialog::Progress(_) => return DialogResult::None,
             // The busy spinner can't be dismissed at all.
             Dialog::Busy(_) => return DialogResult::None,
+            // The Goto dialog hit-tests its radios and OK/Cancel buttons.
+            Dialog::Goto(d) => return d.handle_click(area, col, row),
             // The connect form's history chevron/dropdown take clicks first.
             Dialog::Form(d) => {
                 if let Some(res) = d.click_dropdown(col, row) {
@@ -1165,6 +1173,122 @@ impl BusyDialog {
                 .alignment(ratatui::layout::Alignment::Center),
             text_area,
         );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Goto dialog (viewer F5)
+// ---------------------------------------------------------------------------
+
+const GOTO_MODES: [(&str, crate::viewer::GotoMode); 4] = [
+    ("Line number", crate::viewer::GotoMode::Line),
+    ("Percents", crate::viewer::GotoMode::Percent),
+    ("Decimal offset", crate::viewer::GotoMode::DecimalOffset),
+    ("Hexadecimal offset", crate::viewer::GotoMode::HexOffset),
+];
+
+/// The viewer's "Goto" prompt: a value field plus a radio group choosing how to
+/// interpret it (line / percent / decimal or hex byte offset).
+pub struct GotoDialog {
+    input: String,
+    cursor: usize,
+    /// Index into [`GOTO_MODES`].
+    mode: usize,
+}
+
+impl GotoDialog {
+    pub fn new() -> Self {
+        GotoDialog { input: String::new(), cursor: 0, mode: 0 }
+    }
+
+    fn box_rect(&self, area: Rect) -> Rect {
+        centered(area, 40u16.min(area.width.saturating_sub(2)), 9)
+    }
+
+    fn submit(&self) -> DialogResult {
+        if self.input.trim().is_empty() {
+            return DialogResult::Cancel;
+        }
+        DialogResult::Submit(Submit::ViewerGoto(self.input.clone(), GOTO_MODES[self.mode].1))
+    }
+
+    fn handle_key(&mut self, key: KeyEvent) -> DialogResult {
+        match key.code {
+            KeyCode::Esc => DialogResult::Cancel,
+            KeyCode::Enter => self.submit(),
+            KeyCode::Up | KeyCode::BackTab => {
+                self.mode = (self.mode + GOTO_MODES.len() - 1) % GOTO_MODES.len();
+                DialogResult::None
+            }
+            KeyCode::Down | KeyCode::Tab => {
+                self.mode = (self.mode + 1) % GOTO_MODES.len();
+                DialogResult::None
+            }
+            _ => {
+                edit_text(&mut self.input, &mut self.cursor, key);
+                DialogResult::None
+            }
+        }
+    }
+
+    fn handle_click(&mut self, area: Rect, col: u16, row: u16) -> DialogResult {
+        let rect = self.box_rect(area);
+        if col < rect.x || col >= rect.x + rect.width || row < rect.y || row >= rect.y + rect.height {
+            return DialogResult::None;
+        }
+        let (inner_x, inner_y) = (rect.x + 1, rect.y + 1);
+        let (inner_w, inner_h) = (rect.width - 2, rect.height - 2);
+        // Radio rows sit just below the input field.
+        let ry = row as i32 - (inner_y + 1) as i32;
+        if (0..GOTO_MODES.len() as i32).contains(&ry) {
+            self.mode = ry as usize;
+            return DialogResult::None;
+        }
+        // The button row is the last interior row (left half OK, right Cancel).
+        if row == inner_y + inner_h - 1 {
+            return if col < inner_x + inner_w / 2 { self.submit() } else { DialogResult::Cancel };
+        }
+        DialogResult::None
+    }
+
+    fn render(&self, f: &mut Frame, area: Rect, theme: &Theme) {
+        let rect = self.box_rect(area);
+        draw_shadow(f, rect, theme);
+        f.render_widget(Clear, rect);
+        let block = dialog_block("Goto", theme);
+        let inner = block.inner(rect);
+        f.render_widget(block, rect);
+
+        let base = Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg);
+        let line_at = |yy: u16| Rect { x: inner.x, y: yy, width: inner.width, height: 1 };
+
+        let caret =
+            draw_input_field(f, line_at(inner.y), &self.input, self.cursor, true, false, theme);
+
+        for (i, (label, _)) in GOTO_MODES.iter().enumerate() {
+            f.render_widget(
+                Paragraph::new(Line::from(radio_span(label, self.mode == i, false, theme)))
+                    .style(base),
+                line_at(inner.y + 1 + i as u16),
+            );
+        }
+
+        f.render_widget(
+            Paragraph::new(ok_cancel_line(true, theme))
+                .alignment(ratatui::layout::Alignment::Center)
+                .style(base),
+            line_at(inner.y + inner.height - 1),
+        );
+
+        if let Some(p) = caret {
+            f.set_cursor_position(p);
+        }
+    }
+}
+
+impl Default for GotoDialog {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -3244,6 +3368,51 @@ mod tests {
 
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    #[test]
+    fn goto_dialog_collects_value_and_mode_by_keyboard() {
+        let mut d = GotoDialog::new();
+        for c in "0x1f".chars() {
+            d.handle_key(key(KeyCode::Char(c)));
+        }
+        // Move the radio selection to "Hexadecimal offset" (mode 3).
+        for _ in 0..3 {
+            d.handle_key(key(KeyCode::Down));
+        }
+        match d.handle_key(key(KeyCode::Enter)) {
+            DialogResult::Submit(Submit::ViewerGoto(v, m)) => {
+                assert_eq!(v, "0x1f");
+                assert_eq!(m, crate::viewer::GotoMode::HexOffset);
+            }
+            _ => panic!("expected a ViewerGoto submit"),
+        }
+        // An empty value (or Esc) cancels rather than submitting.
+        assert!(matches!(GotoDialog::new().handle_key(key(KeyCode::Enter)), DialogResult::Cancel));
+        assert!(matches!(GotoDialog::new().handle_key(key(KeyCode::Esc)), DialogResult::Cancel));
+    }
+
+    #[test]
+    fn goto_dialog_mouse_selects_radio_and_buttons() {
+        // 80x24 → the box is centered at {20,7,40,9}; inner {21,8,38,7}.
+        let area = Rect::new(0, 0, 80, 24);
+        let mut d = GotoDialog::new();
+        for c in "12".chars() {
+            d.handle_key(key(KeyCode::Char(c)));
+        }
+        // Radio rows are inner.y+1.. → row 11 is "Decimal offset" (index 2).
+        assert!(matches!(d.handle_click(area, 25, 11), DialogResult::None));
+        assert_eq!(d.mode, 2);
+        // The button row is the last interior row (y=14); left half is OK.
+        match d.handle_click(area, 25, 14) {
+            DialogResult::Submit(Submit::ViewerGoto(v, m)) => {
+                assert_eq!(v, "12");
+                assert_eq!(m, crate::viewer::GotoMode::DecimalOffset);
+            }
+            _ => panic!("clicking OK submits"),
+        }
+        // The right half of the button row cancels.
+        assert!(matches!(d.handle_click(area, 55, 14), DialogResult::Cancel));
     }
 
     #[test]

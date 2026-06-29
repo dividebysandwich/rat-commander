@@ -37,8 +37,9 @@ The installed executable is named **`rc`** for quick typing.
   with **Ctrl-O**
 - **Mouse support**: left-click a file to move the cursor, right-click to
   invert its mark, drag to carry the cursor (right-drag inverts the mark of every
-  file it passes over); click the menu bar to open menus and pick items, and click
-  **OK/Cancel** (or **Yes/No**) buttons in dialogs
+  file it passes over); click the menu bar to open menus and pick items, click the
+  bottom **F-key bar** to run that function, and click **OK/Cancel** (or
+  **Yes/No**) buttons in dialogs
 - **Find File** with a live progress dialog (abortable; partial results kept);
   results are *panelized* into the active panel (with a `..` entry to return to
   the normal listing). On **remote** panels the search matches **file names**
@@ -58,6 +59,8 @@ The installed executable is named **`rc`** for quick typing.
 
 **Built-in viewer (F3)**
 - Text and **hex** modes, line wrap toggle, and search
+- **Goto** (F5) jumps to a **line number**, **percentage**, or **decimal/hex byte
+  offset** (in hex mode the line number is a 16-byte row)
 - **Syntax highlighting** (via [`syntect`](https://github.com/trishume/syntect),
   the engine behind `bat`) for recognized source files, with a bundled theme
   chosen to suit the active light/dark UI. Highlighting is incremental and

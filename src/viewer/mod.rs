@@ -74,10 +74,25 @@ pub enum ViewMode {
     Hex,
 }
 
+/// How the "Goto" dialog interprets its entered value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GotoMode {
+    /// 1-based line number (text) or 16-byte row (hex).
+    Line,
+    /// Percentage through the file.
+    Percent,
+    /// Byte offset, entered in decimal.
+    DecimalOffset,
+    /// Byte offset, entered in hexadecimal.
+    HexOffset,
+}
+
 /// Result of handling a key: whether the viewer should stay open.
 pub enum ViewerSignal {
     Stay,
     Close,
+    /// Ask the app to open the modal "Goto" dialog (F5).
+    OpenGoto,
 }
 
 pub struct ViewerState {
@@ -262,6 +277,7 @@ impl ViewerState {
                 };
                 self.top = self.top.min(self.max_top());
             }
+            KeyCode::F(5) => return ViewerSignal::OpenGoto,
             KeyCode::F(7) => self.search_input = Some(String::new()),
             KeyCode::Char('n') => self.find_next(),
             KeyCode::Down => self.scroll(1),
@@ -331,9 +347,10 @@ impl ViewerState {
             1 => KeyCode::F(2),               // Wrap / Unwrap
             2 | 9 => return ViewerSignal::Close, // Quit
             3 => KeyCode::F(4),               // Text / Hex
+            4 => return ViewerSignal::OpenGoto, // Goto
             6 => KeyCode::F(7),               // Search
             8 => KeyCode::Char('n'),          // Next match
-            _ => return ViewerSignal::Stay,   // Help / Goto / empty: no-op
+            _ => return ViewerSignal::Stay,   // Help / empty: no-op
         };
         self.handle_key(KeyEvent::new(code, KeyModifiers::NONE))
     }
@@ -365,6 +382,43 @@ impl ViewerState {
     fn scroll(&mut self, delta: isize) {
         let max = self.max_top() as isize;
         self.top = (self.top as isize + delta).clamp(0, max.max(0)) as usize;
+    }
+
+    /// Jump to a position given by the Goto dialog. Returns whether the input
+    /// parsed (so the caller can flag bad input). In text mode positions are
+    /// logical lines; in hex mode they are 16-byte rows.
+    pub fn goto(&mut self, value: &str, mode: GotoMode) -> bool {
+        let v = value.trim();
+        let target = match mode {
+            GotoMode::Line => v.parse::<usize>().ok().map(|n| n.saturating_sub(1)),
+            GotoMode::Percent => v.parse::<f64>().ok().map(|p| {
+                let total = match self.mode {
+                    ViewMode::Text => self.line_count(),
+                    ViewMode::Hex => self.hex_rows(),
+                };
+                ((total.saturating_sub(1)) as f64 * p.clamp(0.0, 100.0) / 100.0).round() as usize
+            }),
+            GotoMode::DecimalOffset => v.parse::<usize>().ok().map(|off| self.offset_to_top(off)),
+            GotoMode::HexOffset => {
+                let hex = v.strip_prefix("0x").or_else(|| v.strip_prefix("0X")).unwrap_or(v);
+                usize::from_str_radix(hex, 16).ok().map(|off| self.offset_to_top(off))
+            }
+        };
+        match target {
+            Some(t) => {
+                self.top = t.min(self.max_top());
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Map a byte offset to the top index for the current mode.
+    fn offset_to_top(&self, off: usize) -> usize {
+        match self.mode {
+            ViewMode::Text => self.byte_to_line(off),
+            ViewMode::Hex => off / 16,
+        }
     }
 
     /// Find the next occurrence of the query after the last match.
@@ -571,6 +625,54 @@ mod tests {
         // F10 (Quit) spans cols 36-39 → closes.
         let sig = v.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 36, 12));
         assert!(matches!(sig, ViewerSignal::Close), "clicking F10 quits");
+    }
+
+    /// `n` lines of exactly 5 bytes each ("aaaa\n"), so byte offsets are tidy.
+    fn fixed_lines(n: usize) -> Vec<u8> {
+        (0..n).map(|_| "aaaa\n").collect::<String>().into_bytes()
+    }
+
+    #[test]
+    fn goto_text_mode_line_percent_and_offsets() {
+        let mut v = ViewerState::new("t".into(), fixed_lines(20)); // 21 line starts
+        assert!(v.goto("10", GotoMode::Line));
+        assert_eq!(v.top, 9, "1-based line number");
+        assert!(v.goto("50", GotoMode::Percent));
+        assert_eq!(v.top, 10, "50% of 20 = line 10");
+        assert!(v.goto("5", GotoMode::DecimalOffset));
+        assert_eq!(v.top, 1, "byte 5 is the start of line 1");
+        assert!(v.goto("a", GotoMode::HexOffset));
+        assert_eq!(v.top, 2, "0x0a = byte 10 → line 2");
+        assert!(v.goto("0x0F", GotoMode::HexOffset));
+        assert_eq!(v.top, 3, "0x0f = byte 15 → line 3");
+        // Out-of-range clamps; garbage is rejected.
+        assert!(v.goto("9999", GotoMode::Line));
+        assert_eq!(v.top, v.max_top());
+        assert!(!v.goto("nope", GotoMode::DecimalOffset));
+    }
+
+    #[test]
+    fn goto_hex_mode_uses_rows() {
+        let mut v = ViewerState::new("t".into(), vec![0u8; 100]); // 7 rows of 16
+        v.mode = ViewMode::Hex;
+        assert!(v.goto("3", GotoMode::Line));
+        assert_eq!(v.top, 2, "line number is a 16-byte row in hex mode");
+        assert!(v.goto("32", GotoMode::DecimalOffset));
+        assert_eq!(v.top, 2, "byte 32 is row 2");
+        assert!(v.goto("20", GotoMode::HexOffset));
+        assert_eq!(v.top, 2, "0x20 = 32 → row 2");
+    }
+
+    #[test]
+    fn f5_and_goto_label_click_request_the_dialog() {
+        let mut v = ViewerState::new("t".into(), fixed_lines(10));
+        with_layout(&mut v);
+        assert!(matches!(v.handle_key(super::KeyEvent::new(super::KeyCode::F(5), super::KeyModifiers::NONE)), ViewerSignal::OpenGoto));
+        // The "Goto" label is F5 (index 4): cols 16-19 on a 40-wide bar.
+        assert!(matches!(
+            v.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 16, 12)),
+            ViewerSignal::OpenGoto
+        ));
     }
 
     #[test]

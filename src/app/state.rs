@@ -15,7 +15,7 @@ use crate::proc::{ProcSignal, ProcView};
 use crate::ui::cmdline::CommandLine;
 use crate::ui::dialog::{
     BusyDialog, CompareDialog, CompareMode, ConfirmDialog, Dialog, DialogResult, FindDialog,
-    FindParams, FormDialog, InputDialog, InputPurpose, MessageDialog, OverwriteDialog,
+    FindParams, FormDialog, GotoDialog, InputDialog, InputPurpose, MessageDialog, OverwriteDialog,
     ProgressDialog, SearchReplaceDialog, SearchReplaceParams, SelectDialog, Submit, UserMenuDialog,
 };
 use crate::usermenu::{self, UserMenuEntry};
@@ -166,6 +166,17 @@ fn parse_cd(cmd: &str) -> Option<&str> {
         return Some("");
     }
     t.strip_prefix("cd ").map(str::trim)
+}
+
+/// A human label for a viewer goto mode (used in the "invalid value" message).
+fn goto_mode_label(mode: crate::viewer::GotoMode) -> &'static str {
+    use crate::viewer::GotoMode::*;
+    match mode {
+        Line => "line",
+        Percent => "percent",
+        DecimalOffset => "decimal offset",
+        HexOffset => "hex offset",
+    }
 }
 
 /// Split a `scheme://rest` prefix into `(scheme, rest)`. Only a plausible scheme
@@ -688,10 +699,9 @@ impl AppState {
             self.apply_editor_signal(sig).await;
             return Flow::Continue;
         }
-        if let Some(v) = self.viewer.as_mut() {
-            if let ViewerSignal::Close = v.handle_mouse(ev) {
-                self.viewer = None;
-            }
+        if self.viewer.is_some() {
+            let sig = self.viewer.as_mut().unwrap().handle_mouse(ev);
+            self.apply_viewer_signal(sig);
             return Flow::Continue;
         }
 
@@ -706,9 +716,13 @@ impl AppState {
             self.paint_last = None;
         }
 
-        // Base mode: the menu bar, then the file panels.
+        // Base mode: the F-key bar, then the menu bar, then the file panels.
         match ev.kind {
             MouseEventKind::Down(MouseButton::Left) => {
+                // A click on the bottom F-key bar acts as that function key.
+                if let Some(flow) = self.fkey_bar_click(area, col, row).await {
+                    return flow;
+                }
                 // A click on the menu bar (top row) opens that menu.
                 if let Some(i) = MenuBarState::title_index_at(area, col, row) {
                     self.menu = Some(MenuBarState::new(i));
@@ -794,6 +808,31 @@ impl AppState {
         }
     }
 
+    /// If `(col, row)` falls on the bottom F-key bar, run the corresponding
+    /// panel-mode function key and return its `Flow`; otherwise `None`.
+    async fn fkey_bar_click(&mut self, area: Rect, col: u16, row: u16) -> Option<Flow> {
+        let bar = Rect {
+            x: area.x,
+            y: area.y + area.height.saturating_sub(1),
+            width: area.width,
+            height: 1,
+        };
+        let i = crate::ui::fkeys::index_at(bar, &crate::ui::fkeys::PANEL_LABELS, col, row)?;
+        let key = KeyEvent::new(KeyCode::F(i as u8 + 1), KeyModifiers::NONE);
+        Some(self.handle_panel_key(key).await)
+    }
+
+    /// Apply a [`ViewerSignal`] (from a key or a mouse gesture).
+    fn apply_viewer_signal(&mut self, sig: ViewerSignal) {
+        match sig {
+            ViewerSignal::Stay => {}
+            ViewerSignal::Close => self.viewer = None,
+            ViewerSignal::OpenGoto => {
+                self.dialog = Some(Dialog::Goto(GotoDialog::new()));
+            }
+        }
+    }
+
     async fn route_key(&mut self, key: KeyEvent) -> Flow {
         if self.dialog.is_some() {
             let res = self.dialog.as_mut().unwrap().handle_key(key);
@@ -811,10 +850,9 @@ impl AppState {
             self.apply_editor_signal(signal).await;
             return Flow::Continue;
         }
-        if let Some(v) = self.viewer.as_mut() {
-            if let ViewerSignal::Close = v.handle_key(key) {
-                self.viewer = None;
-            }
+        if self.viewer.is_some() {
+            let sig = self.viewer.as_mut().unwrap().handle_key(key);
+            self.apply_viewer_signal(sig);
             return Flow::Continue;
         }
         if let Some(pv) = self.procview.as_mut() {
@@ -1107,6 +1145,13 @@ impl AppState {
                 self.dialog = Some(Dialog::Confirm(ConfirmDialog::format(spec)));
             }
             Submit::DoFormat(spec) => self.do_format(spec).await,
+            Submit::ViewerGoto(value, mode) => {
+                if let Some(v) = self.viewer.as_mut()
+                    && !v.goto(&value, mode)
+                {
+                    self.show_error(format!("Invalid {} value: {value}", goto_mode_label(mode)));
+                }
+            }
         }
     }
 
@@ -3534,6 +3579,35 @@ mod tests {
         .await;
         assert!(st.dialog.is_none());
         assert!(st.mountview.as_ref().unwrap().status.contains("mkfs failed"));
+    }
+
+    #[tokio::test]
+    async fn fkey_bar_click_runs_panel_functions() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
+        st.init().await;
+        let mut term = Terminal::new(TestBackend::new(120, 30)).unwrap();
+        term.draw(|f| crate::ui::draw(f, &mut st)).unwrap();
+
+        // The bar is the bottom row (29); 10 labels over 120 cols → 12 each.
+        // F9 ("PullDn", index 8) spans cols 96-107 → opens the pulldown menu.
+        assert!(st.menu.is_none());
+        let click = |c| MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: c,
+            row: 29,
+            modifiers: KeyModifiers::NONE,
+        };
+        st.handle_mouse(click(100)).await;
+        assert!(st.menu.is_some(), "clicking the F9 segment opens the menu");
+        st.menu = None;
+
+        // F10 ("Quit", index 9) spans cols 108-119 → quits (confirmation off).
+        st.config.confirm_exit = false;
+        let flow = st.handle_mouse(click(112)).await;
+        assert!(matches!(flow, Flow::Quit), "clicking the F10 segment quits");
     }
 
     #[tokio::test]
