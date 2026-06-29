@@ -79,8 +79,17 @@ impl Highlighter {
         let syntax = SYNTAXES
             .find_syntax_by_extension(file_name)
             .or_else(|| SYNTAXES.find_syntax_by_extension(ext))?;
-        let theme_name = if dark { "base16-ocean.dark" } else { "InspiredGitHub" };
-        let theme: &'static Theme = THEMES.themes.get(theme_name)?;
+        // A vibrant bundled theme suited to the UI's light/dark background, with
+        // fallbacks in case a name isn't present in this syntect build.
+        let theme: &'static Theme = if dark {
+            THEMES
+                .themes
+                .get("base16-eighties.dark")
+                .or_else(|| THEMES.themes.get("base16-ocean.dark"))
+        } else {
+            THEMES.themes.get("InspiredGitHub")
+        }
+        .or_else(|| THEMES.themes.values().next())?;
         let hl = SynHighlighter::new(theme);
         let initial = (
             ParseState::new(syntax),
@@ -109,7 +118,7 @@ impl Highlighter {
         let mut runs: Vec<ColorRun> = Vec::new();
         for (style, text) in HighlightIterator::new(&mut hstate, &ops, &line, &self.hl) {
             let c = style.foreground;
-            let color = Color::Rgb(c.r, c.g, c.b);
+            let color = vibrant(c.r, c.g, c.b);
             let n = text.chars().count() as u32;
             if n == 0 {
                 continue;
@@ -155,6 +164,30 @@ impl Highlighter {
     }
 }
 
+/// Make a syntect color more vibrant: increase saturation (push each channel
+/// away from the gray mean) and lift very dark colors so highlights pop and read
+/// clearly, especially in truecolor mode. Near-gray colors (comments) stay gray.
+fn vibrant(r: u8, g: u8, b: u8) -> Color {
+    const SAT: f32 = 1.3; // saturation multiplier
+    let (mut rf, mut gf, mut bf) = (r as f32, g as f32, b as f32);
+    let mean = (rf + gf + bf) / 3.0;
+    let push = |c: f32| (mean + (c - mean) * SAT).clamp(0.0, 255.0);
+    rf = push(rf);
+    gf = push(gf);
+    bf = push(bf);
+    // Lift dim *colored* tokens toward full brightness for contrast — but leave
+    // near-gray colors (comments) dim so they stay subdued.
+    let maxc = rf.max(gf).max(bf);
+    let minc = rf.min(gf).min(bf);
+    if maxc - minc > 24.0 && maxc > 1.0 && maxc < 200.0 {
+        let lift = 200.0 / maxc;
+        rf = (rf * lift).min(255.0);
+        gf = (gf * lift).min(255.0);
+        bf = (bf * lift).min(255.0);
+    }
+    Color::Rgb(rf.round() as u8, gf.round() as u8, bf.round() as u8)
+}
+
 /// Remove one trailing character's worth from the last run (the appended '\n').
 fn trim_one(runs: &mut Vec<ColorRun>) {
     if let Some(last) = runs.last_mut() {
@@ -169,6 +202,17 @@ fn trim_one(runs: &mut Vec<ColorRun>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vibrant_saturates_colors_but_leaves_grays() {
+        // A colored token gets a wider channel spread (more saturated).
+        let Color::Rgb(r, _g, b) = vibrant(120, 80, 60) else { unreachable!() };
+        let before = 120i32 - 60; // 60
+        let after = r as i32 - b as i32;
+        assert!(after > before, "saturation should widen the channel spread");
+        // A gray (comment) stays gray — channels remain equal.
+        assert_eq!(vibrant(100, 100, 100), Color::Rgb(100, 100, 100));
+    }
 
     #[test]
     fn highlights_rust_keyword_distinctly() {

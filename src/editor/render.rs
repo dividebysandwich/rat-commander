@@ -72,7 +72,7 @@ fn render_hex(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) ->
     h.top = new_top_row * bpr;
     let window = h.window(h.top, rows * bpr as usize);
 
-    let normal = Style::default().fg(theme.panel_fg).bg(theme.panel_bg);
+    let normal = Style::default().fg(theme.text_fg).bg(theme.panel_bg);
     let offset_style = Style::default().fg(theme.header_fg).bg(theme.panel_bg);
     let sep = Style::default().fg(theme.panel_border).bg(theme.panel_bg);
     let active = theme.cursor; // highlighted cell in the focused pane
@@ -128,7 +128,7 @@ fn render_hex(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) ->
         lines.push(Line::from(spans));
     }
     f.render_widget(
-        Paragraph::new(lines).style(Style::default().fg(theme.panel_fg).bg(theme.panel_bg)),
+        Paragraph::new(lines).style(Style::default().fg(theme.text_fg).bg(theme.panel_bg)),
         area,
     );
 
@@ -234,7 +234,7 @@ fn render_status(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) {
 
 /// Render the text body. Returns the hardware cursor position, if on screen.
 fn render_text(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) -> Option<Position> {
-    let normal = Style::default().fg(theme.panel_fg).bg(theme.panel_bg);
+    let normal = Style::default().fg(theme.text_fg).bg(theme.panel_bg);
     let block_style = Style::default()
         .fg(ratatui::style::Color::Black)
         .bg(ratatui::style::Color::Cyan);
@@ -250,8 +250,8 @@ fn render_text(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) -> Op
         }
         let line_start = ed.buf.line_to_char(li);
         let chars: Vec<char> = ed.buf.line_text(li).chars().collect();
-        // Syntax foreground per character (None ⇒ all `panel_fg`).
-        let fg = ed.line_fg(li, chars.len(), theme.panel_fg);
+        // Syntax foreground per character (None ⇒ all `text_fg`).
+        let fg = ed.line_fg(li, chars.len(), theme.text_fg);
 
         // Build styled runs across the visible columns, breaking on style change.
         let mut spans: Vec<Span> = Vec::new();
@@ -264,7 +264,7 @@ fn render_text(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) -> Op
                 if block.map(|(s, e)| abs >= s && abs < e).unwrap_or(false) {
                     (chars[ci], block_style)
                 } else {
-                    let color = fg.as_ref().map(|v| v[ci]).unwrap_or(theme.panel_fg);
+                    let color = fg.as_ref().map(|v| v[ci]).unwrap_or(theme.text_fg);
                     (chars[ci], Style::default().fg(color).bg(theme.panel_bg))
                 }
             } else {

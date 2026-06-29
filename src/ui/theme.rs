@@ -53,6 +53,9 @@ pub struct Theme {
     pub truecolor: bool,
     pub panel_bg: Color,
     pub panel_fg: Color,
+    /// Higher-contrast foreground for dense text views (editor/viewer), pushed
+    /// away from the background so body text reads crisply.
+    pub text_fg: Color,
     pub panel_border: Color,
     pub panel_border_active: Color,
     pub header_fg: Color,
@@ -138,6 +141,7 @@ impl Theme {
             truecolor,
             panel_bg: p.bg,
             panel_fg: p.fg,
+            text_fg: contrast_text(p.fg, p.bg),
             panel_border: border,
             panel_border_active: p.bright_cyan,
             header_fg: p.bright_yellow,
@@ -308,10 +312,25 @@ fn mix(a: Color, b: Color, t: f64) -> Color {
 
 /// Pick whichever of `dark`/`light` contrasts better against `bg`.
 fn best_contrast(bg: Color, dark: Color, light: Color) -> Color {
-    let (r, g, b) = to_rgb(bg);
-    // Rec. 601 luma.
-    let luma = 0.299 * r as f64 + 0.587 * g as f64 + 0.114 * b as f64;
-    if luma > 140.0 { dark } else { light }
+    if luma(bg) > 140.0 { dark } else { light }
+}
+
+/// Rec. 601 luma (0..=255) of an RGB color.
+fn luma(c: Color) -> f64 {
+    let (r, g, b) = to_rgb(c);
+    0.299 * r as f64 + 0.587 * g as f64 + 0.114 * b as f64
+}
+
+/// A higher-contrast version of `fg` for dense text: nudge it away from the
+/// background — brighter on dark backgrounds, darker on light ones — so body
+/// text in the editor/viewer reads crisply (it's softer by default for chrome).
+fn contrast_text(fg: Color, bg: Color) -> Color {
+    let target = if luma(bg) < 128.0 {
+        Color::Rgb(255, 255, 255)
+    } else {
+        Color::Rgb(0, 0, 0)
+    };
+    mix(fg, target, 0.3)
 }
 
 /// Find a palette by name (case-insensitive, ignoring spaces).
@@ -661,6 +680,22 @@ mod tests {
         assert_eq!(t.menu_bg, cyan);
         assert_eq!(t.menu_fg, rgb(0xffffff));
         assert_eq!(t.menu_selection.bg, Some(black));
+    }
+
+    #[test]
+    fn text_fg_is_more_contrasty_than_panel_fg() {
+        // For both dark and light themes, the editor/viewer text color should be
+        // further (in luma) from the background than the default panel foreground.
+        for name in ["Dracula", "Nord", "Gruvbox Dark", "Gruvbox Light", "Solarized Light"] {
+            let t = Theme::by_name(name, true);
+            let d_text = (luma(t.text_fg) - luma(t.panel_bg)).abs();
+            let d_panel = (luma(t.panel_fg) - luma(t.panel_bg)).abs();
+            assert!(
+                d_text >= d_panel,
+                "{name}: text_fg ({d_text}) should contrast at least as much as panel_fg ({d_panel})"
+            );
+            assert_ne!(t.text_fg, t.panel_fg, "{name}: text_fg should differ from panel_fg");
+        }
     }
 
     #[test]

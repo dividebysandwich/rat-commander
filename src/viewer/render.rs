@@ -87,7 +87,7 @@ fn render_header(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
 }
 
 fn render_text(f: &mut Frame, area: Rect, v: &mut ViewerState, theme: &Theme) {
-    let default = theme.panel_fg;
+    let default = theme.text_fg;
     let bg = theme.panel_bg;
     let width = area.width as usize;
     let rows = area.height as usize;
