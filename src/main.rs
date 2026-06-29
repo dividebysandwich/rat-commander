@@ -26,17 +26,28 @@ fn main() {
     // image to the device (re-invoked through `sudo` by the flasher), reporting
     // committed-byte counts on stdout. It does no TUI / async work.
     let mut args = std::env::args().skip(1);
-    if let Some(flag) = args.next()
-        && flag == flash::FLASH_WRITE_FLAG
-    {
-        let code = match (args.next(), args.next()) {
-            (Some(dev), Some(img)) => flash::helper_main(&dev, &img),
-            _ => {
-                eprintln!("{} requires <device> <image>", flash::FLASH_WRITE_FLAG);
-                2
-            }
-        };
-        std::process::exit(code);
+    match args.next().as_deref() {
+        Some(flash::FLASH_WRITE_FLAG) => {
+            let code = match (args.next(), args.next()) {
+                (Some(dev), Some(img)) => flash::helper_main(&dev, &img),
+                _ => {
+                    eprintln!("{} requires <device> <image>", flash::FLASH_WRITE_FLAG);
+                    2
+                }
+            };
+            std::process::exit(code);
+        }
+        Some(flash::IMAGE_READ_FLAG) => {
+            let code = match args.next() {
+                Some(dev) => flash::image_helper_main(&dev),
+                None => {
+                    eprintln!("{} requires <device>", flash::IMAGE_READ_FLAG);
+                    2
+                }
+            };
+            std::process::exit(code);
+        }
+        _ => {}
     }
 
     let rt = match tokio::runtime::Runtime::new() {

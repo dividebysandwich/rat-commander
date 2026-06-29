@@ -221,6 +221,12 @@ The installed executable is named **`rc`** for quick typing.
   opens a small **file browser** (with an editable extension-glob filter) to pick
   the image for the device under the cursor.
 
+**Create an image of a device** (Linux)
+- In the disk manager, **Enter** on a block device or partition offers a **Create
+  image** action: a small **save browser** lets you navigate to a directory and
+  type a file name (defaulting to `<device>.img`) for the raw image.
+- The device is streamed out to that file..
+
 
 ---
 

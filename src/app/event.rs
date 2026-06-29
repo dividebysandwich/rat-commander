@@ -34,6 +34,11 @@ pub enum AppEvent {
         id: TaskId,
         outcome: TaskOutcome,
     },
+    /// A device-imaging ("create image") task finished.
+    ImageDone {
+        id: TaskId,
+        outcome: TaskOutcome,
+    },
     /// A find-file task finished (or was aborted); carries the matching files
     /// (path + size) collected so far so partial results can still be panelized.
     /// Paths may be local or remote, depending on the searched backend.

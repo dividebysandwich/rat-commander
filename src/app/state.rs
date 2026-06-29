@@ -15,9 +15,9 @@ use crate::proc::{ProcSignal, ProcView};
 use crate::ui::cmdline::CommandLine;
 use crate::ui::dialog::{
     BusyDialog, CompareDialog, CompareMode, ConfirmDialog, Dialog, DialogResult, FileBrowserDialog,
-    FindDialog, FindParams, FlashTargetDialog, FormDialog, GotoDialog, InputDialog, InputPurpose,
-    MessageDialog, OverwriteDialog, ProgressDialog, SearchReplaceDialog, SearchReplaceParams,
-    SelectDialog, Submit, UserMenuDialog,
+    FindDialog, FindParams, FlashTargetDialog, FormDialog, GotoDialog, ImageSaveDialog, InputDialog,
+    InputPurpose, MessageDialog, OverwriteDialog, ProgressDialog, SearchReplaceDialog,
+    SearchReplaceParams, SelectDialog, Submit, UserMenuDialog,
 };
 use crate::usermenu::{self, UserMenuEntry};
 use crate::ui::layout::SplitDir;
@@ -100,7 +100,9 @@ pub struct AppState {
     pending_sudo: Option<PendingPriv>,
     /// A flash queued while prompting for a sudo password.
     pending_flash: Option<crate::flash::FlashSpec>,
-    /// Cancel tokens for in-flight image-flash tasks, keyed by task id.
+    /// A device-imaging queued while prompting for a sudo password.
+    pending_image: Option<crate::flash::ImageSpec>,
+    /// Cancel tokens for in-flight flash / imaging tasks, keyed by task id.
     flash_tasks: HashMap<TaskId, crate::ops::CancelToken>,
     pub theme: Theme,
     pub config: Config,
@@ -369,6 +371,7 @@ impl AppState {
             mountview: None,
             pending_sudo: None,
             pending_flash: None,
+            pending_image: None,
             flash_tasks: HashMap::new(),
             theme,
             config,
@@ -552,6 +555,20 @@ impl AppState {
                 // The target's contents changed — refresh the disk manager.
                 if let Some(mv) = self.mountview.as_mut() {
                     mv.refresh();
+                }
+            }
+            AppEvent::ImageDone { id, outcome } => {
+                self.flash_tasks.remove(&id);
+                self.stashed_progress = None;
+                match outcome {
+                    TaskOutcome::Done => {
+                        self.show_info("Image created", "The device image was written successfully.")
+                    }
+                    TaskOutcome::Cancelled => self.show_info(
+                        "Imaging aborted",
+                        "Imaging was aborted; the partial image file was removed.",
+                    ),
+                    TaskOutcome::Failed(e) => self.show_error(format!("Imaging failed: {e}")),
                 }
             }
             AppEvent::FindDone { id, results } => {
@@ -1259,6 +1276,22 @@ impl AppState {
                 self.stashed_progress = None;
                 // The progress view stays closed; FlashDone will report the result.
             }
+            // -- Create image (read a device out to a file) --
+            Submit::ImageBrowse(target) => self.open_image_browser(target),
+            Submit::ImageSave(spec) => {
+                // Confirm before clobbering an existing file; else start straight away.
+                if spec.dest_path.exists() {
+                    self.dialog = Some(Dialog::Confirm(ConfirmDialog::image_overwrite(spec)));
+                } else {
+                    self.start_image(spec).await;
+                }
+            }
+            Submit::DoImage(spec) => self.start_image(spec).await,
+            Submit::ImagePassword(pw) => {
+                if let Some(spec) = self.pending_image.take() {
+                    self.begin_image(spec, crate::flash::FlashAuth::SudoPassword(pw));
+                }
+            }
         }
     }
 
@@ -1745,6 +1778,42 @@ impl AppState {
         let cancel = crate::flash::spawn_flash(id, spec, auth, self.tx.clone());
         self.flash_tasks.insert(id, cancel);
         self.dialog = Some(Dialog::Progress(ProgressDialog::new(id, "Flashing")));
+    }
+
+    /// Open the "save image" browser for reading `target` out to a file. Starts
+    /// in the active panel's directory, or home.
+    fn open_image_browser(&mut self, target: crate::flash::FlashTarget) {
+        let start = if self.panels[self.active].cwd.scheme == "file" {
+            self.panels[self.active].cwd.path.clone()
+        } else {
+            home_dir()
+        };
+        self.dialog = Some(Dialog::ImageSave(ImageSaveDialog::new(target, start)));
+    }
+
+    /// Determine privileges, then start (or queue, pending a password) imaging.
+    async fn start_image(&mut self, spec: crate::flash::ImageSpec) {
+        if crate::mount::is_root() {
+            self.begin_image(spec, crate::flash::FlashAuth::Root);
+        } else if crate::mount::sudo_can_noninteractive().await {
+            self.begin_image(spec, crate::flash::FlashAuth::SudoNonInteractive);
+        } else {
+            self.pending_image = Some(spec);
+            self.dialog = Some(Dialog::Input(InputDialog::password(
+                "Authentication required",
+                "Enter sudo password:",
+                InputPurpose::ImagePassword,
+            )));
+        }
+    }
+
+    /// Spawn the imaging task and show its progress dialog.
+    fn begin_image(&mut self, spec: crate::flash::ImageSpec, auth: crate::flash::FlashAuth) {
+        let id = self.next_task_id;
+        self.next_task_id += 1;
+        let cancel = crate::flash::spawn_image(id, spec, auth, self.tx.clone());
+        self.flash_tasks.insert(id, cancel);
+        self.dialog = Some(Dialog::Progress(ProgressDialog::new(id, "Imaging")));
     }
 
     /// Open the full-screen disk-usage explorer at the active panel's directory.
@@ -3804,6 +3873,40 @@ mod tests {
         st.handle_submit(Submit::FlashAbort(id)).await;
         assert!(tok.is_cancelled(), "abort cancels the flash task");
         assert!(st.stashed_progress.is_none());
+    }
+
+    #[tokio::test]
+    async fn create_image_browse_overwrite_and_done() {
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
+        let target = crate::flash::FlashTarget { dev: "/dev/sdb".into(), size: 1000, ..Default::default() };
+
+        // "Create image" opens the save browser.
+        st.handle_submit(Submit::ImageBrowse(target.clone())).await;
+        assert!(matches!(st.dialog, Some(Dialog::ImageSave(_))), "image save browser opens");
+
+        // Saving onto an existing file raises an overwrite confirmation.
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dest = std::env::temp_dir().join(format!("rc_imgov_{}_{nanos}.img", std::process::id()));
+        std::fs::write(&dest, b"old").unwrap();
+        let spec = crate::flash::ImageSpec {
+            source: target,
+            dest_path: dest.clone(),
+            dest_name: "x.img".into(),
+        };
+        st.handle_submit(Submit::ImageSave(spec)).await;
+        assert!(matches!(st.dialog, Some(Dialog::Confirm(_))), "overwrite confirm shown");
+        std::fs::remove_file(&dest).ok();
+
+        // ImageDone clears the task and reports success.
+        let id = 99;
+        st.flash_tasks.insert(id, crate::ops::CancelToken::new());
+        st.apply_event(AppEvent::ImageDone { id, outcome: TaskOutcome::Done }).await;
+        assert!(!st.flash_tasks.contains_key(&id));
+        assert!(matches!(st.dialog, Some(Dialog::Message(_))));
     }
 
     #[tokio::test]

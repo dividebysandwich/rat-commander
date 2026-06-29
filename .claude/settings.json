@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(timeout 3 ./target/debug/rc)",
+      "Bash(echo \"exit: $?\")"
+    ]
+  }
+}

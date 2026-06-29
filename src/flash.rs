@@ -82,6 +82,17 @@ pub struct FlashSpec {
     pub target: FlashTarget,
 }
 
+/// A request to read a device out to a raw image file.
+#[derive(Debug, Clone, Default)]
+pub struct ImageSpec {
+    /// The device being imaged (`dev`, `size`, …).
+    pub source: FlashTarget,
+    /// Where the raw image is written.
+    pub dest_path: PathBuf,
+    /// The destination file name (for messages / progress).
+    pub dest_name: String,
+}
+
 /// How to run the privileged writer.
 #[derive(Debug, Clone)]
 pub enum FlashAuth {
@@ -112,6 +123,10 @@ const CHUNK: usize = 4 * 1024 * 1024;
 /// privileged helper (invoked through `sudo` when the app isn't root).
 pub const FLASH_WRITE_FLAG: &str = "--flash-write";
 
+/// Hidden CLI flag: `rc --image-read <device>` dumps the device to stdout as a
+/// privileged helper (invoked through `sudo` when the app isn't root).
+pub const IMAGE_READ_FLAG: &str = "--image-read";
+
 async fn run_flash(
     id: TaskId,
     spec: FlashSpec,
@@ -125,7 +140,7 @@ async fn run_flash(
     {
         return TaskOutcome::Failed(format!("authentication failed: {e}"));
     }
-    let _ = tx.try_send(progress_event(id, &spec.image_name, spec.image_size, 0)); // show 0%
+    let _ = tx.try_send(progress_event(id, "Flashing", &spec.image_name, spec.image_size, 0)); // show 0%
 
     match auth {
         // Already privileged: write the device directly from this process.
@@ -163,7 +178,7 @@ async fn write_direct(
                     || last.is_none_or(|t| now.duration_since(t) >= Duration::from_millis(100))
                 {
                     last = Some(now);
-                    let _ = tx.try_send(progress_event(id, &name, total, synced));
+                    let _ = tx.try_send(progress_event(id, "Flashing", &name, total, synced));
                 }
             },
             || cancel.is_cancelled(),
@@ -228,7 +243,7 @@ async fn write_via_helper(
             line = lines.next_line() => match line {
                 Ok(Some(l)) => {
                     if let Ok(n) = l.trim().parse::<u64>() {
-                        let _ = tx.try_send(progress_event(id, &name, total, n.min(total)));
+                        let _ = tx.try_send(progress_event(id, "Flashing", &name, total, n.min(total)));
                     }
                 }
                 _ => break, // EOF or read error: the helper has finished
@@ -255,7 +270,7 @@ async fn write_via_helper(
             err
         });
     }
-    let _ = tx.try_send(progress_event(id, &name, total, total));
+    let _ = tx.try_send(progress_event(id, "Flashing", &name, total, total));
     TaskOutcome::Done
 }
 
@@ -333,10 +348,276 @@ fn flash_copy(
     Ok(())
 }
 
-fn progress_event(id: TaskId, name: &str, total: u64, done: u64) -> AppEvent {
+// ---------------------------------------------------------------------------
+// Reading a device out to a raw image file ("create image")
+// ---------------------------------------------------------------------------
+
+/// Spawn the imaging on the tokio runtime. Reports progress via
+/// [`AppEvent::Progress`] and a terminal [`AppEvent::ImageDone`]; the returned
+/// token aborts it (removing the partial image file).
+pub fn spawn_image(id: TaskId, spec: ImageSpec, auth: FlashAuth, tx: AppSender) -> CancelToken {
+    let cancel = CancelToken::new();
+    let task_cancel = cancel.clone();
+    tokio::spawn(async move {
+        let outcome = run_image(id, spec, auth, &tx, task_cancel).await;
+        let _ = tx.send(AppEvent::ImageDone { id, outcome }).await;
+    });
+    cancel
+}
+
+async fn run_image(
+    id: TaskId,
+    spec: ImageSpec,
+    auth: FlashAuth,
+    tx: &AppSender,
+    cancel: CancelToken,
+) -> TaskOutcome {
+    if let FlashAuth::SudoPassword(pw) = &auth
+        && let Err(e) = crate::mount::sudo_validate(pw).await
+    {
+        return TaskOutcome::Failed(format!("authentication failed: {e}"));
+    }
+    let _ = tx.try_send(progress_event(id, "Imaging", &spec.dest_name, spec.source.size, 0));
+
+    let outcome = match auth {
+        FlashAuth::Root => read_direct(id, &spec, tx, cancel).await,
+        FlashAuth::SudoNonInteractive | FlashAuth::SudoPassword(_) => {
+            read_via_helper(id, &spec, tx, cancel).await
+        }
+    };
+    // A partial / aborted image is useless — clean it up.
+    if !matches!(outcome, TaskOutcome::Done) {
+        let _ = std::fs::remove_file(&spec.dest_path);
+    } else {
+        let _ = tx.try_send(progress_event(id, "Imaging", &spec.dest_name, spec.source.size, spec.source.size));
+    }
+    outcome
+}
+
+/// Read the device and write the image file in this (privileged) process.
+async fn read_direct(
+    id: TaskId,
+    spec: &ImageSpec,
+    tx: &AppSender,
+    cancel: CancelToken,
+) -> TaskOutcome {
+    let device = spec.source.dev.clone();
+    let dest = spec.dest_path.clone();
+    let name = spec.dest_name.clone();
+    let total = spec.source.size;
+    let tx = tx.clone();
+    let dev_msg = device.clone();
+    let res = tokio::task::spawn_blocking(move || {
+        let mut last: Option<Instant> = None;
+        image_copy(
+            &device,
+            &dest,
+            total,
+            |done| {
+                let now = Instant::now();
+                if last.is_none_or(|t| now.duration_since(t) >= Duration::from_millis(100)) {
+                    last = Some(now);
+                    let _ = tx.try_send(progress_event(id, "Imaging", &name, total, done.min(total)));
+                }
+            },
+            || cancel.is_cancelled(),
+        )
+    })
+    .await;
+    match res {
+        Ok(Ok(())) => TaskOutcome::Done,
+        Ok(Err(e)) if e.kind() == std::io::ErrorKind::Interrupted => TaskOutcome::Cancelled,
+        Ok(Err(e)) => {
+            let hint = if e.kind() == std::io::ErrorKind::PermissionDenied {
+                " (run as root/administrator)"
+            } else {
+                ""
+            };
+            TaskOutcome::Failed(format!("reading {dev_msg} failed: {e}{hint}"))
+        }
+        Err(_) => TaskOutcome::Failed("image task aborted".to_string()),
+    }
+}
+
+/// Read a block device and write a raw image file, with periodic progress.
+fn image_copy(
+    device: &str,
+    dest: &Path,
+    total: u64,
+    mut report: impl FnMut(u64),
+    mut cancelled: impl FnMut() -> bool,
+) -> std::io::Result<()> {
+    use std::io::{Read, Write};
+    let mut dev = std::fs::File::open(device)?;
+    let mut out = std::fs::File::create(dest)?;
+    let window = sync_window(total);
+    let mut buf = vec![0u8; CHUNK];
+    let (mut written, mut unsynced) = (0u64, 0u64);
+    loop {
+        if cancelled() {
+            return Err(std::io::Error::new(std::io::ErrorKind::Interrupted, "aborted"));
+        }
+        let n = dev.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        out.write_all(&buf[..n])?;
+        written += n as u64;
+        unsynced += n as u64;
+        if unsynced >= window {
+            out.sync_data()?;
+            unsynced = 0;
+            report(written);
+        }
+    }
+    out.flush()?;
+    out.sync_all()?;
+    report(written);
+    Ok(())
+}
+
+/// Run `sudo rc --image-read <device>` (dumps the device to its stdout) and copy
+/// that stream into the user's image file, counting bytes for progress.
+async fn read_via_helper(
+    id: TaskId,
+    spec: &ImageSpec,
+    tx: &AppSender,
+    cancel: CancelToken,
+) -> TaskOutcome {
+    use std::process::Stdio;
+    use tokio::io::AsyncWriteExt;
+    use tokio::process::Command;
+
+    let exe = match std::env::current_exe() {
+        Ok(p) => p,
+        Err(e) => return TaskOutcome::Failed(format!("cannot locate the program: {e}")),
+    };
+    let mut child = match Command::new("sudo")
+        .arg("-n")
+        .arg(&exe)
+        .arg(IMAGE_READ_FLAG)
+        .arg(&spec.source.dev)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => return TaskOutcome::Failed(format!("cannot start privileged reader: {e}")),
+    };
+    let mut src = child.stdout.take().expect("piped stdout");
+    let mut stderr = child.stderr.take().expect("piped stderr");
+    // The destination file is created by us (the unprivileged process), so the
+    // resulting image is owned by the user, not root.
+    let mut out = match tokio::fs::File::create(&spec.dest_path).await {
+        Ok(f) => f,
+        Err(e) => {
+            let _ = child.start_kill();
+            let _ = child.wait().await;
+            return TaskOutcome::Failed(format!("cannot create {}: {e}", spec.dest_name));
+        }
+    };
+
+    let total = spec.source.size;
+    let name = spec.dest_name.clone();
+    let window = sync_window(total);
+    let mut buf = vec![0u8; CHUNK];
+    let (mut written, mut unsynced) = (0u64, 0u64);
+    let mut last: Option<Instant> = None;
+    loop {
+        tokio::select! {
+            r = src.read(&mut buf) => {
+                let n = match r {
+                    Ok(0) => break,
+                    Ok(n) => n,
+                    Err(e) => { let _ = child.start_kill(); return TaskOutcome::Failed(format!("read error: {e}")); }
+                };
+                if let Err(e) = out.write_all(&buf[..n]).await {
+                    let _ = child.start_kill();
+                    return TaskOutcome::Failed(format!("write error: {e}"));
+                }
+                written += n as u64;
+                unsynced += n as u64;
+                if unsynced >= window {
+                    if let Err(e) = out.sync_data().await {
+                        let _ = child.start_kill();
+                        return TaskOutcome::Failed(format!("sync error: {e}"));
+                    }
+                    unsynced = 0;
+                    let now = Instant::now();
+                    if last.is_none_or(|t| now.duration_since(t) >= Duration::from_millis(100)) {
+                        last = Some(now);
+                        let _ = tx.try_send(progress_event(id, "Imaging", &name, total, written.min(total)));
+                    }
+                }
+            }
+            _ = cancel.cancelled() => {
+                let _ = child.start_kill();
+                let _ = child.wait().await;
+                return TaskOutcome::Cancelled;
+            }
+        }
+    }
+    if let Err(e) = out.flush().await {
+        return TaskOutcome::Failed(format!("flush error: {e}"));
+    }
+    if let Err(e) = out.sync_all().await {
+        return TaskOutcome::Failed(format!("sync error: {e}"));
+    }
+    let status = match child.wait().await {
+        Ok(s) => s,
+        Err(e) => return TaskOutcome::Failed(format!("reader wait failed: {e}")),
+    };
+    if !status.success() {
+        let mut err = String::new();
+        let _ = stderr.read_to_string(&mut err).await;
+        let err = err.trim().trim_start_matches("[sudo] password for").trim().to_string();
+        return TaskOutcome::Failed(if err.is_empty() {
+            "privileged reader failed".to_string()
+        } else {
+            err
+        });
+    }
+    TaskOutcome::Done
+}
+
+/// The privileged reader subcommand (`rc --image-read <device>`): dump the whole
+/// device to stdout. The parent counts the bytes and writes the file.
+pub fn image_helper_main(device: &str) -> i32 {
+    use std::io::{Read, Write};
+    let mut dev = match std::fs::File::open(device) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("image-read {device}: {e}");
+            return 1;
+        }
+    };
+    let stdout = std::io::stdout();
+    let mut out = stdout.lock();
+    let mut buf = vec![0u8; CHUNK];
+    loop {
+        match dev.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => {
+                if let Err(e) = out.write_all(&buf[..n]) {
+                    eprintln!("image-read {device}: {e}");
+                    return 1;
+                }
+            }
+            Err(e) => {
+                eprintln!("image-read {device}: {e}");
+                return 1;
+            }
+        }
+    }
+    let _ = out.flush();
+    0
+}
+
+fn progress_event(id: TaskId, verb: &'static str, name: &str, total: u64, done: u64) -> AppEvent {
     AppEvent::Progress(ProgressUpdate {
         id,
-        verb: "Flashing",
+        verb,
         current_name: name.to_string(),
         file_done: done,
         file_total: total,
@@ -411,5 +692,38 @@ mod tests {
     fn sync_window_scales_with_size() {
         assert_eq!(sync_window(1_000), CHUNK as u64, "tiny images sync every chunk");
         assert_eq!(sync_window(10_000 * 1024 * 1024), 64 * 1024 * 1024, "huge images cap the window");
+    }
+
+    #[test]
+    fn image_copy_dumps_device_to_file_with_progress() {
+        let dir = tmp_dir("image");
+        let device = dir.join("device.bin");
+        let dest = dir.join("out.img");
+        // Larger than the 4 MiB sync window so progress arrives in steps.
+        let data: Vec<u8> = (0..12_000_000u32).map(|i| (i % 251) as u8).collect();
+        std::fs::write(&device, &data).unwrap();
+
+        let mut reported = Vec::new();
+        image_copy(device.to_str().unwrap(), &dest, data.len() as u64, |c| reported.push(c), || false)
+            .unwrap();
+
+        assert_eq!(std::fs::read(&dest).unwrap(), data, "image file is a copy of the device");
+        assert!(reported.len() >= 3, "progress advances in steps: {reported:?}");
+        assert!(reported.windows(2).all(|w| w[0] <= w[1]), "monotonic");
+        assert_eq!(*reported.last().unwrap(), data.len() as u64, "final report is the full size");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn image_copy_aborts_when_cancelled() {
+        let dir = tmp_dir("imagec");
+        let device = dir.join("device.bin");
+        let dest = dir.join("out.img");
+        std::fs::write(&device, vec![9u8; 8 * 1024 * 1024]).unwrap();
+
+        let err = image_copy(device.to_str().unwrap(), &dest, 8 * 1024 * 1024, |_| {}, || true)
+            .unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::Interrupted);
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
