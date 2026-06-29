@@ -54,6 +54,9 @@ pub struct EditorState {
     left_col: usize,
     /// Live marking anchor (block being extended by the cursor).
     anchor: Option<usize>,
+    /// Whether the live `anchor` was started by a Shift+move (so a plain move
+    /// collapses it), as opposed to an explicit F3 mark (which a move extends).
+    shift_marking: bool,
     /// Finalized block (start, end) in char indices.
     block: Option<(usize, usize)>,
     clipboard: String,
@@ -91,6 +94,7 @@ impl EditorState {
             top_line: 0,
             left_col: 0,
             anchor: None,
+            shift_marking: false,
             block: None,
             clipboard: String::new(),
             last_search: LastSearch::default(),
@@ -423,6 +427,7 @@ impl EditorState {
     }
 
     fn handle_text_key(&mut self, key: KeyEvent, ctrl: bool) -> EditorSignal {
+        let shift = key.modifiers.contains(KeyModifiers::SHIFT);
         match key.code {
             KeyCode::F(10) | KeyCode::Esc => {
                 if self.dirty {
@@ -453,21 +458,61 @@ impl EditorState {
             }
             KeyCode::Char('v') if ctrl => self.paste(),
 
-            KeyCode::Up => self.move_vertical(-1),
-            KeyCode::Down => self.move_vertical(1),
-            KeyCode::Left => self.move_left(),
-            KeyCode::Right => self.move_right(),
+            KeyCode::Up => {
+                self.pre_move(shift);
+                self.move_vertical(-1);
+            }
+            KeyCode::Down => {
+                self.pre_move(shift);
+                self.move_vertical(1);
+            }
+            // Ctrl-←/→ jump by word; plain ←/→ move one character.
+            KeyCode::Left if ctrl => {
+                self.pre_move(shift);
+                self.word_left();
+            }
+            KeyCode::Right if ctrl => {
+                self.pre_move(shift);
+                self.word_right();
+            }
+            KeyCode::Left => {
+                self.pre_move(shift);
+                self.move_left();
+            }
+            KeyCode::Right => {
+                self.pre_move(shift);
+                self.move_right();
+            }
+            // Ctrl-Home/End jump to the start/end of the document.
+            KeyCode::Home if ctrl => {
+                self.pre_move(shift);
+                self.cursor = 0;
+                self.goal_col = None;
+            }
+            KeyCode::End if ctrl => {
+                self.pre_move(shift);
+                self.cursor = self.buf.len_chars();
+                self.goal_col = None;
+            }
             KeyCode::Home => {
+                self.pre_move(shift);
                 self.cursor = self.line_start_char(self.cur_line());
                 self.goal_col = None;
             }
             KeyCode::End => {
+                self.pre_move(shift);
                 let line = self.cur_line();
                 self.cursor = self.line_start_char(line) + self.buf.line_len(line);
                 self.goal_col = None;
             }
-            KeyCode::PageUp => self.move_vertical(-(self.view_rows as isize - 1)),
-            KeyCode::PageDown => self.move_vertical(self.view_rows as isize - 1),
+            KeyCode::PageUp => {
+                self.pre_move(shift);
+                self.move_vertical(-(self.view_rows as isize - 1));
+            }
+            KeyCode::PageDown => {
+                self.pre_move(shift);
+                self.move_vertical(self.view_rows as isize - 1);
+            }
 
             KeyCode::Enter => self.insert_text("\n"),
             KeyCode::Tab => self.insert_text("    "),
@@ -731,6 +776,52 @@ impl EditorState {
         self.cursor = self.line_start_char(target) + col;
     }
 
+    /// Selection bookkeeping run before a cursor movement: with Shift held, start
+    /// (or keep extending) a live selection; without it, a Shift-started
+    /// selection collapses. An F3 mark is left untouched either way.
+    fn pre_move(&mut self, shift: bool) {
+        if shift {
+            if self.anchor.is_none() {
+                self.anchor = Some(self.cursor);
+                self.block = None;
+                self.shift_marking = true;
+            }
+        } else if self.shift_marking {
+            self.clear_marks();
+        }
+    }
+
+    /// Whether `c` is part of a word (letters, digits, underscore).
+    fn is_word_char(c: char) -> bool {
+        c.is_alphanumeric() || c == '_'
+    }
+
+    /// Move to the start of the next word (skipping the current word, then any
+    /// separators), crossing line breaks like most editors.
+    fn word_right(&mut self) {
+        let n = self.buf.len_chars();
+        let is_word = |i: usize| self.buf.char_at(i).map(Self::is_word_char).unwrap_or(false);
+        while self.cursor < n && is_word(self.cursor) {
+            self.cursor += 1;
+        }
+        while self.cursor < n && !is_word(self.cursor) {
+            self.cursor += 1;
+        }
+        self.goal_col = None;
+    }
+
+    /// Move to the start of the current or previous word.
+    fn word_left(&mut self) {
+        let is_word = |i: usize| self.buf.char_at(i).map(Self::is_word_char).unwrap_or(false);
+        while self.cursor > 0 && !is_word(self.cursor - 1) {
+            self.cursor -= 1;
+        }
+        while self.cursor > 0 && is_word(self.cursor - 1) {
+            self.cursor -= 1;
+        }
+        self.goal_col = None;
+    }
+
     // -- Editing -----------------------------------------------------------
 
     fn insert_text(&mut self, text: &str) {
@@ -772,9 +863,12 @@ impl EditorState {
     fn clear_marks(&mut self) {
         self.anchor = None;
         self.block = None;
+        self.shift_marking = false;
     }
 
     fn toggle_mark(&mut self) {
+        // An explicit F3 mark is never a Shift-selection (plain moves extend it).
+        self.shift_marking = false;
         if self.anchor.is_some() {
             // Finalize the live block.
             let a = self.anchor.take().unwrap();
@@ -870,6 +964,71 @@ mod tests {
 
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    fn key_mod(code: KeyCode, mods: KeyModifiers) -> KeyEvent {
+        KeyEvent::new(code, mods)
+    }
+
+    #[test]
+    fn ctrl_home_end_jump_to_document_ends() {
+        let mut e = ed("line0\nline1\nline2");
+        e.handle_key(key(KeyCode::Down));
+        e.handle_key(key(KeyCode::Right));
+        assert_ne!(e.cursor, 0);
+        e.handle_key(key_mod(KeyCode::Home, KeyModifiers::CONTROL));
+        assert_eq!(e.cursor, 0);
+        assert_eq!(e.cur_line(), 0);
+        e.handle_key(key_mod(KeyCode::End, KeyModifiers::CONTROL));
+        assert_eq!(e.cursor, e.buf.len_chars());
+        assert_eq!(e.cur_line(), 2);
+    }
+
+    #[test]
+    fn ctrl_arrows_jump_by_word() {
+        // "foo bar  baz": words start at 0, 4, 9 (double space before "baz").
+        let mut e = ed("foo bar  baz");
+        e.handle_key(key_mod(KeyCode::Right, KeyModifiers::CONTROL));
+        assert_eq!(e.cursor, 4, "start of \"bar\"");
+        e.handle_key(key_mod(KeyCode::Right, KeyModifiers::CONTROL));
+        assert_eq!(e.cursor, 9, "start of \"baz\"");
+        e.handle_key(key_mod(KeyCode::Left, KeyModifiers::CONTROL));
+        assert_eq!(e.cursor, 4, "back to start of \"bar\"");
+        e.handle_key(key_mod(KeyCode::Left, KeyModifiers::CONTROL));
+        assert_eq!(e.cursor, 0, "back to start of \"foo\"");
+        // Word movement crosses line breaks.
+        let mut e = ed("a\nbb");
+        e.handle_key(key_mod(KeyCode::Right, KeyModifiers::CONTROL)); // past "a"
+        e.handle_key(key_mod(KeyCode::Right, KeyModifiers::CONTROL)); // onto "bb"
+        assert_eq!(e.cur_line(), 1);
+    }
+
+    #[test]
+    fn shift_arrows_select_without_f3() {
+        let mut e = ed("abcdef");
+        e.handle_key(key_mod(KeyCode::Right, KeyModifiers::SHIFT));
+        e.handle_key(key_mod(KeyCode::Right, KeyModifiers::SHIFT));
+        assert_eq!(e.block_range(), Some((0, 2)), "Shift+Right marks a block");
+        e.handle_key(key(KeyCode::F(5))); // copy works on the selection
+        assert_eq!(e.clipboard, "ab");
+        // A plain move collapses the Shift-selection.
+        e.handle_key(key(KeyCode::Right));
+        assert_eq!(e.block_range(), None);
+
+        // Shift+Ctrl-Right selects a whole word ("foo " up to the next word).
+        let mut e = ed("foo bar");
+        e.handle_key(key_mod(KeyCode::Right, KeyModifiers::SHIFT | KeyModifiers::CONTROL));
+        assert_eq!(e.block_range(), Some((0, 4)));
+    }
+
+    #[test]
+    fn f3_marking_still_extends_with_plain_arrows() {
+        // Regression: an F3 mark must keep extending on *plain* arrows.
+        let mut e = ed("abcdef");
+        e.handle_key(key(KeyCode::F(3)));
+        e.handle_key(key(KeyCode::Right));
+        e.handle_key(key(KeyCode::Right));
+        assert_eq!(e.block_range(), Some((0, 2)));
     }
 
     fn tmpfile(bytes: &[u8]) -> std::path::PathBuf {

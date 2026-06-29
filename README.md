@@ -87,6 +87,9 @@ The installed executable is named **`rc`** for quick typing.
 - Block mark/copy/move/delete, search, **search & replace** (literal or regex),
   undo/redo, and a status bar showing the byte under the cursor, line/column and
   totals
+- **Navigation & selection**: **Ctrl-Home/End** jump to the start/end of the
+  document, **Ctrl-←/→** jump by word, and **Shift+arrows** (or Shift+Ctrl-arrows)
+  mark text without first entering F3 mark mode
 - **Syntax highlighting** (same `syntect` engine) that updates incrementally as
   you type — only the edited line onward is re-highlighted — and coexists with
   block selection highlighting
