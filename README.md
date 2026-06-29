@@ -104,7 +104,7 @@ The installed executable is named **`rc`** for quick typing.
 - `chmod`, `chown`, symlink creation, and make-directory dialogs
 - **Confirmations** dialog (F9 → Options → *Confirmations…*) toggles whether to
   confirm **delete** (on), **overwrite** (on), **execute / open with default app**
-  (off) and **exit** (on)
+  (off), **unmount** (on) and **exit** (on)
 
 **Archives — browsed like directories**
 - Open `.zip`, `.tar`, `.tar.gz`, `.tar.bz2`, `.tar.xz`, `.7z` and `.rar`
@@ -178,6 +178,20 @@ The installed executable is named **`rc`** for quick typing.
   directory, **Esc** closes
 
 <img width="1004" height="659" alt="image" src="https://github.com/user-attachments/assets/3673b354-1fb7-4445-8e5e-ebdb356c0b96" />
+
+**Disk manager** (Command menu → *Disk manager…*, Linux only)
+- Two-panel layout: A **disk→partition tree** of block devices
+  on the left — each partition shows its **filesystem type and volume label** and other details — and the **current mounts** on the right. **Tab** switches panes
+- **Enter** (or a **double-click**) on a device opens an action menu —
+  **Mount**/**Format** when it's free, **Unmount** when it's mounted. **Enter**
+  (or double-click) on a mount offers **Unmount**/**Sync**. Mounting prompts for a path (offering to create it if missing);
+  unmounting asks for confirmation (toggle in *Confirmations…*, on by default).
+  Unmounting an **essential system mount point** (`/`, `/boot`, `/usr`, …) raises a **warning** dialog.
+- **Format** a device to **FAT32, FAT16, VFAT, NTFS, EXT4/3/2 or BTRFS**, with a
+  volume label and filesystem-specific options (quick format, bytes-per-inode),
+  guarded by a destructive-action confirmation.
+- Privileged operations need root: when not run as root they use **`sudo`** —
+  non-interactively if possible, otherwise prompting for a password.
 
 
 ---

@@ -8,14 +8,15 @@ use crate::ops::CancelToken;
 use crate::ops::{OpKind, OpRequest, TaskHandle, TaskId, spawn_op};
 use crate::diff::{DiffSignal, DiffView};
 use crate::disk::{DiskSignal, DiskView};
+use crate::mount::{MountSignal, MountView};
 use crate::panel::sort::SortKey;
 use crate::panel::Panel;
 use crate::proc::{ProcSignal, ProcView};
 use crate::ui::cmdline::CommandLine;
 use crate::ui::dialog::{
-    CompareDialog, CompareMode, ConfirmDialog, Dialog, DialogResult, FindDialog, FindParams,
-    FormDialog, InputDialog, InputPurpose, MessageDialog, OverwriteDialog, ProgressDialog,
-    SearchReplaceDialog, SearchReplaceParams, SelectDialog, Submit, UserMenuDialog,
+    BusyDialog, CompareDialog, CompareMode, ConfirmDialog, Dialog, DialogResult, FindDialog,
+    FindParams, FormDialog, InputDialog, InputPurpose, MessageDialog, OverwriteDialog,
+    ProgressDialog, SearchReplaceDialog, SearchReplaceParams, SelectDialog, Submit, UserMenuDialog,
 };
 use crate::usermenu::{self, UserMenuEntry};
 use crate::ui::layout::SplitDir;
@@ -58,6 +59,24 @@ enum PointAction {
     InvertPaint,
 }
 
+/// A privileged disk-manager command awaiting a sudo password, plus the message
+/// to show on success and the "busy" label to display while it runs.
+struct PendingPriv {
+    cmd: String,
+    ok_msg: String,
+    busy: String,
+}
+
+/// How to execute a privileged command on the background task.
+enum PrivExec {
+    /// Already root: run the command directly.
+    Root(String),
+    /// Escalate via `sudo` without a password (cached/`NOPASSWD`).
+    SudoNonInteractive(String),
+    /// Escalate via `sudo -S`, feeding the given password on stdin.
+    SudoPassword(String, String),
+}
+
 pub struct AppState {
     pub panels: [Panel; 2],
     /// Index of the active panel (0 = left/top, 1 = right/bottom).
@@ -74,6 +93,10 @@ pub struct AppState {
     pub diskview: Option<DiskView>,
     /// The full-screen side-by-side file comparison view, when open.
     pub diffview: Option<DiffView>,
+    /// The full-screen disk-mounter tool, when open.
+    pub mountview: Option<MountView>,
+    /// A privileged command queued while prompting for a sudo password.
+    pending_sudo: Option<PendingPriv>,
     pub theme: Theme,
     pub config: Config,
     pub registry: Registry,
@@ -315,6 +338,8 @@ impl AppState {
             procview: None,
             diskview: None,
             diffview: None,
+            mountview: None,
+            pending_sudo: None,
             theme,
             config,
             registry,
@@ -368,6 +393,20 @@ impl AppState {
             }
             dirty = true;
         }
+        // Keep the disk-mounter lists fresh (~every 500 ms), unless a dialog is
+        // open over it (e.g. entering a path), to avoid the lists shifting.
+        if self.dialog.is_none()
+            && self.tick_count.is_multiple_of(5)
+            && let Some(mv) = self.mountview.as_mut()
+        {
+            mv.refresh();
+            dirty = true;
+        }
+        // Spin the "working…" dialog while a privileged op runs.
+        if let Some(Dialog::Busy(b)) = self.dialog.as_mut() {
+            b.tick();
+            dirty = true;
+        }
         dirty
     }
 
@@ -377,7 +416,9 @@ impl AppState {
             || self.config.system_status
             || self.pending_esc.is_some()
             || self.procview.is_some()
+            || self.mountview.is_some()
             || !self.tasks.is_empty()
+            || matches!(self.dialog, Some(Dialog::Busy(_)))
             || self.diskview.as_ref().is_some_and(|d| d.scanning)
     }
 
@@ -455,6 +496,13 @@ impl AppState {
                         p.cursor = i;
                     }
                 }
+            }
+            AppEvent::PrivilegedDone { ok_msg, result } => {
+                // Dismiss the busy spinner, then report on the manager's status.
+                if matches!(self.dialog, Some(Dialog::Busy(_))) {
+                    self.dialog = None;
+                }
+                self.finish_privileged(result, ok_msg);
             }
             AppEvent::FindDone { id, results } => {
                 self.tasks.remove(&id);
@@ -627,6 +675,24 @@ impl AppState {
             return Flow::Continue;
         }
 
+        // The disk manager handles its own clicks (cursor + double-click menus).
+        if self.mountview.is_some() {
+            let sig = self.mountview.as_mut().unwrap().handle_mouse(ev);
+            self.apply_mount_signal(sig).await;
+            return Flow::Continue;
+        }
+
+        // Other full-screen overlays don't use the mouse yet; swallow the event
+        // so it can't move the hidden file-panel cursor underneath them.
+        if self.editor.is_some()
+            || self.viewer.is_some()
+            || self.procview.is_some()
+            || self.diskview.is_some()
+            || self.diffview.is_some()
+        {
+            return Flow::Continue;
+        }
+
         // A fresh press starts a new gesture; forget the last painted entry.
         if matches!(ev.kind, MouseEventKind::Down(_)) {
             self.paint_last = None;
@@ -785,6 +851,11 @@ impl AppState {
             }
             return Flow::Continue;
         }
+        if self.mountview.is_some() {
+            let sig = self.mountview.as_mut().unwrap().handle_key(key);
+            self.apply_mount_signal(sig).await;
+            return Flow::Continue;
+        }
         if self.menu.is_some() {
             return self.handle_menu_key(key).await;
         }
@@ -837,6 +908,7 @@ impl AppState {
             MenuAction::FindFile => self.open_find_dialog(),
             MenuAction::ProcExplorer => self.open_proc_explorer(),
             MenuAction::DiskExplorer => self.open_disk_explorer(),
+            MenuAction::DiskManager => self.mountview = Some(MountView::new()),
             MenuAction::CompareDirs => self.dialog = Some(Dialog::Compare(CompareDialog::new())),
             MenuAction::CompareFiles => self.open_compare_files().await,
             MenuAction::Connect(side, proto) => {
@@ -998,6 +1070,7 @@ impl AppState {
                 self.config.confirm_delete = v.delete;
                 self.config.confirm_overwrite = v.overwrite;
                 self.config.confirm_execute = v.execute;
+                self.config.confirm_unmount = v.unmount;
                 self.config.confirm_exit = v.exit;
                 if let Err(e) = self.config.save() {
                     self.show_error(format!("could not save settings: {e}"));
@@ -1006,6 +1079,28 @@ impl AppState {
             Submit::OpenWith(path) => {
                 tokio::spawn(async move { launch_default(path).await });
             }
+            Submit::Mount { device, path } => {
+                // Create the mount point first if it doesn't exist (with consent).
+                if std::path::Path::new(&path).exists() {
+                    self.do_mount(device, path, false).await;
+                } else {
+                    self.dialog =
+                        Some(Dialog::Confirm(ConfirmDialog::create_mountpoint(&device, &path)));
+                }
+            }
+            Submit::MountCreate { device, path } => self.do_mount(device, path, true).await,
+            Submit::SudoPassword(password) => self.run_pending_sudo(password).await,
+            Submit::MountDevice(device) => self.prompt_mount_path(device),
+            Submit::FormatDevice(device) => {
+                self.dialog = Some(Dialog::Form(FormDialog::format(device)));
+            }
+            Submit::AskUnmount(mountpoint) => self.ask_unmount(mountpoint).await,
+            Submit::DoUnmount(mountpoint) => self.do_unmount(mountpoint).await,
+            Submit::SyncPath(mountpoint) => self.do_sync(mountpoint).await,
+            Submit::Format(spec) => {
+                self.dialog = Some(Dialog::Confirm(ConfirmDialog::format(spec)));
+            }
+            Submit::DoFormat(spec) => self.do_format(spec).await,
         }
     }
 
@@ -1244,6 +1339,152 @@ impl AppState {
     /// Open the full-screen process explorer.
     fn open_proc_explorer(&mut self) {
         self.procview = Some(ProcView::new());
+    }
+
+    // -- Disk manager ------------------------------------------------------
+
+    /// Prompt for the path to mount `device` at (suggesting `/mnt/<name>`).
+    fn prompt_mount_path(&mut self, device: String) {
+        let base = device.rsplit('/').next().unwrap_or("disk");
+        let suggest = format!("/mnt/{base}");
+        self.dialog = Some(Dialog::Input(InputDialog::new(
+            "Mount",
+            format!("Mount {device} at:"),
+            suggest,
+            InputPurpose::MountPath(device),
+        )));
+    }
+
+    /// Mount `device` at `path` (optionally creating the mount point first),
+    /// escalating with sudo when not running as root.
+    async fn do_mount(&mut self, device: String, path: String, create: bool) {
+        let q = crate::mount::shell_quote;
+        let cmd = if create {
+            format!("mkdir -p {p} && mount {d} {p}", p = q(&path), d = q(&device))
+        } else {
+            format!("mount {} {}", q(&device), q(&path))
+        };
+        let busy = format!("Mounting {device}...");
+        self.run_privileged(cmd, format!("Mounted {device} at {path}"), busy).await;
+    }
+
+    /// Apply a [`MountSignal`] produced by the disk manager (from a key or a
+    /// mouse gesture): open the relevant action dialog, unmount, or close.
+    async fn apply_mount_signal(&mut self, sig: MountSignal) {
+        match sig {
+            MountSignal::Stay => {}
+            MountSignal::Close => self.mountview = None,
+            MountSignal::DeviceMenu(d) => {
+                self.dialog = Some(Dialog::Confirm(ConfirmDialog::device_menu(
+                    &d.name,
+                    &d.dev,
+                    d.mountpoint.as_deref(),
+                )));
+            }
+            MountSignal::MountMenu(mountpoint) => {
+                self.dialog = Some(Dialog::Confirm(ConfirmDialog::mount_menu(&mountpoint)));
+            }
+            MountSignal::Unmount(mountpoint) => self.ask_unmount(mountpoint).await,
+        }
+    }
+
+    /// Unmount `mountpoint`, prompting for confirmation when enabled. Essential
+    /// system mount points always raise a loud red warning, regardless of the
+    /// confirmation setting.
+    async fn ask_unmount(&mut self, mountpoint: String) {
+        if crate::mount::is_essential_mount(&mountpoint) {
+            self.dialog = Some(Dialog::Confirm(ConfirmDialog::unmount_danger(&mountpoint)));
+        } else if self.config.confirm_unmount {
+            self.dialog = Some(Dialog::Confirm(ConfirmDialog::unmount(&mountpoint)));
+        } else {
+            self.do_unmount(mountpoint).await;
+        }
+    }
+
+    /// Unmount the filesystem at `mountpoint`.
+    async fn do_unmount(&mut self, mountpoint: String) {
+        let cmd = format!("umount {}", crate::mount::shell_quote(&mountpoint));
+        let busy = format!("Unmounting {mountpoint}...");
+        self.run_privileged(cmd, format!("Unmounted {mountpoint}"), busy).await;
+    }
+
+    /// Flush filesystem buffers for `mountpoint` (no privileges needed).
+    async fn do_sync(&mut self, mountpoint: String) {
+        let cmd = format!("sync -f {}", crate::mount::shell_quote(&mountpoint));
+        let result = crate::mount::run_shell(&cmd).await;
+        self.finish_privileged(result, format!("Synced {mountpoint}"));
+    }
+
+    /// Run a confirmed format request (creating the chosen filesystem).
+    async fn do_format(&mut self, spec: crate::mount::FormatSpec) {
+        let ok = format!("Formatted {} as {}", spec.dev, spec.fs.label());
+        let busy = format!("Formatting {} as {}...", spec.dev, spec.fs.label());
+        let cmd = crate::mount::format_command(&spec);
+        self.run_privileged(cmd, ok, busy).await;
+    }
+
+    /// Run a privileged `sh -c` command: directly when root, via non-interactive
+    /// sudo when possible, otherwise queue it and prompt for a sudo password.
+    /// The command runs on a background task (showing `busy` meanwhile) so the
+    /// UI keeps redrawing while a slow operation like `mkfs` runs.
+    async fn run_privileged(&mut self, cmd: String, ok_msg: String, busy: String) {
+        if crate::mount::is_root() {
+            self.spawn_privileged(PrivExec::Root(cmd), ok_msg, busy);
+        } else if crate::mount::sudo_can_noninteractive().await {
+            self.spawn_privileged(PrivExec::SudoNonInteractive(cmd), ok_msg, busy);
+        } else {
+            // Need a password: stash the command and prompt for it.
+            self.pending_sudo = Some(PendingPriv { cmd, ok_msg, busy });
+            self.dialog = Some(Dialog::Input(InputDialog::password(
+                "Authentication required",
+                "Enter sudo password:",
+                InputPurpose::SudoPassword,
+            )));
+        }
+    }
+
+    /// Run the queued privileged command with the entered sudo `password`.
+    async fn run_pending_sudo(&mut self, password: String) {
+        let Some(p) = self.pending_sudo.take() else {
+            return;
+        };
+        self.spawn_privileged(PrivExec::SudoPassword(p.cmd, password), p.ok_msg, p.busy);
+    }
+
+    /// Show a busy spinner and run a privileged command on a background task,
+    /// reporting its result back through [`AppEvent::PrivilegedDone`].
+    fn spawn_privileged(&mut self, exec: PrivExec, ok_msg: String, busy: String) {
+        self.dialog = Some(Dialog::Busy(BusyDialog::new("Please wait", busy)));
+        let tx = self.tx.clone();
+        tokio::spawn(async move {
+            let result = match exec {
+                PrivExec::Root(cmd) => crate::mount::run_shell(&cmd).await,
+                PrivExec::SudoNonInteractive(cmd) => {
+                    crate::mount::run_sudo_noninteractive(&cmd).await
+                }
+                PrivExec::SudoPassword(cmd, pw) => crate::mount::run_sudo_password(&cmd, &pw).await,
+            };
+            let _ = tx.send(AppEvent::PrivilegedDone { ok_msg, result }).await;
+        });
+    }
+
+    /// Report the outcome of a privileged op on the mounter's status line and
+    /// refresh its lists.
+    fn finish_privileged(&mut self, result: Result<(), String>, ok_msg: String) {
+        match self.mountview.as_mut() {
+            Some(mv) => {
+                mv.refresh();
+                mv.status = match result {
+                    Ok(()) => ok_msg,
+                    Err(e) => format!("Error: {e}"),
+                };
+            }
+            None => {
+                if let Err(e) = result {
+                    self.show_error(e);
+                }
+            }
+        }
     }
 
     /// Open the full-screen disk-usage explorer at the active panel's directory.
@@ -3210,6 +3451,83 @@ mod tests {
         assert!(st.viewer.is_none());
         st.open_help();
         assert!(st.viewer.is_some(), "F1 should open the help viewer");
+    }
+
+    #[tokio::test]
+    async fn disk_mounter_opens_and_prompts_for_path() {
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
+        st.init().await;
+        // The Command-menu action opens the mounter view.
+        st.run_menu_action(crate::ui::menu::MenuAction::DiskManager).await;
+        assert!(st.mountview.is_some(), "disk mounter should open");
+
+        // Enter on a device requests a mount → the app raises a path-input dialog.
+        let mv = st.mountview.as_mut().unwrap();
+        mv.devices = vec![crate::mount::BlockDevice {
+            name: "sdb1".into(),
+            dev: "/dev/sdb1".into(),
+            size: 0,
+            fstype: String::new(),
+            mountpoint: None,
+            ..Default::default()
+        }];
+        mv.dev_cursor = 0;
+        // Enter opens the device action menu (Mount/Format/Cancel).
+        st.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).await;
+        assert!(
+            matches!(st.dialog, Some(crate::ui::dialog::Dialog::Confirm(_))),
+            "Enter on a device opens its action menu"
+        );
+        // Activating the focused "Mount" button prompts for the target path.
+        st.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).await;
+        assert!(
+            matches!(st.dialog, Some(crate::ui::dialog::Dialog::Input(_))),
+            "the Mount action prompts for the target path"
+        );
+
+        // Esc cancels the (open) dialog immediately, returning to the mounter.
+        st.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).await;
+        assert!(st.dialog.is_none());
+        assert!(st.mountview.is_some(), "still on the mounter after cancel");
+        // With no dialog, a lone Esc is held (function-key prefix); the next key
+        // flushes it through to the mounter, which closes.
+        st.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).await;
+        st.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).await;
+        assert!(st.mountview.is_none(), "Esc closes the mounter");
+    }
+
+    #[tokio::test]
+    async fn formatting_shows_busy_dialog_until_done() {
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
+        st.mountview = Some(MountView::new());
+
+        // A privileged op in flight raises the non-dismissible busy spinner, and
+        // input can't close it.
+        st.dialog = Some(Dialog::Busy(BusyDialog::new("Please wait", "Formatting /dev/sdb1...")));
+        st.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).await;
+        st.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).await;
+        assert!(matches!(st.dialog, Some(Dialog::Busy(_))), "busy spinner ignores input");
+
+        // Completion dismisses the spinner and reports success on the status line.
+        st.apply_event(AppEvent::PrivilegedDone {
+            ok_msg: "Formatted /dev/sdb1 as EXT4".into(),
+            result: Ok(()),
+        })
+        .await;
+        assert!(st.dialog.is_none(), "busy dialog dismissed on completion");
+        assert_eq!(st.mountview.as_ref().unwrap().status, "Formatted /dev/sdb1 as EXT4");
+
+        // A failure surfaces as an error on the status line.
+        st.dialog = Some(Dialog::Busy(BusyDialog::new("Please wait", "Formatting...")));
+        st.apply_event(AppEvent::PrivilegedDone {
+            ok_msg: "ok".into(),
+            result: Err("mkfs failed".into()),
+        })
+        .await;
+        assert!(st.dialog.is_none());
+        assert!(st.mountview.as_ref().unwrap().status.contains("mkfs failed"));
     }
 
     #[tokio::test]

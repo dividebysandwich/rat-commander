@@ -23,6 +23,12 @@ pub enum AppEvent {
     Conflict(ConflictInfo),
     /// A background task finished (success, cancel, or failure).
     TaskDone { id: TaskId, outcome: TaskOutcome },
+    /// A privileged disk-manager command (mount/unmount/format) run in the
+    /// background finished; carries its result and the success message to show.
+    PrivilegedDone {
+        ok_msg: String,
+        result: Result<(), String>,
+    },
     /// A find-file task finished (or was aborted); carries the matching files
     /// (path + size) collected so far so partial results can still be panelized.
     /// Paths may be local or remote, depending on the searched backend.

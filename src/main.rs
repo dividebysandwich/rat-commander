@@ -8,6 +8,7 @@ mod config;
 mod diff;
 mod disk;
 mod editor;
+mod mount;
 mod ops;
 mod panel;
 mod proc;

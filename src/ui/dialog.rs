@@ -27,6 +27,9 @@ pub enum Dialog {
     Input(InputDialog),
     Confirm(ConfirmDialog),
     Progress(ProgressDialog),
+    /// A non-dismissible "working…" spinner shown while a blocking background
+    /// operation (e.g. formatting a disk) runs.
+    Busy(BusyDialog),
     Message(MessageDialog),
     Form(FormDialog),
     Select(SelectDialog),
@@ -103,6 +106,26 @@ pub enum Submit {
     CompareDirs(CompareMode),
     /// Open/execute a local file with its default application (confirmed).
     OpenWith(std::path::PathBuf),
+    /// Mount `device` at `path` (disk manager); the app handles create-if-missing.
+    Mount { device: String, path: String },
+    /// Create the (missing) mount point and then mount.
+    MountCreate { device: String, path: String },
+    /// A sudo password entered for a queued privileged command.
+    SudoPassword(String),
+    /// Prompt for a path and mount this device node.
+    MountDevice(String),
+    /// Open the formatter for this device node.
+    FormatDevice(String),
+    /// Unmount this mount point (the app confirms first if enabled).
+    AskUnmount(String),
+    /// Unmount this mount point now (confirmed).
+    DoUnmount(String),
+    /// Flush filesystem buffers for this mount point.
+    SyncPath(String),
+    /// A format request collected from the formatter dialog (confirm first).
+    Format(crate::mount::FormatSpec),
+    /// Run the (confirmed) format request.
+    DoFormat(crate::mount::FormatSpec),
 }
 
 /// How the directory-comparison tool decides which files differ.
@@ -135,6 +158,7 @@ pub struct ConfirmValues {
     pub delete: bool,
     pub overwrite: bool,
     pub execute: bool,
+    pub unmount: bool,
     pub exit: bool,
 }
 
@@ -144,6 +168,7 @@ impl Dialog {
             Dialog::Input(d) => d.handle_key(key),
             Dialog::Confirm(d) => d.handle_key(key),
             Dialog::Progress(d) => d.handle_key(key),
+            Dialog::Busy(_) => DialogResult::None, // ignore keys while working
             Dialog::Message(_) => DialogResult::Cancel, // any key closes
             Dialog::Form(d) => d.handle_key(key),
             Dialog::Select(d) => d.handle_key(key),
@@ -160,6 +185,7 @@ impl Dialog {
             Dialog::Input(d) => d.render(f, area, theme),
             Dialog::Confirm(d) => d.render(f, area, theme),
             Dialog::Progress(d) => d.render(f, area, theme),
+            Dialog::Busy(d) => d.render(f, area, theme),
             Dialog::Message(d) => d.render(f, area, theme),
             Dialog::Form(d) => d.render(f, area, theme),
             Dialog::Select(d) => d.render(f, area, theme),
@@ -180,7 +206,7 @@ impl Dialog {
             Dialog::Overwrite(d) => return d.handle_click(col, row),
             Dialog::Compare(d) => return d.handle_click(col, row),
             Dialog::Confirm(d) => {
-                let rect = centered(area, 54u16.min(area.width.saturating_sub(4)), 7);
+                let rect = d.box_rect(area);
                 return d.handle_click(rect, col, row);
             }
             // Any click dismisses a message box.
@@ -188,6 +214,8 @@ impl Dialog {
             // The progress dialog is keyboard-aborted (Esc); ignore clicks so a
             // stray click can't cancel a running operation.
             Dialog::Progress(_) => return DialogResult::None,
+            // The busy spinner can't be dismissed at all.
+            Dialog::Busy(_) => return DialogResult::None,
             // The connect form's history chevron/dropdown take clicks first.
             Dialog::Form(d) => {
                 if let Some(res) = d.click_dropdown(col, row) {
@@ -245,6 +273,10 @@ pub enum InputPurpose {
     CopyDest(Vec<VfsPath>),
     MoveDest(Vec<VfsPath>),
     Compress(Vec<VfsPath>),
+    /// Enter a mount point for `device` (disk mounter).
+    MountPath(String),
+    /// Enter a sudo password to run a queued privileged command.
+    SudoPassword,
 }
 
 pub struct InputDialog {
@@ -254,6 +286,8 @@ pub struct InputDialog {
     /// Caret position as a char index.
     pub cursor: usize,
     pub purpose: InputPurpose,
+    /// Render the buffer masked (password entry).
+    pub masked: bool,
 }
 
 impl InputDialog {
@@ -271,6 +305,19 @@ impl InputDialog {
             buffer,
             cursor,
             purpose,
+            masked: false,
+        }
+    }
+
+    /// A masked single-field prompt (for a password).
+    pub fn password(title: impl Into<String>, prompt: impl Into<String>, purpose: InputPurpose) -> Self {
+        InputDialog {
+            title: title.into(),
+            prompt: prompt.into(),
+            buffer: String::new(),
+            cursor: 0,
+            purpose,
+            masked: true,
         }
     }
 
@@ -286,6 +333,11 @@ impl InputDialog {
         match key.code {
             KeyCode::Esc => DialogResult::Cancel,
             KeyCode::Enter => {
+                // A password may legitimately contain anything (and be empty); the
+                // path/name fields are trimmed and must be non-empty.
+                if let InputPurpose::SudoPassword = self.purpose {
+                    return DialogResult::Submit(Submit::SudoPassword(self.buffer.clone()));
+                }
                 let text = self.buffer.trim().to_string();
                 if text.is_empty() {
                     return DialogResult::Cancel;
@@ -295,6 +347,11 @@ impl InputDialog {
                     InputPurpose::CopyDest(s) => Submit::Copy(s.clone(), text),
                     InputPurpose::MoveDest(s) => Submit::Move(s.clone(), text),
                     InputPurpose::Compress(s) => Submit::Compress(s.clone(), text),
+                    InputPurpose::MountPath(device) => Submit::Mount {
+                        device: device.clone(),
+                        path: text,
+                    },
+                    InputPurpose::SudoPassword => unreachable!(),
                 };
                 DialogResult::Submit(submit)
             }
@@ -367,7 +424,9 @@ impl InputDialog {
             height: 1,
             ..rows[1]
         };
-        if let Some(pos) = draw_input_field(f, field, &self.buffer, self.cursor, true, false, theme) {
+        if let Some(pos) =
+            draw_input_field(f, field, &self.buffer, self.cursor, true, self.masked, theme)
+        {
             f.set_cursor_position(pos);
         }
 
@@ -397,6 +456,8 @@ pub struct ConfirmDialog {
     buttons: Vec<ConfirmButton>,
     /// Index of the currently focused button.
     focus: usize,
+    /// When true, the dialog is drawn in red to flag a dangerous operation.
+    danger: bool,
 }
 
 impl ConfirmDialog {
@@ -416,6 +477,7 @@ impl ConfirmDialog {
                 ConfirmButton { label: no_label.to_string(), action: no_submit },
             ],
             focus: 0,
+            danger: false,
         }
     }
 
@@ -430,6 +492,7 @@ impl ConfirmDialog {
                 ConfirmButton { label: "Cancel".to_string(), action: None },
             ],
             focus: 0,
+            danger: false,
         }
     }
 
@@ -449,6 +512,111 @@ impl ConfirmDialog {
             Submit::Quit,
             "Yes",
             "No",
+            None,
+        )
+    }
+
+    /// A choice dialog with arbitrary buttons (a `None` action cancels).
+    fn from_buttons(title: &str, message: String, buttons: Vec<(&str, Option<Submit>)>) -> Self {
+        ConfirmDialog {
+            title: title.to_string(),
+            message,
+            buttons: buttons
+                .into_iter()
+                .map(|(label, action)| ConfirmButton { label: label.to_string(), action })
+                .collect(),
+            focus: 0,
+            danger: false,
+        }
+    }
+
+    /// Action menu for a block device: Mount/Format when free, Unmount when
+    /// mounted.
+    pub fn device_menu(name: &str, dev: &str, mountpoint: Option<&str>) -> Self {
+        match mountpoint {
+            Some(mp) => Self::from_buttons(
+                "Device",
+                format!("{name}  ({dev})  mounted at {mp}"),
+                vec![
+                    ("Unmount", Some(Submit::AskUnmount(mp.to_string()))),
+                    ("Cancel", None),
+                ],
+            ),
+            None => Self::from_buttons(
+                "Device",
+                format!("{name}  ({dev})"),
+                vec![
+                    ("Mount", Some(Submit::MountDevice(dev.to_string()))),
+                    ("Format", Some(Submit::FormatDevice(dev.to_string()))),
+                    ("Cancel", None),
+                ],
+            ),
+        }
+    }
+
+    /// Action menu for a mount point: Unmount / Sync.
+    pub fn mount_menu(mountpoint: &str) -> Self {
+        Self::from_buttons(
+            "Mount",
+            mountpoint.to_string(),
+            vec![
+                ("Unmount", Some(Submit::AskUnmount(mountpoint.to_string()))),
+                ("Sync", Some(Submit::SyncPath(mountpoint.to_string()))),
+                ("Cancel", None),
+            ],
+        )
+    }
+
+    /// Confirm unmounting a mount point.
+    pub fn unmount(mountpoint: &str) -> Self {
+        Self::yes_no(
+            "Unmount",
+            format!("Unmount \"{mountpoint}\"?"),
+            Submit::DoUnmount(mountpoint.to_string()),
+            "Unmount",
+            "Cancel",
+            None,
+        )
+    }
+
+    /// A loud, red warning before unmounting an essential system mount point
+    /// (`/`, `/boot`, …). Defaults the focus to Cancel so a stray Enter is safe.
+    pub fn unmount_danger(mountpoint: &str) -> Self {
+        let mut d = Self::from_buttons(
+            "DANGER",
+            format!(
+                "\"{mountpoint}\" is an essential system mount point. \
+                 Unmounting it may make your system unusable or unbootable. \
+                 Continue anyway?"
+            ),
+            vec![
+                ("Unmount anyway", Some(Submit::DoUnmount(mountpoint.to_string()))),
+                ("Cancel", None),
+            ],
+        );
+        d.danger = true;
+        d.focus = 1; // Cancel
+        d
+    }
+
+    /// Final (destructive) confirmation before formatting a device.
+    pub fn format(spec: crate::mount::FormatSpec) -> Self {
+        let msg = format!(
+            "ERASE ALL DATA on {} and create a {} filesystem?",
+            spec.dev,
+            spec.fs.label()
+        );
+        Self::from_buttons("Format", msg, vec![("Format", Some(Submit::DoFormat(spec))), ("Cancel", None)])
+    }
+
+    /// Confirm creating a missing mount point before mounting.
+    pub fn create_mountpoint(device: &str, path: &str) -> Self {
+        Self::yes_no(
+            "Create mount point",
+            format!("\"{path}\" does not exist. Create it and mount {device} there?"),
+            Submit::MountCreate { device: device.to_string(), path: path.to_string() },
+            "Create",
+            "Cancel",
             None,
         )
     }
@@ -593,12 +761,22 @@ impl ConfirmDialog {
         self.buttons.iter().map(|b| format!("[ {} ]", b.label)).collect()
     }
 
+    /// The centered box geometry, matching [`Self::render`], so mouse hit-testing
+    /// and drawing agree (the danger variant is a touch larger).
+    fn box_rect(&self, area: Rect) -> Rect {
+        let (w, h) = if self.danger { (58u16, 9u16) } else { (54u16, 7u16) };
+        centered(area, w.min(area.width.saturating_sub(4)), h)
+    }
+
     fn render(&self, f: &mut Frame, area: Rect, theme: &Theme) {
-        let w = 54u16.min(area.width.saturating_sub(4));
-        let rect = centered(area, w, 7);
+        let rect = self.box_rect(area);
         draw_shadow(f, rect, theme);
         f.render_widget(Clear, rect);
-        let block = dialog_block(&self.title, theme);
+        let block = if self.danger {
+            danger_block(&self.title, theme)
+        } else {
+            dialog_block(&self.title, theme)
+        };
         let inner = block.inner(rect);
         f.render_widget(block, rect);
 
@@ -607,10 +785,13 @@ impl ConfirmDialog {
             .constraints([Constraint::Min(1), Constraint::Length(1)])
             .split(inner);
 
+        let msg_fg = if self.danger { theme.error_fg } else { theme.dialog_fg };
         f.render_widget(
             Paragraph::new(self.message.clone())
                 .wrap(Wrap { trim: true })
-                .style(Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg))
+                .style(Style::default().fg(msg_fg).bg(theme.dialog_bg).add_modifier(
+                    if self.danger { Modifier::BOLD } else { Modifier::empty() },
+                ))
                 .alignment(ratatui::layout::Alignment::Center),
             rows[0],
         );
@@ -936,6 +1117,58 @@ impl ProgressDialog {
 }
 
 // ---------------------------------------------------------------------------
+// Busy dialog (indeterminate "working…" spinner)
+// ---------------------------------------------------------------------------
+
+/// A small, non-dismissible modal shown while a blocking background operation
+/// runs (e.g. `mkfs`). It carries no buttons and swallows all input; the app
+/// replaces it when the operation reports back.
+pub struct BusyDialog {
+    pub title: String,
+    pub message: String,
+    /// Spinner frame, advanced once per UI tick.
+    frame: usize,
+}
+
+impl BusyDialog {
+    pub fn new(title: impl Into<String>, message: impl Into<String>) -> Self {
+        BusyDialog { title: title.into(), message: message.into(), frame: 0 }
+    }
+
+    /// Advance the spinner animation (called from the app's tick handler).
+    pub fn tick(&mut self) {
+        self.frame = self.frame.wrapping_add(1);
+    }
+
+    fn render(&self, f: &mut Frame, area: Rect, theme: &Theme) {
+        const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+        let w = 56u16.min(area.width.saturating_sub(4));
+        let rect = centered(area, w, 6);
+        draw_shadow(f, rect, theme);
+        f.render_widget(Clear, rect);
+        let block = dialog_block(&self.title, theme);
+        let inner = block.inner(rect);
+        f.render_widget(block, rect);
+
+        let base = Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg);
+        let spin = SPINNER[self.frame % SPINNER.len()];
+        let text = format!("{spin}  {}", self.message);
+        // Vertically center the (possibly wrapped) message within the inner box.
+        let iw = inner.width.max(1);
+        let lines = (text.chars().count() as u16).div_ceil(iw).clamp(1, inner.height);
+        let y = inner.y + inner.height.saturating_sub(lines) / 2;
+        let text_area = Rect { y, height: lines, ..inner };
+        f.render_widget(
+            Paragraph::new(text)
+                .wrap(Wrap { trim: true })
+                .style(base.add_modifier(Modifier::BOLD))
+                .alignment(ratatui::layout::Alignment::Center),
+            text_area,
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Message dialog (errors / info)
 // ---------------------------------------------------------------------------
 
@@ -1182,6 +1415,8 @@ pub enum FormPurpose {
     Symlink(VfsPath),
     /// Open a remote connection of this protocol on the given panel side.
     Connect(Protocol, usize),
+    /// Format this device node (disk manager).
+    Format(String),
 }
 
 /// Connect-form history dropdown state (recent servers).
@@ -1229,12 +1464,31 @@ impl FormDialog {
             Field::check("Confirm delete", cfg.confirm_delete),
             Field::check("Confirm overwrite", cfg.confirm_overwrite),
             Field::check("Confirm execute", cfg.confirm_execute),
+            Field::check("Confirm unmount", cfg.confirm_unmount),
             Field::check("Confirm exit", cfg.confirm_exit),
         ]);
         FormDialog {
             title: "Confirmations".to_string(),
             form,
             purpose: FormPurpose::Confirmations,
+            connect: None,
+        }
+    }
+
+    /// Build the disk formatter form for `dev`.
+    pub fn format(dev: String) -> Self {
+        let fs_options: Vec<String> =
+            crate::mount::FsType::ALL.iter().map(|f| f.label().to_string()).collect();
+        let form = Form::new(vec![
+            Field::choice("Filesystem", fs_options, "FAT32"),
+            Field::text("Volume label", ""),
+            Field::check("Quick format (NTFS)", false),
+            Field::text("Bytes/inode (ext, blank=auto)", ""),
+        ]);
+        FormDialog {
+            title: format!("Format {dev}"),
+            form,
+            purpose: FormPurpose::Format(dev),
             connect: None,
         }
     }
@@ -1444,8 +1698,20 @@ impl FormDialog {
                 delete: fields[0].as_bool(),
                 overwrite: fields[1].as_bool(),
                 execute: fields[2].as_bool(),
-                exit: fields[3].as_bool(),
+                unmount: fields[3].as_bool(),
+                exit: fields[4].as_bool(),
             }),
+            FormPurpose::Format(dev) => {
+                let fs = crate::mount::FsType::from_label(fields[0].as_text())
+                    .unwrap_or(crate::mount::FsType::Fat32);
+                Submit::Format(crate::mount::FormatSpec {
+                    dev: dev.clone(),
+                    fs,
+                    label: fields[1].as_text().trim().to_string(),
+                    quick: fields[2].as_bool(),
+                    inode_bytes: fields[3].as_text().trim().to_string(),
+                })
+            }
             FormPurpose::Chmod(p) => Submit::Chmod(p.clone(), self.chmod_mode()),
             FormPurpose::Chown(p) => Submit::Chown(
                 p.clone(),
@@ -2556,6 +2822,23 @@ fn dialog_block(title: &str, theme: &Theme) -> Block<'static> {
         .style(Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg))
 }
 
+/// Like [`dialog_block`] but drawn in a loud red to flag a dangerous action.
+fn danger_block(title: &str, theme: &Theme) -> Block<'static> {
+    Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Double)
+        .border_style(Style::default().fg(theme.error_fg).bg(theme.dialog_bg))
+        .title(Span::styled(
+            format!(" ⚠ {title} ⚠ "),
+            Style::default()
+                .fg(theme.error_fg)
+                .bg(theme.dialog_bg)
+                .add_modifier(Modifier::BOLD),
+        ))
+        .title_alignment(ratatui::layout::Alignment::Center)
+        .style(Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg))
+}
+
 fn button(text: &str, focused: bool, theme: &Theme) -> Span<'static> {
     let style = if focused {
         theme.button_focused
@@ -2961,6 +3244,94 @@ mod tests {
 
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    #[test]
+    fn mount_path_and_password_inputs_submit() {
+        // The mount-path input yields a Mount submit with the device + typed path.
+        let mut d = InputDialog::new("Mount", "at:", "/mnt/x", InputPurpose::MountPath("/dev/sdb1".into()));
+        match d.handle_key(key(KeyCode::Enter)) {
+            DialogResult::Submit(Submit::Mount { device, path }) => {
+                assert_eq!(device, "/dev/sdb1");
+                assert_eq!(path, "/mnt/x");
+            }
+            _ => panic!("expected Mount submit"),
+        }
+        // The password input is masked and submits the raw buffer (even empty).
+        let mut d = InputDialog::password("Auth", "pw:", InputPurpose::SudoPassword);
+        assert!(d.masked);
+        d.handle_key(key(KeyCode::Char('s')));
+        d.handle_key(key(KeyCode::Char('3')));
+        match d.handle_key(key(KeyCode::Enter)) {
+            DialogResult::Submit(Submit::SudoPassword(pw)) => assert_eq!(pw, "s3"),
+            _ => panic!("expected SudoPassword submit"),
+        }
+    }
+
+    #[test]
+    fn device_and_mount_action_menus() {
+        // Unmounted device: the focused "Mount" button → MountDevice.
+        let mut d = ConfirmDialog::device_menu("sdb1", "/dev/sdb1", None);
+        match d.handle_key(key(KeyCode::Enter)) {
+            DialogResult::Submit(Submit::MountDevice(dev)) => assert_eq!(dev, "/dev/sdb1"),
+            _ => panic!("expected MountDevice"),
+        }
+        // Mounted device: the only action is Unmount.
+        let mut d = ConfirmDialog::device_menu("sdb1", "/dev/sdb1", Some("/mnt/x"));
+        match d.handle_key(key(KeyCode::Enter)) {
+            DialogResult::Submit(Submit::AskUnmount(mp)) => assert_eq!(mp, "/mnt/x"),
+            _ => panic!("expected AskUnmount"),
+        }
+        // Mount menu: second button is Sync.
+        let mut d = ConfirmDialog::mount_menu("/mnt/x");
+        d.handle_key(key(KeyCode::Right)); // focus "Sync"
+        match d.handle_key(key(KeyCode::Enter)) {
+            DialogResult::Submit(Submit::SyncPath(mp)) => assert_eq!(mp, "/mnt/x"),
+            _ => panic!("expected SyncPath"),
+        }
+    }
+
+    #[test]
+    fn unmount_danger_defaults_to_cancel_and_confirms_explicitly() {
+        // The red essential-mount warning defaults focus to Cancel, so a stray
+        // Enter is harmless.
+        let mut d = ConfirmDialog::unmount_danger("/");
+        assert!(d.danger, "dialog flagged dangerous");
+        match d.handle_key(key(KeyCode::Enter)) {
+            DialogResult::Cancel => {}
+            _ => panic!("default focus must be Cancel"),
+        }
+        // Choosing "Unmount anyway" still goes through to DoUnmount.
+        let mut d = ConfirmDialog::unmount_danger("/boot");
+        d.handle_key(key(KeyCode::Left)); // move focus to "Unmount anyway"
+        match d.handle_key(key(KeyCode::Enter)) {
+            DialogResult::Submit(Submit::DoUnmount(mp)) => assert_eq!(mp, "/boot"),
+            _ => panic!("expected DoUnmount"),
+        }
+    }
+
+    #[test]
+    fn formatter_collects_a_format_spec() {
+        let mut d = FormDialog::format("/dev/sdb1".into());
+        match d.handle_key(key(KeyCode::Enter)) {
+            DialogResult::Submit(Submit::Format(spec)) => {
+                assert_eq!(spec.dev, "/dev/sdb1");
+                assert_eq!(spec.fs, crate::mount::FsType::Fat32); // default choice
+            }
+            _ => panic!("expected Format submit"),
+        }
+    }
+
+    #[test]
+    fn create_mountpoint_confirm_yields_mount_create() {
+        let mut d = ConfirmDialog::create_mountpoint("/dev/sdb1", "/mnt/new");
+        match d.handle_key(key(KeyCode::Enter)) {
+            DialogResult::Submit(Submit::MountCreate { device, path }) => {
+                assert_eq!(device, "/dev/sdb1");
+                assert_eq!(path, "/mnt/new");
+            }
+            _ => panic!("expected MountCreate submit"),
+        }
     }
 
     #[test]

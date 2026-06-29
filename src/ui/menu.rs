@@ -38,6 +38,7 @@ pub enum MenuAction {
     FindFile,
     ProcExplorer,
     DiskExplorer,
+    DiskManager,
     CompareDirs,
     CompareFiles,
     Connect(usize, Protocol),
@@ -126,19 +127,24 @@ impl MenuBarState {
             ],
         };
 
-        let command = Menu {
-            items: vec![
-                item("Find file...", MenuAction::FindFile),
-                item("Compare directories...", MenuAction::CompareDirs),
-                item("Compare files...", MenuAction::CompareFiles),
-                item("Process explorer...", MenuAction::ProcExplorer),
-                item("Disk explorer...", MenuAction::DiskExplorer),
-                sep(),
-                item("Swap panels", MenuAction::SwapPanels),
-                item("Re-read directories", MenuAction::Refresh),
-                item("Toggle split V/H", MenuAction::ToggleSplit),
-            ],
-        };
+        let mut command_items = vec![
+            item("Find file...", MenuAction::FindFile),
+            item("Compare directories...", MenuAction::CompareDirs),
+            item("Compare files...", MenuAction::CompareFiles),
+            item("Process explorer...", MenuAction::ProcExplorer),
+            item("Disk explorer...", MenuAction::DiskExplorer),
+        ];
+        // The disk mounter relies on Linux `/proc`+`/sys` and `mount`/`sudo`;
+        // it isn't offered on other platforms.
+        #[cfg(target_os = "linux")]
+        command_items.push(item("Disk manager...", MenuAction::DiskManager));
+        command_items.extend([
+            sep(),
+            item("Swap panels", MenuAction::SwapPanels),
+            item("Re-read directories", MenuAction::Refresh),
+            item("Toggle split V/H", MenuAction::ToggleSplit),
+        ]);
+        let command = Menu { items: command_items };
 
         let options = Menu {
             items: vec![

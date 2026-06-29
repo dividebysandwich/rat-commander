@@ -64,6 +64,13 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
         }
         return;
     }
+    if let Some(mv) = state.mountview.as_mut() {
+        crate::mount::render::render(f, area, mv, &theme);
+        if let Some(d) = &mut state.dialog {
+            d.render(f, area, &theme);
+        }
+        return;
+    }
 
     let rows = Layout::default()
         .direction(Direction::Vertical)

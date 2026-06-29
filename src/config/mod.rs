@@ -59,6 +59,8 @@ pub struct Config {
     pub confirm_overwrite: bool,
     /// Ask before opening/executing a file with its default application.
     pub confirm_execute: bool,
+    /// Ask before unmounting a filesystem in the disk manager.
+    pub confirm_unmount: bool,
     /// Ask for confirmation before quitting.
     pub confirm_exit: bool,
     /// Active color theme (palette name).
@@ -85,6 +87,7 @@ impl Default for Config {
             confirm_delete: true,
             confirm_overwrite: true,
             confirm_execute: false,
+            confirm_unmount: true,
             confirm_exit: true,
             theme: "Midnight Commander".to_string(),
             truecolor: None,
