@@ -200,8 +200,9 @@ The installed executable is named **`rc`** for quick typing.
 - Two-panel layout: A **disk→partition tree** of block devices
   on the left — each partition shows its **filesystem type and volume label** and other details — and the **current mounts** on the right. **Tab** switches panes
 - **Enter** (or a **double-click**) on a device opens an action menu —
-  **Mount**/**Format** when it's free, **Unmount** when it's mounted. **Enter**
-  (or double-click) on a mount offers **Unmount**/**Sync**. Mounting prompts for a path (offering to create it if missing);
+  **Mount**/**Format**/**Flash image** when it's free, **Unmount**/**Flash image**
+  when it's mounted. **Enter** (or double-click) on a mount offers **Unmount**/**Sync**.
+  Mounting prompts for a path (offering to create it if missing);
   unmounting asks for confirmation (toggle in *Confirmations…*, on by default).
   Unmounting an **essential system mount point** (`/`, `/boot`, `/usr`, …) raises a **warning** dialog.
 - **Format** a device to **FAT32, FAT16, VFAT, NTFS, EXT4/3/2 or BTRFS**, with a
@@ -209,6 +210,16 @@ The installed executable is named **`rc`** for quick typing.
   guarded by a destructive-action confirmation.
 - Privileged operations need root: when not run as root they use **`sudo`** —
   non-interactively if possible, otherwise prompting for a password.
+
+**Flash a disk image** (Linux)
+- Press **Enter** on a raw image file (`.iso`, `.img`, `.raw`, `.bin`, `.dd`, …)
+  in a panel to open a **target picker** listing every block device + partition
+  with its device/vendor/model name, serial, volume label, filesystem and size.
+- Selecting a target asks for confirmation; a **non-removable** (fixed/system)
+  disk first raises an extra warning.
+- The same flow is reachable from the disk manager's **Flash image** action, which
+  opens a small **file browser** (with an editable extension-glob filter) to pick
+  the image for the device under the cursor.
 
 
 ---

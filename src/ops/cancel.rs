@@ -21,4 +21,9 @@ impl CancelToken {
     pub fn is_cancelled(&self) -> bool {
         self.0.is_cancelled()
     }
+
+    /// Resolves once the token is cancelled (for use in `select!`).
+    pub async fn cancelled(&self) {
+        self.0.cancelled().await;
+    }
 }

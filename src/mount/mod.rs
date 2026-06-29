@@ -41,6 +41,9 @@ pub struct BlockDevice {
     pub model: String,
     /// Serial number (from the parent disk's sysfs), if known.
     pub serial: String,
+    /// Whether the backing disk is removable (sysfs `removable` == 1). Flashing a
+    /// non-removable device is flagged as extra-dangerous.
+    pub removable: bool,
 }
 
 /// One active mount of a block device.
@@ -63,7 +66,7 @@ pub enum MountSignal {
     Stay,
     Close,
     /// Open the action menu for this block device (Mount/Format or Unmount).
-    DeviceMenu(BlockDevice),
+    DeviceMenu(Box<BlockDevice>),
     /// Open the action menu for this mount point (Unmount/Sync).
     MountMenu(String),
     /// Unmount this mount point (the `u` shortcut; the app confirms).
@@ -363,7 +366,7 @@ impl MountView {
     fn activate(&self) -> MountSignal {
         match self.focus {
             Pane::Devices => match self.selected_device() {
-                Some(d) => MountSignal::DeviceMenu(d.clone()),
+                Some(d) => MountSignal::DeviceMenu(Box::new(d.clone())),
                 None => MountSignal::Stay,
             },
             Pane::Mounts => match self.selected_mount() {
@@ -515,6 +518,30 @@ pub async fn run_sudo_password(cmd: &str, password: &str) -> Result<(), String> 
     status_to_result(out)
 }
 
+/// Refresh sudo's cached credential by feeding `password` to `sudo -S -v`. Once
+/// validated, a following `sudo -n …` runs without prompting — letting a
+/// long-running privileged command (e.g. flashing) keep stdin for its own data.
+pub async fn sudo_validate(password: &str) -> Result<(), String> {
+    use std::process::Stdio;
+    use tokio::io::AsyncWriteExt;
+    let mut child = tokio::process::Command::new("sudo")
+        .arg("-S")
+        .arg("-p")
+        .arg("")
+        .arg("-v")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(format!("{password}\n").as_bytes()).await;
+        let _ = stdin.shutdown().await;
+    }
+    let out = child.wait_with_output().await.map_err(|e| e.to_string())?;
+    status_to_result(out)
+}
+
 fn status_to_result(out: std::process::Output) -> Result<(), String> {
     if out.status.success() {
         return Ok(());
@@ -577,6 +604,7 @@ pub fn list_block_devices(mounts: &[MountEntry]) -> Vec<BlockDevice> {
             vendor: read_sys(&format!("{base}/vendor")),
             model: read_sys(&format!("{base}/model")),
             serial: read_sys(&format!("{base}/serial")),
+            removable: read_sys(&format!("/sys/block/{disk}/removable")) == "1",
         });
     }
     tree_order(out)

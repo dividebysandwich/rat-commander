@@ -29,6 +29,11 @@ pub enum AppEvent {
         ok_msg: String,
         result: Result<(), String>,
     },
+    /// An image-flash task finished (success, cancel, or failure).
+    FlashDone {
+        id: TaskId,
+        outcome: TaskOutcome,
+    },
     /// A find-file task finished (or was aborted); carries the matching files
     /// (path + size) collected so far so partial results can still be panelized.
     /// Paths may be local or remote, depending on the searched backend.

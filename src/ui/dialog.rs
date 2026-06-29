@@ -9,6 +9,7 @@ use crate::ops::progress::{
 };
 use crate::ui::theme::Theme;
 use crate::util::bytes::{format_time, human_size};
+use crate::util::text::{ellipsize, pad_right};
 use crate::usermenu::UserMenuEntry;
 use crate::vfs::VfsPath;
 use crate::vfs::remote::{Protocol, RemoteCreds};
@@ -32,6 +33,10 @@ pub enum Dialog {
     Busy(BusyDialog),
     /// The viewer's "Goto" dialog (line / percent / byte offset).
     Goto(GotoDialog),
+    /// Pick which block device to flash an image onto.
+    FlashTarget(FlashTargetDialog),
+    /// A small file browser for choosing an image to flash.
+    FileBrowser(FileBrowserDialog),
     Message(MessageDialog),
     Form(FormDialog),
     Select(SelectDialog),
@@ -130,6 +135,22 @@ pub enum Submit {
     DoFormat(crate::mount::FormatSpec),
     /// Jump the viewer to a position (value + how to interpret it).
     ViewerGoto(String, crate::viewer::GotoMode),
+    /// A device was chosen in the flash target picker → proceed to confirmation.
+    FlashSelected(crate::flash::FlashSpec),
+    /// The non-removable danger warning was accepted → final flash confirmation.
+    FlashConfirm(crate::flash::FlashSpec),
+    /// The flash was confirmed → start writing.
+    DoFlash(crate::flash::FlashSpec),
+    /// Browse for an image to flash onto this device (disk-manager entry point).
+    FlashBrowse(crate::flash::FlashTarget),
+    /// An image file was picked in the flash file browser (path + target device).
+    FlashBrowsePicked(std::path::PathBuf, crate::flash::FlashTarget),
+    /// A sudo password was entered to start a flash.
+    FlashPassword(String),
+    /// Resume a flash whose abort prompt was dismissed.
+    FlashResume,
+    /// Really abort the running flash task.
+    FlashAbort(TaskId),
 }
 
 /// How the directory-comparison tool decides which files differ.
@@ -174,6 +195,8 @@ impl Dialog {
             Dialog::Progress(d) => d.handle_key(key),
             Dialog::Busy(_) => DialogResult::None, // ignore keys while working
             Dialog::Goto(d) => d.handle_key(key),
+            Dialog::FlashTarget(d) => d.handle_key(key),
+            Dialog::FileBrowser(d) => d.handle_key(key),
             Dialog::Message(_) => DialogResult::Cancel, // any key closes
             Dialog::Form(d) => d.handle_key(key),
             Dialog::Select(d) => d.handle_key(key),
@@ -192,6 +215,8 @@ impl Dialog {
             Dialog::Progress(d) => d.render(f, area, theme),
             Dialog::Busy(d) => d.render(f, area, theme),
             Dialog::Goto(d) => d.render(f, area, theme),
+            Dialog::FlashTarget(d) => d.render(f, area, theme),
+            Dialog::FileBrowser(d) => d.render(f, area, theme),
             Dialog::Message(d) => d.render(f, area, theme),
             Dialog::Form(d) => d.render(f, area, theme),
             Dialog::Select(d) => d.render(f, area, theme),
@@ -224,6 +249,9 @@ impl Dialog {
             Dialog::Busy(_) => return DialogResult::None,
             // The Goto dialog hit-tests its radios and OK/Cancel buttons.
             Dialog::Goto(d) => return d.handle_click(area, col, row),
+            // The flash dialogs hit-test their scrolling lists.
+            Dialog::FlashTarget(d) => return d.handle_click(area, col, row),
+            Dialog::FileBrowser(d) => return d.handle_click(area, col, row),
             // The connect form's history chevron/dropdown take clicks first.
             Dialog::Form(d) => {
                 if let Some(res) = d.click_dropdown(col, row) {
@@ -285,6 +313,8 @@ pub enum InputPurpose {
     MountPath(String),
     /// Enter a sudo password to run a queued privileged command.
     SudoPassword,
+    /// Enter a sudo password to start a queued image flash.
+    FlashPassword,
 }
 
 pub struct InputDialog {
@@ -346,6 +376,9 @@ impl InputDialog {
                 if let InputPurpose::SudoPassword = self.purpose {
                     return DialogResult::Submit(Submit::SudoPassword(self.buffer.clone()));
                 }
+                if let InputPurpose::FlashPassword = self.purpose {
+                    return DialogResult::Submit(Submit::FlashPassword(self.buffer.clone()));
+                }
                 let text = self.buffer.trim().to_string();
                 if text.is_empty() {
                     return DialogResult::Cancel;
@@ -359,7 +392,7 @@ impl InputDialog {
                         device: device.clone(),
                         path: text,
                     },
-                    InputPurpose::SudoPassword => unreachable!(),
+                    InputPurpose::SudoPassword | InputPurpose::FlashPassword => unreachable!(),
                 };
                 DialogResult::Submit(submit)
             }
@@ -538,28 +571,77 @@ impl ConfirmDialog {
         }
     }
 
-    /// Action menu for a block device: Mount/Format when free, Unmount when
-    /// mounted.
-    pub fn device_menu(name: &str, dev: &str, mountpoint: Option<&str>) -> Self {
-        match mountpoint {
+    /// Action menu for a block device: Mount/Format/Flash when free, Unmount/Flash
+    /// when mounted.
+    pub fn device_menu(d: &crate::mount::BlockDevice) -> Self {
+        let flash = ("Flash image", Some(Submit::FlashBrowse(crate::flash::FlashTarget::from_device(d))));
+        match d.mountpoint.as_deref() {
             Some(mp) => Self::from_buttons(
                 "Device",
-                format!("{name}  ({dev})  mounted at {mp}"),
+                format!("{}  ({})  mounted at {mp}", d.name, d.dev),
                 vec![
                     ("Unmount", Some(Submit::AskUnmount(mp.to_string()))),
+                    flash,
                     ("Cancel", None),
                 ],
             ),
             None => Self::from_buttons(
                 "Device",
-                format!("{name}  ({dev})"),
+                format!("{}  ({})", d.name, d.dev),
                 vec![
-                    ("Mount", Some(Submit::MountDevice(dev.to_string()))),
-                    ("Format", Some(Submit::FormatDevice(dev.to_string()))),
+                    ("Mount", Some(Submit::MountDevice(d.dev.clone()))),
+                    ("Format", Some(Submit::FormatDevice(d.dev.clone()))),
+                    flash,
                     ("Cancel", None),
                 ],
             ),
         }
+    }
+
+    /// Final (destructive) confirmation before flashing an image to a device.
+    pub fn flash_confirm(spec: crate::flash::FlashSpec) -> Self {
+        let msg = format!(
+            "ERASE ALL DATA on {} and write \"{}\" ({})?",
+            spec.target.describe(),
+            spec.image_name,
+            human_size(spec.image_size),
+        );
+        Self::from_buttons("Flash image", msg, vec![("Flash", Some(Submit::DoFlash(spec))), ("Cancel", None)])
+    }
+
+    /// Loud red warning before flashing a *non-removable* device (likely a fixed
+    /// or system disk). Defaults focus to Cancel.
+    pub fn flash_danger(spec: crate::flash::FlashSpec) -> Self {
+        let dev = spec.target.dev.clone();
+        let mut d = Self::from_buttons(
+            "DANGER",
+            format!(
+                "{dev} is NOT a removable device — it may be a system or data disk. \
+                 Flashing will destroy everything on it and can make your system \
+                 unbootable. Continue anyway?"
+            ),
+            vec![("Continue", Some(Submit::FlashConfirm(spec))), ("Cancel", None)],
+        );
+        d.danger = true;
+        d.focus = 1; // Cancel
+        d
+    }
+
+    /// Asked when the user hits Abort during a flash: resume, or really abort.
+    pub fn abort_flash(id: TaskId) -> Self {
+        let mut d = Self::from_buttons(
+            "Abort flashing?",
+            "Flashing is still in progress. Resume, or abort and leave the device \
+             partially written?"
+                .to_string(),
+            vec![
+                ("Resume", Some(Submit::FlashResume)),
+                ("Abort flashing", Some(Submit::FlashAbort(id))),
+            ],
+        );
+        d.danger = true;
+        d.focus = 0; // Resume (the safe choice)
+        d
     }
 
     /// Action menu for a mount point: Unmount / Sync.
@@ -910,6 +992,23 @@ impl ProgressDialog {
         }
     }
 
+    /// Estimated time remaining, from the recent transfer speed. `"--:--"` until
+    /// there's enough signal (or when the total is unknown).
+    fn eta_text(&self) -> String {
+        let speed = self.samples.last().map(|s| s.1).unwrap_or(0.0);
+        if self.total_total == 0 || speed < 1.0 {
+            return "--:--".to_string();
+        }
+        let remaining = self.total_total.saturating_sub(self.total_done) as f64;
+        let secs = (remaining / speed).round() as u64;
+        let (h, m, s) = (secs / 3600, (secs % 3600) / 60, secs % 60);
+        if h > 0 {
+            format!("{h}:{m:02}:{s:02}")
+        } else {
+            format!("{m:02}:{s:02}")
+        }
+    }
+
     fn ratio(done: u64, total: u64) -> f64 {
         if total == 0 {
             if done > 0 { 1.0 } else { 0.0 }
@@ -980,9 +1079,10 @@ impl ProgressDialog {
 
         f.render_widget(
             Paragraph::new(Line::from(format!(
-                "Speed: {}/s   peak {}/s",
+                "Speed: {}/s   peak {}/s   ETA {}",
                 human_size(self.samples.last().map(|s| s.1).unwrap_or(0.0) as u64),
                 human_size(self.peak_speed as u64),
+                self.eta_text(),
             )))
             .style(base),
             rows[4],
@@ -1289,6 +1389,523 @@ impl GotoDialog {
 impl Default for GotoDialog {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Flash target picker (which block device to write an image to)
+// ---------------------------------------------------------------------------
+
+/// Lists every block device + partition (reusing the disk-manager metadata) so
+/// the user can pick a flash target. Devices smaller than the image are shown
+/// but cannot be selected.
+pub struct FlashTargetDialog {
+    image_path: std::path::PathBuf,
+    image_name: String,
+    image_size: u64,
+    devices: Vec<crate::mount::BlockDevice>,
+    cursor: usize,
+    top: usize,
+    /// Inner list rect + visible row count, recorded by the renderer.
+    list_area: Rect,
+    list_rows: usize,
+}
+
+impl FlashTargetDialog {
+    pub fn new(
+        image_path: std::path::PathBuf,
+        image_name: String,
+        image_size: u64,
+        devices: Vec<crate::mount::BlockDevice>,
+        preselect: Option<&str>,
+    ) -> Self {
+        let cursor = preselect
+            .and_then(|dev| devices.iter().position(|d| d.dev == dev))
+            .unwrap_or(0);
+        FlashTargetDialog {
+            image_path,
+            image_name,
+            image_size,
+            devices,
+            cursor,
+            top: 0,
+            list_area: Rect::default(),
+            list_rows: 1,
+        }
+    }
+
+    /// Whether the device at `idx` is large enough to hold the image.
+    fn fits(&self, idx: usize) -> bool {
+        self.image_size > 0 && self.devices.get(idx).is_some_and(|d| d.size >= self.image_size)
+    }
+
+    fn spec(&self, idx: usize) -> Option<Submit> {
+        let d = self.devices.get(idx)?;
+        Some(Submit::FlashSelected(crate::flash::FlashSpec {
+            image_path: self.image_path.clone(),
+            image_name: self.image_name.clone(),
+            image_size: self.image_size,
+            target: crate::flash::FlashTarget::from_device(d),
+        }))
+    }
+
+    fn move_cursor(&mut self, delta: isize) {
+        let max = self.devices.len().saturating_sub(1) as isize;
+        if max < 0 {
+            return;
+        }
+        self.cursor = (self.cursor as isize + delta).clamp(0, max) as usize;
+    }
+
+    fn handle_key(&mut self, key: KeyEvent) -> DialogResult {
+        let page = self.list_rows.max(1) as isize;
+        match key.code {
+            KeyCode::Esc => DialogResult::Cancel,
+            KeyCode::Up => {
+                self.move_cursor(-1);
+                DialogResult::None
+            }
+            KeyCode::Down => {
+                self.move_cursor(1);
+                DialogResult::None
+            }
+            KeyCode::PageUp => {
+                self.move_cursor(-page);
+                DialogResult::None
+            }
+            KeyCode::PageDown => {
+                self.move_cursor(page);
+                DialogResult::None
+            }
+            KeyCode::Home => {
+                self.cursor = 0;
+                DialogResult::None
+            }
+            KeyCode::End => {
+                self.cursor = self.devices.len().saturating_sub(1);
+                DialogResult::None
+            }
+            KeyCode::Enter => match self.fits(self.cursor).then(|| self.spec(self.cursor)).flatten() {
+                Some(s) => DialogResult::Submit(s),
+                None => DialogResult::None, // too small / empty: refuse
+            },
+            _ => DialogResult::None,
+        }
+    }
+
+    fn handle_click(&mut self, _area: Rect, col: u16, row: u16) -> DialogResult {
+        let a = self.list_area;
+        if a.height == 0 || col < a.x || col >= a.x + a.width || row < a.y || row >= a.y + a.height {
+            return DialogResult::None;
+        }
+        let idx = self.top + (row - a.y) as usize;
+        if idx < self.devices.len() {
+            self.cursor = idx;
+        }
+        DialogResult::None
+    }
+
+    fn render(&mut self, f: &mut Frame, area: Rect, theme: &Theme) {
+        let w = 84u16.min(area.width.saturating_sub(4));
+        let h = ((self.devices.len() as u16) + 7).min(area.height.saturating_sub(2)).max(9);
+        let rect = centered(area, w, h);
+        draw_shadow(f, rect, theme);
+        f.render_widget(Clear, rect);
+        let block = dialog_block("Flash image to device", theme);
+        let inner = block.inner(rect);
+        f.render_widget(block, rect);
+
+        let rows = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(1), // image header
+                Constraint::Length(1), // hint
+                Constraint::Min(3),    // device list
+                Constraint::Length(1), // selected-device details
+                Constraint::Length(1), // footer
+            ])
+            .split(inner);
+
+        let label = Style::default().fg(theme.header_fg).bg(theme.dialog_bg);
+        let base = Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg);
+        f.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled(" Image: ", label),
+                Span::styled(
+                    format!("{}  ({})", self.image_name, human_size(self.image_size)),
+                    base,
+                ),
+            ])),
+            rows[0],
+        );
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                " Pick a target — too-small devices can't be selected",
+                Style::default().fg(theme.panel_border).bg(theme.dialog_bg),
+            ))),
+            rows[1],
+        );
+
+        // Device list.
+        let list = rows[2];
+        let lw = list.width as usize;
+        self.list_rows = (list.height as usize).max(1);
+        if self.cursor < self.top {
+            self.top = self.cursor;
+        } else if self.cursor >= self.top + self.list_rows {
+            self.top = self.cursor + 1 - self.list_rows;
+        }
+        self.list_area = list;
+        let dim = Style::default().fg(theme.panel_border).bg(theme.dialog_bg);
+        let mut lines: Vec<Line> = Vec::with_capacity(self.list_rows);
+        if self.devices.is_empty() {
+            lines.push(Line::from(Span::styled("  (no block devices)", dim)));
+        }
+        for (i, d) in self.devices.iter().enumerate().skip(self.top).take(self.list_rows) {
+            let name_disp = if d.parent.is_some() {
+                let last = self.devices.get(i + 1).is_none_or(|n| n.parent != d.parent);
+                format!("{} {}", if last { "└" } else { "├" }, d.name)
+            } else {
+                d.name.clone()
+            };
+            let info = if !d.fstype.is_empty() || !d.label.is_empty() {
+                format!("{} {}", d.fstype, d.label).trim().to_string()
+            } else {
+                d.model.clone()
+            };
+            let flag = if !self.fits(i) {
+                "  (too small)"
+            } else if d.removable {
+                "  removable"
+            } else {
+                "  fixed"
+            };
+            let size = human_size(d.size);
+            let right = format!("{size:>9}{flag}");
+            let name_col = pad_right(&name_disp, 14);
+            let mid = lw.saturating_sub(name_col.chars().count() + right.chars().count() + 2);
+            let info_col = pad_right(&ellipsize(&info, mid), mid);
+            let text = format!("{name_col} {info_col} {right}");
+            let style = if i == self.cursor {
+                theme.menu_selection
+            } else if !self.fits(i) {
+                dim
+            } else {
+                base
+            };
+            lines.push(Line::from(Span::styled(pad_right(&ellipsize(&text, lw), lw), style)));
+        }
+        f.render_widget(Paragraph::new(lines).style(Style::default().bg(theme.dialog_bg)), list);
+
+        // Detail line for the highlighted device.
+        if let Some(d) = self.devices.get(self.cursor) {
+            let dash = |s: &str| if s.is_empty() { "—".to_string() } else { s.to_string() };
+            let detail = format!(
+                " {}   Vendor: {}   Serial: {}   Label: {}   FS: {}",
+                d.dev,
+                dash(&d.vendor),
+                dash(&d.serial),
+                dash(&d.label),
+                dash(&d.fstype),
+            );
+            f.render_widget(
+                Paragraph::new(Line::from(Span::styled(
+                    ellipsize(&detail, inner.width as usize),
+                    base,
+                ))),
+                rows[3],
+            );
+        }
+
+        let footer = pad_right(" ↑↓ select   Enter flash   Esc cancel", inner.width as usize);
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(footer, theme.fkey_label))).style(theme.fkey_label),
+            rows[4],
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// File browser (pick an image to flash)
+// ---------------------------------------------------------------------------
+
+struct BrowseEntry {
+    name: String,
+    is_dir: bool,
+}
+
+#[derive(PartialEq, Eq, Clone, Copy)]
+enum BrowseFocus {
+    List,
+    Filter,
+}
+
+/// A minimal local-filesystem browser for choosing an image file, with an
+/// editable extension-glob filter. Picking a file emits its full path.
+pub struct FileBrowserDialog {
+    target: crate::flash::FlashTarget,
+    cwd: std::path::PathBuf,
+    filter: String,
+    filter_cursor: usize,
+    entries: Vec<BrowseEntry>,
+    cursor: usize,
+    top: usize,
+    focus: BrowseFocus,
+    list_area: Rect,
+    list_rows: usize,
+    filter_area: Rect,
+}
+
+impl FileBrowserDialog {
+    pub fn new(target: crate::flash::FlashTarget, start_dir: std::path::PathBuf) -> Self {
+        let mut d = FileBrowserDialog {
+            target,
+            cwd: start_dir,
+            filter: crate::flash::DEFAULT_IMAGE_FILTER.to_string(),
+            filter_cursor: crate::flash::DEFAULT_IMAGE_FILTER.chars().count(),
+            entries: Vec::new(),
+            cursor: 0,
+            top: 0,
+            focus: BrowseFocus::List,
+            list_area: Rect::default(),
+            list_rows: 1,
+            filter_area: Rect::default(),
+        };
+        d.refresh();
+        d
+    }
+
+    /// The device this browse is targeting (for the title).
+    pub fn target_dev(&self) -> &str {
+        &self.target.dev
+    }
+
+    fn matcher(&self) -> Option<crate::panel::selection::NameMatcher> {
+        // The filter is space/`;`/`,`-separated globs; normalize to `;`.
+        let pat: String = self.filter.split_whitespace().collect::<Vec<_>>().join(";");
+        if pat.is_empty() {
+            return None;
+        }
+        crate::panel::selection::NameMatcher::build(&pat, false, true).ok()
+    }
+
+    fn refresh(&mut self) {
+        let matcher = self.matcher();
+        let mut dirs: Vec<BrowseEntry> = Vec::new();
+        let mut files: Vec<BrowseEntry> = Vec::new();
+        if let Ok(rd) = std::fs::read_dir(&self.cwd) {
+            for e in rd.flatten() {
+                let name = e.file_name().to_string_lossy().into_owned();
+                if name.starts_with('.') {
+                    continue; // hide dotfiles for a tidy browser
+                }
+                let is_dir = e.file_type().map(|t| t.is_dir()).unwrap_or(false);
+                if is_dir {
+                    dirs.push(BrowseEntry { name, is_dir });
+                } else if matcher.as_ref().map(|m| m.is_match(&name)).unwrap_or(true) {
+                    files.push(BrowseEntry { name, is_dir });
+                }
+            }
+        }
+        dirs.sort_by_key(|e| e.name.to_lowercase());
+        files.sort_by_key(|e| e.name.to_lowercase());
+        let mut entries = Vec::with_capacity(dirs.len() + files.len() + 1);
+        if self.cwd.parent().is_some() {
+            entries.push(BrowseEntry { name: "..".to_string(), is_dir: true });
+        }
+        entries.extend(dirs);
+        entries.extend(files);
+        self.entries = entries;
+        self.cursor = self.cursor.min(self.entries.len().saturating_sub(1));
+        self.top = 0;
+    }
+
+    fn activate(&mut self) -> DialogResult {
+        let Some(e) = self.entries.get(self.cursor) else {
+            return DialogResult::None;
+        };
+        if e.is_dir {
+            if e.name == ".." {
+                if let Some(p) = self.cwd.parent() {
+                    self.cwd = p.to_path_buf();
+                }
+            } else {
+                self.cwd.push(&e.name);
+            }
+            self.cursor = 0;
+            self.refresh();
+            DialogResult::None
+        } else {
+            DialogResult::Submit(Submit::FlashBrowsePicked(
+                self.cwd.join(&e.name),
+                self.target.clone(),
+            ))
+        }
+    }
+
+    fn move_cursor(&mut self, delta: isize) {
+        let max = self.entries.len().saturating_sub(1) as isize;
+        if max < 0 {
+            return;
+        }
+        self.cursor = (self.cursor as isize + delta).clamp(0, max) as usize;
+    }
+
+    fn handle_key(&mut self, key: KeyEvent) -> DialogResult {
+        if key.code == KeyCode::Tab {
+            self.focus = if self.focus == BrowseFocus::List {
+                BrowseFocus::Filter
+            } else {
+                BrowseFocus::List
+            };
+            return DialogResult::None;
+        }
+        if self.focus == BrowseFocus::Filter {
+            match key.code {
+                KeyCode::Esc => return DialogResult::Cancel,
+                KeyCode::Enter => {
+                    self.refresh();
+                    self.focus = BrowseFocus::List;
+                }
+                _ => edit_text(&mut self.filter, &mut self.filter_cursor, key),
+            }
+            return DialogResult::None;
+        }
+        let page = self.list_rows.max(1) as isize;
+        match key.code {
+            KeyCode::Esc => DialogResult::Cancel,
+            KeyCode::Up => {
+                self.move_cursor(-1);
+                DialogResult::None
+            }
+            KeyCode::Down => {
+                self.move_cursor(1);
+                DialogResult::None
+            }
+            KeyCode::PageUp => {
+                self.move_cursor(-page);
+                DialogResult::None
+            }
+            KeyCode::PageDown => {
+                self.move_cursor(page);
+                DialogResult::None
+            }
+            KeyCode::Home => {
+                self.cursor = 0;
+                DialogResult::None
+            }
+            KeyCode::End => {
+                self.cursor = self.entries.len().saturating_sub(1);
+                DialogResult::None
+            }
+            KeyCode::Enter => self.activate(),
+            _ => DialogResult::None,
+        }
+    }
+
+    fn handle_click(&mut self, _area: Rect, col: u16, row: u16) -> DialogResult {
+        if self.filter_area.height > 0 && row == self.filter_area.y {
+            self.focus = BrowseFocus::Filter;
+            return DialogResult::None;
+        }
+        let a = self.list_area;
+        if a.height == 0 || col < a.x || col >= a.x + a.width || row < a.y || row >= a.y + a.height {
+            return DialogResult::None;
+        }
+        let idx = self.top + (row - a.y) as usize;
+        if idx < self.entries.len() {
+            self.cursor = idx;
+            self.focus = BrowseFocus::List;
+        }
+        DialogResult::None
+    }
+
+    fn render(&mut self, f: &mut Frame, area: Rect, theme: &Theme) {
+        let w = 72u16.min(area.width.saturating_sub(4));
+        let h = 20u16.min(area.height.saturating_sub(2)).max(8);
+        let rect = centered(area, w, h);
+        draw_shadow(f, rect, theme);
+        f.render_widget(Clear, rect);
+        let block = dialog_block(&format!("Choose image → {}", self.target.dev), theme);
+        let inner = block.inner(rect);
+        f.render_widget(block, rect);
+
+        let rows = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(1), // cwd
+                Constraint::Length(1), // filter label
+                Constraint::Length(1), // filter input
+                Constraint::Min(3),    // entries
+                Constraint::Length(1), // footer
+            ])
+            .split(inner);
+
+        let label = Style::default().fg(theme.header_fg).bg(theme.dialog_bg);
+        let base = Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg);
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                format!(" {}", ellipsize(&self.cwd.display().to_string(), inner.width.saturating_sub(1) as usize)),
+                base,
+            ))),
+            rows[0],
+        );
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(" Filter (globs, e.g. *.iso *.img):", label))),
+            rows[1],
+        );
+        self.filter_area = rows[2];
+        let caret = draw_input_field(
+            f,
+            rows[2],
+            &self.filter,
+            self.filter_cursor,
+            self.focus == BrowseFocus::Filter,
+            false,
+            theme,
+        );
+
+        // Entries.
+        let list = rows[3];
+        let lw = list.width as usize;
+        self.list_rows = (list.height as usize).max(1);
+        if self.cursor < self.top {
+            self.top = self.cursor;
+        } else if self.cursor >= self.top + self.list_rows {
+            self.top = self.cursor + 1 - self.list_rows;
+        }
+        self.list_area = list;
+        let dir_style = Style::default().fg(theme.dir_fg).bg(theme.dialog_bg);
+        let mut lines: Vec<Line> = Vec::with_capacity(self.list_rows);
+        if self.entries.is_empty() {
+            lines.push(Line::from(Span::styled("  (no matching files)", base)));
+        }
+        for (i, e) in self.entries.iter().enumerate().skip(self.top).take(self.list_rows) {
+            let mark = if e.is_dir { "/" } else { " " };
+            let text = format!(" {}{}", e.name, mark);
+            let selected = i == self.cursor && self.focus == BrowseFocus::List;
+            let style = if selected {
+                theme.menu_selection
+            } else if e.is_dir {
+                dir_style
+            } else {
+                base
+            };
+            lines.push(Line::from(Span::styled(pad_right(&ellipsize(&text, lw), lw), style)));
+        }
+        f.render_widget(Paragraph::new(lines).style(Style::default().bg(theme.dialog_bg)), list);
+
+        let footer = pad_right(
+            " ↑↓ browse   Enter open/pick   Tab filter   Esc cancel",
+            inner.width as usize,
+        );
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(footer, theme.fkey_label))).style(theme.fkey_label),
+            rows[4],
+        );
+        if let Some(p) = caret {
+            f.set_cursor_position(p);
+        }
     }
 }
 
@@ -3439,14 +4056,20 @@ mod tests {
 
     #[test]
     fn device_and_mount_action_menus() {
+        let dev = |mp: Option<&str>| crate::mount::BlockDevice {
+            name: "sdb1".into(),
+            dev: "/dev/sdb1".into(),
+            mountpoint: mp.map(str::to_string),
+            ..Default::default()
+        };
         // Unmounted device: the focused "Mount" button → MountDevice.
-        let mut d = ConfirmDialog::device_menu("sdb1", "/dev/sdb1", None);
+        let mut d = ConfirmDialog::device_menu(&dev(None));
         match d.handle_key(key(KeyCode::Enter)) {
             DialogResult::Submit(Submit::MountDevice(dev)) => assert_eq!(dev, "/dev/sdb1"),
             _ => panic!("expected MountDevice"),
         }
         // Mounted device: the only action is Unmount.
-        let mut d = ConfirmDialog::device_menu("sdb1", "/dev/sdb1", Some("/mnt/x"));
+        let mut d = ConfirmDialog::device_menu(&dev(Some("/mnt/x")));
         match d.handle_key(key(KeyCode::Enter)) {
             DialogResult::Submit(Submit::AskUnmount(mp)) => assert_eq!(mp, "/mnt/x"),
             _ => panic!("expected AskUnmount"),
@@ -3458,6 +4081,126 @@ mod tests {
             DialogResult::Submit(Submit::SyncPath(mp)) => assert_eq!(mp, "/mnt/x"),
             _ => panic!("expected SyncPath"),
         }
+    }
+
+    fn bdev(name: &str, dev: &str, size: u64, removable: bool) -> crate::mount::BlockDevice {
+        crate::mount::BlockDevice {
+            name: name.into(),
+            dev: dev.into(),
+            size,
+            removable,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn device_menu_offers_flash_image() {
+        let mut menu = ConfirmDialog::device_menu(&bdev("sdb", "/dev/sdb", 100, true));
+        // Free device: [Mount, Format, Flash image, Cancel].
+        menu.handle_key(key(KeyCode::Right)); // Format
+        menu.handle_key(key(KeyCode::Right)); // Flash image
+        match menu.handle_key(key(KeyCode::Enter)) {
+            DialogResult::Submit(Submit::FlashBrowse(t)) => assert_eq!(t.dev, "/dev/sdb"),
+            _ => panic!("expected FlashBrowse"),
+        }
+    }
+
+    #[test]
+    fn flash_target_picker_enforces_size() {
+        let devs = vec![
+            bdev("sda", "/dev/sda", 1_000, false),  // too small
+            bdev("sdb", "/dev/sdb", 10_000, true),  // fits
+        ];
+        let img = std::path::PathBuf::from("/img/x.iso");
+        // Preselect the big device → Enter flashes it.
+        let mut d = FlashTargetDialog::new(img.clone(), "x.iso".into(), 5_000, devs.clone(), Some("/dev/sdb"));
+        match d.handle_key(key(KeyCode::Enter)) {
+            DialogResult::Submit(Submit::FlashSelected(spec)) => {
+                assert_eq!(spec.target.dev, "/dev/sdb");
+                assert_eq!(spec.image_size, 5_000);
+            }
+            _ => panic!("expected FlashSelected"),
+        }
+        // The default (first) device is too small → Enter is refused.
+        let mut d = FlashTargetDialog::new(img, "x.iso".into(), 5_000, devs, None);
+        assert!(matches!(d.handle_key(key(KeyCode::Enter)), DialogResult::None));
+    }
+
+    #[test]
+    fn flash_confirmations_emit_expected_submits() {
+        let spec = |removable: bool| crate::flash::FlashSpec {
+            image_path: "/x.iso".into(),
+            image_name: "x.iso".into(),
+            image_size: 10,
+            target: crate::flash::FlashTarget {
+                dev: "/dev/sdb".into(),
+                size: 100,
+                removable,
+                ..Default::default()
+            },
+        };
+        // Removable → straight to the destructive confirm; "Flash" → DoFlash.
+        let mut d = ConfirmDialog::flash_confirm(spec(true));
+        match d.handle_key(key(KeyCode::Enter)) {
+            DialogResult::Submit(Submit::DoFlash(s)) => assert_eq!(s.target.dev, "/dev/sdb"),
+            _ => panic!("expected DoFlash"),
+        }
+        // Non-removable danger defaults to Cancel; "Continue" → FlashConfirm.
+        let mut d = ConfirmDialog::flash_danger(spec(false));
+        assert!(matches!(d.handle_key(key(KeyCode::Enter)), DialogResult::Cancel));
+        let mut d = ConfirmDialog::flash_danger(spec(false));
+        d.handle_key(key(KeyCode::Left)); // focus "Continue"
+        assert!(matches!(
+            d.handle_key(key(KeyCode::Enter)),
+            DialogResult::Submit(Submit::FlashConfirm(_))
+        ));
+        // Abort prompt: Resume (default) vs really-abort.
+        let mut d = ConfirmDialog::abort_flash(7);
+        assert!(matches!(d.handle_key(key(KeyCode::Enter)), DialogResult::Submit(Submit::FlashResume)));
+        let mut d = ConfirmDialog::abort_flash(7);
+        d.handle_key(key(KeyCode::Right));
+        match d.handle_key(key(KeyCode::Enter)) {
+            DialogResult::Submit(Submit::FlashAbort(id)) => assert_eq!(id, 7),
+            _ => panic!("expected FlashAbort"),
+        }
+    }
+
+    #[test]
+    fn file_browser_filters_and_picks() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("rc_fb_{}_{nanos}", std::process::id()));
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        std::fs::write(dir.join("disk.img"), b"x").unwrap();
+        std::fs::write(dir.join("notes.txt"), b"x").unwrap();
+        let target = crate::flash::FlashTarget { dev: "/dev/sdb".into(), size: 100, removable: true, ..Default::default() };
+        let mut d = FileBrowserDialog::new(target, dir.clone());
+        // The default *.img/*.iso/... filter shows the image + dirs, not the .txt.
+        assert!(d.entries.iter().any(|e| e.name == "disk.img" && !e.is_dir));
+        assert!(d.entries.iter().any(|e| e.name == "sub" && e.is_dir));
+        assert!(!d.entries.iter().any(|e| e.name == "notes.txt"));
+        // Picking the image emits its path + the target device.
+        d.cursor = d.entries.iter().position(|e| e.name == "disk.img").unwrap();
+        match d.handle_key(key(KeyCode::Enter)) {
+            DialogResult::Submit(Submit::FlashBrowsePicked(p, t)) => {
+                assert_eq!(p, dir.join("disk.img"));
+                assert_eq!(t.dev, "/dev/sdb");
+            }
+            _ => panic!("expected FlashBrowsePicked"),
+        }
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn progress_dialog_estimates_time() {
+        let mut p = ProgressDialog::new(1, "Flashing");
+        p.total_total = 1000;
+        p.total_done = 500;
+        assert_eq!(p.eta_text(), "--:--", "no speed sample yet");
+        p.samples.push((500.0, 100.0)); // 100 B/s, 500 left → 5 s
+        assert_eq!(p.eta_text(), "00:05");
     }
 
     #[test]

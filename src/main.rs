@@ -8,6 +8,7 @@ mod config;
 mod diff;
 mod disk;
 mod editor;
+mod flash;
 mod mount;
 mod ops;
 mod panel;
@@ -20,11 +21,36 @@ mod util;
 mod vfs;
 mod viewer;
 
-#[tokio::main]
-async fn main() {
-    if let Err(e) = app::run().await {
-        // Terminal is already restored by `app::run` on its way out.
-        eprintln!("rat-commander error: {e}");
-        std::process::exit(1);
+fn main() {
+    // Privileged flash helper: `rc --flash-write <device> <image>` writes the
+    // image to the device (re-invoked through `sudo` by the flasher), reporting
+    // committed-byte counts on stdout. It does no TUI / async work.
+    let mut args = std::env::args().skip(1);
+    if let Some(flag) = args.next()
+        && flag == flash::FLASH_WRITE_FLAG
+    {
+        let code = match (args.next(), args.next()) {
+            (Some(dev), Some(img)) => flash::helper_main(&dev, &img),
+            _ => {
+                eprintln!("{} requires <device> <image>", flash::FLASH_WRITE_FLAG);
+                2
+            }
+        };
+        std::process::exit(code);
     }
+
+    let rt = match tokio::runtime::Runtime::new() {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("rat-commander error: {e}");
+            std::process::exit(1);
+        }
+    };
+    rt.block_on(async {
+        if let Err(e) = app::run().await {
+            // Terminal is already restored by `app::run` on its way out.
+            eprintln!("rat-commander error: {e}");
+            std::process::exit(1);
+        }
+    });
 }

@@ -14,9 +14,10 @@ use crate::panel::Panel;
 use crate::proc::{ProcSignal, ProcView};
 use crate::ui::cmdline::CommandLine;
 use crate::ui::dialog::{
-    BusyDialog, CompareDialog, CompareMode, ConfirmDialog, Dialog, DialogResult, FindDialog,
-    FindParams, FormDialog, GotoDialog, InputDialog, InputPurpose, MessageDialog, OverwriteDialog,
-    ProgressDialog, SearchReplaceDialog, SearchReplaceParams, SelectDialog, Submit, UserMenuDialog,
+    BusyDialog, CompareDialog, CompareMode, ConfirmDialog, Dialog, DialogResult, FileBrowserDialog,
+    FindDialog, FindParams, FlashTargetDialog, FormDialog, GotoDialog, InputDialog, InputPurpose,
+    MessageDialog, OverwriteDialog, ProgressDialog, SearchReplaceDialog, SearchReplaceParams,
+    SelectDialog, Submit, UserMenuDialog,
 };
 use crate::usermenu::{self, UserMenuEntry};
 use crate::ui::layout::SplitDir;
@@ -97,6 +98,10 @@ pub struct AppState {
     pub mountview: Option<MountView>,
     /// A privileged command queued while prompting for a sudo password.
     pending_sudo: Option<PendingPriv>,
+    /// A flash queued while prompting for a sudo password.
+    pending_flash: Option<crate::flash::FlashSpec>,
+    /// Cancel tokens for in-flight image-flash tasks, keyed by task id.
+    flash_tasks: HashMap<TaskId, crate::ops::CancelToken>,
     pub theme: Theme,
     pub config: Config,
     pub registry: Registry,
@@ -363,6 +368,8 @@ impl AppState {
             diffview: None,
             mountview: None,
             pending_sudo: None,
+            pending_flash: None,
+            flash_tasks: HashMap::new(),
             theme,
             config,
             registry,
@@ -527,6 +534,25 @@ impl AppState {
                     self.dialog = None;
                 }
                 self.finish_privileged(result, ok_msg);
+            }
+            AppEvent::FlashDone { id, outcome } => {
+                self.flash_tasks.remove(&id);
+                self.stashed_progress = None;
+                // Report the outcome (this replaces the progress / abort dialog).
+                match outcome {
+                    TaskOutcome::Done => {
+                        self.show_info("Flash complete", "The image was written successfully.")
+                    }
+                    TaskOutcome::Cancelled => self.show_info(
+                        "Flash aborted",
+                        "Flashing was aborted; the device is only partially written.",
+                    ),
+                    TaskOutcome::Failed(e) => self.show_error(format!("Flashing failed: {e}")),
+                }
+                // The target's contents changed — refresh the disk manager.
+                if let Some(mv) = self.mountview.as_mut() {
+                    mv.refresh();
+                }
             }
             AppEvent::FindDone { id, results } => {
                 self.tasks.remove(&id);
@@ -1047,7 +1073,15 @@ impl AppState {
                 }
             }
             DialogResult::Abort(id) => {
-                if let Some(h) = self.tasks.get(&id) {
+                if self.flash_tasks.contains_key(&id) {
+                    // Don't abort a flash outright — confirm first, stashing the
+                    // progress view so Resume can restore it (the flash keeps
+                    // running in the background meanwhile).
+                    if let Some(Dialog::Progress(p)) = self.dialog.take() {
+                        self.stashed_progress = Some(p);
+                    }
+                    self.dialog = Some(Dialog::Confirm(ConfirmDialog::abort_flash(id)));
+                } else if let Some(h) = self.tasks.get(&id) {
                     h.cancel.cancel();
                 }
                 // Keep the progress dialog until TaskDone confirms cancellation.
@@ -1194,6 +1228,36 @@ impl AppState {
                 {
                     self.show_error(format!("Invalid {} value: {value}", goto_mode_label(mode)));
                 }
+            }
+            // -- Image flashing --
+            Submit::FlashSelected(spec) => {
+                // A non-removable target gets an extra red warning first.
+                self.dialog = Some(Dialog::Confirm(if spec.target.removable {
+                    ConfirmDialog::flash_confirm(spec)
+                } else {
+                    ConfirmDialog::flash_danger(spec)
+                }));
+            }
+            Submit::FlashConfirm(spec) => {
+                self.dialog = Some(Dialog::Confirm(ConfirmDialog::flash_confirm(spec)));
+            }
+            Submit::DoFlash(spec) => self.start_flash(spec).await,
+            Submit::FlashBrowse(target) => self.open_flash_browser(target),
+            Submit::FlashBrowsePicked(path, target) => self.flash_picked_image(path, target),
+            Submit::FlashPassword(pw) => {
+                if let Some(spec) = self.pending_flash.take() {
+                    self.begin_flash(spec, crate::flash::FlashAuth::SudoPassword(pw));
+                }
+            }
+            Submit::FlashResume => {
+                self.dialog = self.stashed_progress.take().map(Dialog::Progress);
+            }
+            Submit::FlashAbort(id) => {
+                if let Some(c) = self.flash_tasks.get(&id) {
+                    c.cancel();
+                }
+                self.stashed_progress = None;
+                // The progress view stays closed; FlashDone will report the result.
             }
         }
     }
@@ -1414,7 +1478,12 @@ impl AppState {
             .target_dir_under_cursor()
             .or_else(|| archive_target_under_cursor(p));
         let Some((newcwd, focus)) = target else {
-            // Not a directory/archive: open a local file with its default app.
+            // Not a directory/archive: an image opens the flasher (Linux); any
+            // other file opens with its default app.
+            #[cfg(target_os = "linux")]
+            if self.try_flash_under_cursor() {
+                return;
+            }
             self.open_with_default();
             return;
         };
@@ -1469,11 +1538,7 @@ impl AppState {
             MountSignal::Stay => {}
             MountSignal::Close => self.mountview = None,
             MountSignal::DeviceMenu(d) => {
-                self.dialog = Some(Dialog::Confirm(ConfirmDialog::device_menu(
-                    &d.name,
-                    &d.dev,
-                    d.mountpoint.as_deref(),
-                )));
+                self.dialog = Some(Dialog::Confirm(ConfirmDialog::device_menu(&d)));
             }
             MountSignal::MountMenu(mountpoint) => {
                 self.dialog = Some(Dialog::Confirm(ConfirmDialog::mount_menu(&mountpoint)));
@@ -1579,6 +1644,107 @@ impl AppState {
                 }
             }
         }
+    }
+
+    // -- Image flashing ----------------------------------------------------
+
+    /// If the cursor is on a local image file, open the flash device picker and
+    /// return `true`; otherwise `false` (so the caller opens it normally).
+    #[cfg(target_os = "linux")]
+    fn try_flash_under_cursor(&mut self) -> bool {
+        let p = &self.panels[self.active];
+        if p.cwd.scheme != "file" {
+            return false;
+        }
+        let Some(e) = p.current_entry() else {
+            return false;
+        };
+        if e.kind != VfsKind::File || !crate::flash::is_image_file(&e.name) {
+            return false;
+        }
+        let name = e.name.clone();
+        let size = e.size;
+        let path = p.cwd.path.join(&e.name);
+        self.start_flash_from_panel(name, path, size);
+        true
+    }
+
+    /// Open the flash target picker for an image chosen in a file panel.
+    fn start_flash_from_panel(&mut self, name: String, path: PathBuf, size: u64) {
+        let devices = crate::mount::list_block_devices(&crate::mount::list_mounts());
+        if devices.is_empty() {
+            return self.show_error("No block devices available to flash to");
+        }
+        self.dialog = Some(Dialog::FlashTarget(FlashTargetDialog::new(
+            path, name, size, devices, None,
+        )));
+    }
+
+    /// Open the file browser to pick an image to flash onto `target` (from the
+    /// disk manager). Starts in the active panel's directory, or home.
+    fn open_flash_browser(&mut self, target: crate::flash::FlashTarget) {
+        let start = if self.panels[self.active].cwd.scheme == "file" {
+            self.panels[self.active].cwd.path.clone()
+        } else {
+            home_dir()
+        };
+        self.dialog = Some(Dialog::FileBrowser(FileBrowserDialog::new(target, start)));
+    }
+
+    /// An image was picked in the browser: stat it, guard the size, and proceed
+    /// to the confirmation flow (red warning first for non-removable targets).
+    fn flash_picked_image(&mut self, path: PathBuf, target: crate::flash::FlashTarget) {
+        let size = match std::fs::metadata(&path) {
+            Ok(m) => m.len(),
+            Err(e) => return self.show_error(format!("Cannot read image: {e}")),
+        };
+        if size == 0 {
+            return self.show_error("The chosen image is empty");
+        }
+        if target.size < size {
+            return self
+                .show_error(format!("Device {} is too small for this image", target.dev));
+        }
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let spec = crate::flash::FlashSpec { image_path: path, image_name: name, image_size: size, target };
+        self.dialog = Some(Dialog::Confirm(if spec.target.removable {
+            ConfirmDialog::flash_confirm(spec)
+        } else {
+            ConfirmDialog::flash_danger(spec)
+        }));
+    }
+
+    /// Determine privileges, then start (or queue, pending a password) a flash.
+    async fn start_flash(&mut self, spec: crate::flash::FlashSpec) {
+        // Re-check the size guard in case the device list was stale.
+        if spec.target.size < spec.image_size {
+            return self
+                .show_error(format!("Device {} is too small for this image", spec.target.dev));
+        }
+        if crate::mount::is_root() {
+            self.begin_flash(spec, crate::flash::FlashAuth::Root);
+        } else if crate::mount::sudo_can_noninteractive().await {
+            self.begin_flash(spec, crate::flash::FlashAuth::SudoNonInteractive);
+        } else {
+            self.pending_flash = Some(spec);
+            self.dialog = Some(Dialog::Input(InputDialog::password(
+                "Authentication required",
+                "Enter sudo password:",
+                InputPurpose::FlashPassword,
+            )));
+        }
+    }
+
+    /// Spawn the flash task and show its progress dialog.
+    fn begin_flash(&mut self, spec: crate::flash::FlashSpec, auth: crate::flash::FlashAuth) {
+        let id = self.next_task_id;
+        self.next_task_id += 1;
+        let cancel = crate::flash::spawn_flash(id, spec, auth, self.tx.clone());
+        self.flash_tasks.insert(id, cancel);
+        self.dialog = Some(Dialog::Progress(ProgressDialog::new(id, "Flashing")));
     }
 
     /// Open the full-screen disk-usage explorer at the active panel's directory.
@@ -3589,6 +3755,55 @@ mod tests {
         st.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).await;
         st.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).await;
         assert!(st.mountview.is_none(), "Esc closes the mounter");
+    }
+
+    #[tokio::test]
+    async fn flash_selection_warns_for_non_removable_then_confirms() {
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
+        let spec = |removable: bool| crate::flash::FlashSpec {
+            image_path: "/x.iso".into(),
+            image_name: "x.iso".into(),
+            image_size: 10,
+            target: crate::flash::FlashTarget {
+                dev: "/dev/sdb".into(),
+                size: 1000,
+                removable,
+                ..Default::default()
+            },
+        };
+        // A removable target goes straight to the destructive confirm.
+        st.handle_submit(Submit::FlashSelected(spec(true))).await;
+        assert!(matches!(st.dialog, Some(Dialog::Confirm(_))));
+        // A fixed disk first raises the red danger warning.
+        st.handle_submit(Submit::FlashSelected(spec(false))).await;
+        assert!(matches!(st.dialog, Some(Dialog::Confirm(_))));
+    }
+
+    #[tokio::test]
+    async fn flash_abort_prompts_then_resumes_or_aborts() {
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
+        let id = 42;
+        let tok = crate::ops::CancelToken::new();
+        st.flash_tasks.insert(id, tok.clone());
+        st.dialog = Some(Dialog::Progress(ProgressDialog::new(id, "Flashing")));
+
+        // Abort stashes the progress and raises the resume/abort prompt.
+        st.handle_dialog_result(DialogResult::Abort(id)).await;
+        assert!(matches!(st.dialog, Some(Dialog::Confirm(_))), "abort confirm shown");
+        assert!(st.stashed_progress.is_some());
+        assert!(!tok.is_cancelled(), "flashing keeps running until really aborted");
+
+        // Resume restores the progress dialog.
+        st.handle_submit(Submit::FlashResume).await;
+        assert!(matches!(st.dialog, Some(Dialog::Progress(_))));
+
+        // Really aborting trips the cancel token.
+        st.handle_dialog_result(DialogResult::Abort(id)).await;
+        st.handle_submit(Submit::FlashAbort(id)).await;
+        assert!(tok.is_cancelled(), "abort cancels the flash task");
+        assert!(st.stashed_progress.is_none());
     }
 
     #[tokio::test]
