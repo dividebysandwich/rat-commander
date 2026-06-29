@@ -86,6 +86,11 @@ The installed executable is named **`rc`** for quick typing.
   editing is overwrite-only (length-preserving), with streaming **search and
   replace** over hex-byte or text patterns
 
+  <img width="1007" height="658" alt="image" src="https://github.com/user-attachments/assets/bda0bce8-bf6d-49f8-8e63-a48fb7ec8b35" />
+
+
+
+
 **File operations**
 - Copy / move / delete with a progress window showing a per-file gauge and a
   **transfer-speed chart** (speed vs. bytes)
