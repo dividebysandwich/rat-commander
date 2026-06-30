@@ -28,15 +28,20 @@ impl AppState {
         self.start_op(kind, sources, Some(dst_fs), Some(dst_dir));
     }
 
-    /// The name of the first surviving entry above the cursor (skipping `..` and
-    /// any entry being deleted), used to reposition the cursor after a delete.
+    /// The name of the surviving entry the cursor should land on after a delete:
+    /// the next entry at or below the cursor (so the cursor moves *down* onto the
+    /// following file), falling back to the nearest entry above when the deleted
+    /// items were last in the listing. `..` and entries being deleted are skipped.
     pub(in crate::app::state) fn delete_anchor(&self, targets: &[VfsPath]) -> Option<String> {
         let doomed: HashSet<String> = targets.iter().map(|t| t.file_name()).collect();
         let p = &self.panels[self.active];
-        (0..p.cursor).rev().find_map(|i| {
+        let surviving = |i: usize| {
             let name = &p.entries[i].name;
             (name != ".." && !doomed.contains(name)).then(|| name.clone())
-        })
+        };
+        (p.cursor..p.entries.len())
+            .find_map(&surviving)
+            .or_else(|| (0..p.cursor).rev().find_map(&surviving))
     }
 
     pub(in crate::app::state) fn start_op(

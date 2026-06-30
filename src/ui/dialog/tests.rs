@@ -546,6 +546,57 @@ fn connect_dialog_renders_chevron_and_dropdown() {
 }
 
 #[test]
+fn multi_rename_mouse_focuses_and_toggles_fields() {
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+
+    let sources = vec![
+        VfsPath::local("/tmp/one.txt"),
+        VfsPath::local("/tmp/two.txt"),
+    ];
+    let mut d = MultiRenameDialog::new(sources, "20260101".into(), "120000".into());
+    let theme = crate::ui::theme::Theme::mc();
+    let mut t = Terminal::new(TestBackend::new(100, 30)).unwrap();
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+
+    // Cell-accurate substring search: returns the (column, row) where `needle`
+    // starts (byte offsets would be wrong on rows with multibyte box-drawing).
+    let find = |t: &Terminal<TestBackend>, needle: &str| -> Option<(u16, u16)> {
+        let b = t.backend().buffer();
+        let nlen = needle.chars().count() as u16;
+        for y in 0..b.area.height {
+            for x in 0..=b.area.width.saturating_sub(nlen) {
+                let mut s = String::new();
+                for k in 0..nlen {
+                    s.push_str(b[(x + k, y)].symbol());
+                }
+                if s == needle {
+                    return Some((x, y));
+                }
+            }
+        }
+        None
+    };
+
+    // Render once so the dialog records its clickable field geometry.
+    t.draw(|f| d.render(f, f.area(), &theme)).unwrap();
+    assert!(find(&t, "[ ] Case sensitive").is_some(), "checkbox starts unchecked");
+    assert!(find(&t, "unchanged").is_some(), "case starts unchanged");
+
+    // Clicking the checkbox toggles it on.
+    let (cx, cy) = find(&t, "Case sensitive").unwrap();
+    d.handle_click(area, cx, cy);
+    t.draw(|f| d.render(f, f.area(), &theme)).unwrap();
+    assert!(find(&t, "[x] Case sensitive").is_some(), "click toggled the checkbox on");
+
+    // Clicking the case chooser cycles unchanged → lowercase.
+    let (kx, ky) = find(&t, "Case:").unwrap();
+    d.handle_click(area, kx, ky);
+    t.draw(|f| d.render(f, f.area(), &theme)).unwrap();
+    assert!(find(&t, "lowercase").is_some(), "click cycled the case mode");
+}
+
+#[test]
 fn compare_dialog_selects_mode() {
     // Default focus is Quick; Enter submits it.
     let mut d = CompareDialog::new();

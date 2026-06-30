@@ -378,6 +378,15 @@ impl Dialog {
         self.handle_key(KeyEvent::new(code, KeyModifiers::NONE))
     }
 
+    /// Route a mouse-wheel scroll to dialogs with a scrollable region. `delta` is
+    /// in rows (positive = down). Returns `None` for dialogs that don't scroll.
+    pub fn handle_scroll(&mut self, delta: isize) -> DialogResult {
+        if let Dialog::MultiRename(d) = self {
+            d.handle_scroll(delta);
+        }
+        DialogResult::None
+    }
+
     /// The centered bounding box of dialogs whose buttons live on the last row.
     /// `None` for dialogs handled specially or that ignore clicks.
     fn click_bounds(&self, area: Rect) -> Option<Rect> {

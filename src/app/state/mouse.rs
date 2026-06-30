@@ -26,7 +26,15 @@ impl AppState {
                 }
                 return self.handle_dialog_result(res).await;
             }
-            return Flow::Continue;
+            // The wheel scrolls dialogs with a scrollable region (e.g. the
+            // multi-rename file lists); three rows per notch, like the viewer.
+            let delta = match ev.kind {
+                MouseEventKind::ScrollDown => 3,
+                MouseEventKind::ScrollUp => -3,
+                _ => return Flow::Continue,
+            };
+            let res = self.dialog.as_mut().unwrap().handle_scroll(delta);
+            return self.handle_dialog_result(res).await;
         }
 
         // Then the pulldown menu.

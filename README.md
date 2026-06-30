@@ -83,6 +83,7 @@ also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1
 | `Ctrl-S` / `Ctrl-E` | Cycle sort key / toggle reverse |
 | `Ctrl-W` | Cycle view format (full / brief / details) |
 | `Ctrl-T` | Toggle vertical / horizontal split |
+| `Ctrl-U` | Swap the two panels |
 | `Alt-F1` / `Alt-F2` | Drive / connection picker (left / right panel) |
 
 ### Viewer (F3)

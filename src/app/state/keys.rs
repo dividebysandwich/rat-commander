@@ -298,6 +298,7 @@ impl AppState {
             KeyCode::Esc => self.cmd.clear(),
 
             // -- View / sort / layout toggles (Ctrl chords) --
+            KeyCode::Char('u') if ctrl => self.panels.swap(0, 1),
             KeyCode::Char('o') if ctrl => return Flow::SubShell,
             KeyCode::Char('r') if ctrl => {
                 let _ = self.active_panel().reload().await;

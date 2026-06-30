@@ -735,7 +735,7 @@ async fn multi_rename_refuses_to_clobber_existing_file() {
 }
 
 #[tokio::test]
-async fn delete_anchor_targets_file_above() {
+async fn delete_anchor_targets_next_file() {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -751,11 +751,26 @@ async fn delete_anchor_targets_file_above() {
     st.panels[0].cwd = VfsPath::local(&root);
     st.panels[0].backend = st.registry.local();
     st.panels[0].reload().await.unwrap();
+    let at = |st: &AppState, name: &str| {
+        st.panels[0].entries.iter().position(|e| e.name == name).unwrap()
+    };
 
-    // Cursor on c.txt; deleting it should anchor the cursor on b.txt.
-    let ci = st.panels[0].entries.iter().position(|e| e.name == "c.txt").unwrap();
-    st.panels[0].cursor = ci;
+    // Cursor on c.txt; deleting it should anchor the cursor on the *next* file.
+    st.panels[0].cursor = at(&st, "c.txt");
     let anchor = st.delete_anchor(&[VfsPath::local(root.join("c.txt"))]);
+    assert_eq!(anchor.as_deref(), Some("d.txt"), "cursor follows down to the next file");
+
+    // Deleting the last file falls back to the entry above it.
+    st.panels[0].cursor = at(&st, "d.txt");
+    let anchor = st.delete_anchor(&[VfsPath::local(root.join("d.txt"))]);
+    assert_eq!(anchor.as_deref(), Some("c.txt"), "no file below ⇒ anchor above");
+
+    // Deleting a block running to the end also falls back above the block.
+    st.panels[0].cursor = at(&st, "c.txt");
+    let anchor = st.delete_anchor(&[
+        VfsPath::local(root.join("c.txt")),
+        VfsPath::local(root.join("d.txt")),
+    ]);
     assert_eq!(anchor.as_deref(), Some("b.txt"));
 
     std::fs::remove_dir_all(&root).ok();

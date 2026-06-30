@@ -97,6 +97,7 @@ A quick **Alt** + digit does the same.
 - `Ctrl-S` / `Ctrl-E` — Cycle the sort key / toggle reverse order
 - `Ctrl-W` — Cycle the view format (full → brief → details)
 - `Ctrl-T` — Toggle vertical / horizontal split
+- `Ctrl-U` — Swap the two panels
 - `Alt-F1` / `Alt-F2` — Drive / connection picker for the left / right panel
 
 ### Viewer (F3)

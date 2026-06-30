@@ -103,6 +103,10 @@ pub struct MultiRenameDialog {
     list_rows: usize,
     exec_rect: Rect,
     cancel_rect: Rect,
+    /// Clickable option-field regions as `(rect, focus index)`, recorded each
+    /// render so a click can focus (and, for the case chooser / checkbox, cycle
+    /// or toggle) the field under the pointer.
+    field_hits: Vec<(Rect, usize)>,
 }
 
 impl MultiRenameDialog {
@@ -135,7 +139,23 @@ impl MultiRenameDialog {
             list_rows: 1,
             exec_rect: Rect::default(),
             cancel_rect: Rect::default(),
+            field_hits: Vec::new(),
         }
+    }
+
+    /// Move the caret of the field identified by `focus` to the end of its value
+    /// (used when a click focuses a text/number field).
+    fn caret_to_end(&mut self, focus: usize) {
+        let (val, cur) = match focus {
+            0 => (&self.mask, &mut self.mask_cursor),
+            2 => (&self.start, &mut self.start_cursor),
+            3 => (&self.step, &mut self.step_cursor),
+            4 => (&self.digits, &mut self.digits_cursor),
+            5 => (&self.search, &mut self.search_cursor),
+            6 => (&self.replace, &mut self.replace_cursor),
+            _ => return,
+        };
+        *cur = val.chars().count();
     }
 
     fn rule(&self) -> RenameRule {
@@ -217,6 +237,19 @@ impl MultiRenameDialog {
         if hit(self.cancel_rect) {
             return DialogResult::Cancel;
         }
+        // Click an option field to focus it; the case chooser cycles and the
+        // case-sensitive checkbox toggles on click.
+        for (rect, focus) in self.field_hits.clone() {
+            if hit(rect) {
+                self.focus = focus;
+                match focus {
+                    1 => self.cycle_case(1),
+                    7 => self.case_sensitive = !self.case_sensitive,
+                    _ => self.caret_to_end(focus),
+                }
+                return DialogResult::None;
+            }
+        }
         for list in [self.list_left, self.list_right] {
             if hit(list) && row >= list.y {
                 let idx = self.top + (row - list.y) as usize;
@@ -226,6 +259,12 @@ impl MultiRenameDialog {
             }
         }
         DialogResult::None
+    }
+
+    /// Mouse-wheel over the dialog scrolls the file lists (three rows per notch,
+    /// matching the viewer).
+    pub(crate) fn handle_scroll(&mut self, delta: isize) {
+        self.scroll(delta);
     }
 
     pub(crate) fn render(&mut self, f: &mut Frame, area: Rect, theme: &Theme) {
@@ -255,10 +294,13 @@ impl MultiRenameDialog {
             ])
             .split(inner);
 
+        self.field_hits.clear();
+
         // -- Mask --
         let caret = labeled_field(
             f, rows[0], "Rename mask: ", &self.mask, self.mask_cursor, self.focus == 0, theme,
         );
+        self.field_hits.push((rows[0], 0));
 
         // -- Placeholder hint --
         f.render_widget(
@@ -272,10 +314,13 @@ impl MultiRenameDialog {
         // -- Case chooser (left) --
         let crow = rows[2];
         let case_style = if self.focus == 1 { theme.dialog_selection } else { base };
+        let case_text = format!("Case: ◂ {} ▸", self.case.label());
+        let case_w = (case_text.chars().count() as u16).min(crow.width);
         f.render_widget(
-            Paragraph::new(Line::from(Span::styled(format!("Case: ◂ {} ▸", self.case.label()), case_style))),
+            Paragraph::new(Line::from(Span::styled(case_text, case_style))),
             crow,
         );
+        self.field_hits.push((Rect { width: case_w, ..crow }, 1));
 
         // -- Counter fields (right-aligned group): Counter Start / Step / Digits --
         let counter: [(&str, usize, &str, usize, u16); 3] = [
@@ -298,6 +343,7 @@ impl MultiRenameDialog {
             let focused = self.focus == *focus_idx;
             let lstyle = if focused { theme.dialog_selection } else { base };
             let lw = label.chars().count() as u16;
+            let group_x = cx;
             f.render_widget(
                 Paragraph::new(Span::styled(label.to_string(), lstyle)),
                 Rect { x: cx, y: crow.y, width: lw, height: 1 },
@@ -308,6 +354,11 @@ impl MultiRenameDialog {
                 caret_counter = Some(p);
             }
             cx += fw;
+            // The label + field together are clickable to focus this counter.
+            self.field_hits.push((
+                Rect { x: group_x, y: crow.y, width: lw + fw, height: 1 },
+                *focus_idx,
+            ));
         }
 
         // -- Search & replace --
@@ -326,6 +377,9 @@ impl MultiRenameDialog {
                 .style(Style::default().bg(theme.dialog_bg)),
             sr[2],
         );
+        self.field_hits.push((sr[0], 5));
+        self.field_hits.push((sr[1], 6));
+        self.field_hits.push((sr[2], 7));
 
         // -- List geometry: two columns split by a vertical divider. --
         let list = rows[6];
