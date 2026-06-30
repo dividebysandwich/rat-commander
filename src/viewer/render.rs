@@ -110,7 +110,7 @@ fn render_text(f: &mut Frame, area: Rect, v: &mut ViewerState, theme: &Theme) {
         let raw = v.line_str(line_idx);
         let chars: Vec<char> = raw.chars().collect();
         // Per-character foreground colors (empty ⇒ everything uses `default`).
-        let fg: Vec<Color> = if highlighted {
+        let mut fg: Vec<Color> = if highlighted {
             let runs = v.line_runs(line_idx);
             let mut out = Vec::with_capacity(chars.len());
             for (n, color) in runs {
@@ -125,6 +125,18 @@ fn render_text(f: &mut Frame, area: Rect, v: &mut ViewerState, theme: &Theme) {
         } else {
             Vec::new()
         };
+
+        // Tint the `#` of any hex-color token with its own color, regardless of
+        // syntax highlighting.
+        let hashes = crate::ui::hexcolor::hex_color_hashes(&chars);
+        if !hashes.is_empty() {
+            if fg.len() < chars.len() {
+                fg.resize(chars.len(), default);
+            }
+            for (i, color) in hashes {
+                fg[i] = color;
+            }
+        }
 
         if v.wrap {
             if chars.is_empty() {

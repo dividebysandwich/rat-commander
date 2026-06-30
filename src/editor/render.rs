@@ -253,7 +253,19 @@ fn render_text(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) -> Op
         let line_start = ed.buf.line_to_char(li);
         let chars: Vec<char> = ed.buf.line_text(li).chars().collect();
         // Syntax foreground per character (None ⇒ all `text_fg`).
-        let fg = ed.line_fg(li, chars.len(), theme.text_fg);
+        let mut fg = ed.line_fg(li, chars.len(), theme.text_fg);
+        // Tint the `#` of any hex-color token with its own color, regardless of
+        // syntax highlighting.
+        let hashes = crate::ui::hexcolor::hex_color_hashes(&chars);
+        if !hashes.is_empty() {
+            let v = fg.get_or_insert_with(|| vec![theme.text_fg; chars.len()]);
+            if v.len() < chars.len() {
+                v.resize(chars.len(), theme.text_fg);
+            }
+            for (i, color) in hashes {
+                v[i] = color;
+            }
+        }
 
         // Build styled runs across the visible columns, breaking on style change.
         let mut spans: Vec<Span> = Vec::new();

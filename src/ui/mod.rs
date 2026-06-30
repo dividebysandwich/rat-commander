@@ -3,6 +3,7 @@
 pub mod cmdline;
 pub mod dialog;
 pub mod fkeys;
+pub mod hexcolor;
 pub mod layout;
 pub mod menu;
 pub mod menubar;

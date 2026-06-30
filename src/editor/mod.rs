@@ -1094,6 +1094,28 @@ mod tests {
     }
 
     #[test]
+    fn hex_color_tints_the_hash_in_editor() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let p = tmpfile(b"");
+        let mut e = EditorState::new("c.css".into(), VfsPath::local(&p), "a: #00ff80;");
+        let theme = crate::ui::theme::Theme::mc();
+        let mut t = Terminal::new(TestBackend::new(40, 8)).unwrap();
+        t.draw(|f| crate::editor::render::render(f, f.area(), &mut e, &theme)).unwrap();
+        let b = t.backend().buffer();
+        let hash = (0..b.area.height)
+            .flat_map(|y| (0..b.area.width).map(move |x| (x, y)))
+            .find(|&(x, y)| b[(x, y)].symbol() == "#")
+            .expect("'#' rendered");
+        assert_eq!(
+            b[hash].fg,
+            ratatui::style::Color::Rgb(0x00, 0xff, 0x80),
+            "hash tinted with its color"
+        );
+        std::fs::remove_file(&p).ok();
+    }
+
+    #[test]
     fn hex_view_renders_offset_and_ascii() {
         use ratatui::Terminal;
         use ratatui::backend::TestBackend;

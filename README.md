@@ -94,6 +94,9 @@ The installed executable is named **`rc`** for quick typing.
   **GraphQL**, **Protobuf**, **CMake**, **TypeScript/TSX**, **Kotlin**, **Swift**,
   **SCSS/Sass**, **Elixir**, **Zig** and **Nix** — are bundled as embedded
   `.sublime-syntax` files, and more can be dropped in to extend it
+- **Hex-color swatches** — any `#rgb` / `#rrggbb` / `#rrggbbaa` token has its
+  `#` painted in the color it names (in both the viewer and editor, regardless of
+  syntax highlighting), so colors in code/configs are visible at a glance
 - **Paged from disk** — local files are read on demand (only a per-line offset
   index is kept), so arbitrarily large files open instantly without loading into
   memory; search streams the file in windows too

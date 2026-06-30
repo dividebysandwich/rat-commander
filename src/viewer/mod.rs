@@ -867,6 +867,26 @@ mod tests {
     }
 
     #[test]
+    fn hex_color_tints_the_hash() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let mut v = ViewerState::new("t".into(), b"x #ff501a y".to_vec());
+        let theme = crate::ui::theme::Theme::mc();
+        let mut t = Terminal::new(TestBackend::new(40, 6)).unwrap();
+        t.draw(|f| crate::viewer::render::render(f, f.area(), &mut v, &theme)).unwrap();
+        let b = t.backend().buffer();
+        let hash = (0..b.area.height)
+            .flat_map(|y| (0..b.area.width).map(move |x| (x, y)))
+            .find(|&(x, y)| b[(x, y)].symbol() == "#")
+            .expect("'#' rendered");
+        assert_eq!(
+            b[hash].fg,
+            ratatui::style::Color::Rgb(0xff, 0x50, 0x1a),
+            "hash tinted with its color"
+        );
+    }
+
+    #[test]
     fn syntax_highlight_colors_the_body() {
         use ratatui::Terminal;
         use ratatui::backend::TestBackend;
