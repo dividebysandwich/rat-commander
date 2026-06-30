@@ -456,6 +456,7 @@ impl EditorState {
                     self.clear_marks();
                 }
             }
+            KeyCode::Char('c') if ctrl => self.copy_to_clipboard(),
             KeyCode::Char('v') if ctrl => self.paste(),
 
             KeyCode::Up => {
@@ -1083,7 +1084,7 @@ mod tests {
         e.handle_key(key_mod(KeyCode::Right, KeyModifiers::SHIFT));
         e.handle_key(key_mod(KeyCode::Right, KeyModifiers::SHIFT));
         assert_eq!(e.block_range(), Some((0, 2)), "Shift+Right marks a block");
-        e.handle_key(key(KeyCode::F(5))); // copy works on the selection
+        e.handle_key(key_mod(KeyCode::Char('c'), KeyModifiers::CONTROL)); // Ctrl-C → clipboard
         assert_eq!(e.clipboard, "ab");
         // A plain move now *keeps* the selection (it finalizes to a fixed block).
         e.handle_key(key(KeyCode::Right));
@@ -1096,7 +1097,7 @@ mod tests {
     }
 
     #[test]
-    fn shift_selection_persists_and_f5_copies_after_moving() {
+    fn shift_selection_persists_and_f5_copies_to_cursor() {
         let mut e = ed("hello world");
         // Shift-select "hello".
         for _ in 0..5 {
@@ -1108,13 +1109,11 @@ mod tests {
             e.handle_key(key(KeyCode::Right));
         }
         assert_eq!(e.block_range(), Some((0, 5)), "selection persists across plain moves");
-        // F5 still copies the marked text.
+        // F5 copies the marked block to the cursor position (mc-editor style).
+        e.handle_key(key(KeyCode::End)); // cursor → 11
         e.handle_key(key(KeyCode::F(5)));
-        assert_eq!(e.clipboard, "hello");
-        // …and it pastes at the cursor.
-        e.handle_key(key(KeyCode::End));
-        e.handle_key(KeyEvent::new(KeyCode::Char('v'), KeyModifiers::CONTROL));
         assert_eq!(e.contents(), "hello worldhello");
+        assert_eq!(e.block_range(), Some((0, 5)), "the original block stays marked");
     }
 
     #[test]
@@ -1322,7 +1321,7 @@ mod tests {
         assert_eq!(e.block_range(), Some((0, 3)), "dragging extends a live block");
         e.handle_mouse(mouse(MouseEventKind::Up(MouseButton::Left), 3, 1));
         assert_eq!(e.block_range(), Some((0, 3)), "release finalizes the block");
-        e.handle_key(key(KeyCode::F(5))); // copy
+        e.handle_key(key_mod(KeyCode::Char('c'), KeyModifiers::CONTROL)); // Ctrl-C → clipboard
         assert_eq!(e.clipboard, "abc");
 
         // A plain click (down then up, no drag) leaves no selection and the
@@ -1383,16 +1382,33 @@ mod tests {
     }
 
     #[test]
-    fn copy_block_and_paste() {
+    fn clipboard_copy_and_paste() {
         let mut e = ed("abc");
         e.handle_key(key(KeyCode::F(3)));
         for _ in 0..3 {
             e.handle_key(key(KeyCode::Right));
         }
-        e.handle_key(key(KeyCode::F(5))); // copy "abc"
-        // cursor at end; paste duplicates.
-        e.handle_key(KeyEvent::new(KeyCode::Char('v'), KeyModifiers::CONTROL));
+        e.handle_key(key_mod(KeyCode::Char('c'), KeyModifiers::CONTROL)); // Ctrl-C copies "abc"
+        // cursor at end; Ctrl-V paste duplicates.
+        e.handle_key(key_mod(KeyCode::Char('v'), KeyModifiers::CONTROL));
         assert_eq!(e.contents(), "abcabc");
+    }
+
+    #[test]
+    fn f5_copies_block_to_cursor() {
+        // Mark "ab" (F3 … move … F3 to finalize), move the cursor to the end,
+        // F5 inserts a copy there; the original block stays marked.
+        let mut e = ed("abcdef");
+        e.handle_key(key(KeyCode::F(3)));
+        for _ in 0..2 {
+            e.handle_key(key(KeyCode::Right));
+        }
+        e.handle_key(key(KeyCode::F(3))); // finalize block [0,2)
+        e.handle_key(key(KeyCode::End)); // cursor → 6, block persists
+        e.handle_key(key(KeyCode::F(5)));
+        assert_eq!(e.contents(), "abcdefab");
+        assert_eq!(e.block_range(), Some((0, 2)), "original block stays marked");
+        assert_eq!(e.clipboard, "", "F5 does not touch the clipboard");
     }
 
     #[test]

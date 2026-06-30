@@ -106,9 +106,10 @@ The installed executable is named **`rc`** for quick typing.
   dialog you can abort** (Esc); the viewer then pages from the downloaded copy
 
 **Built-in editor (F4)** — `mcedit`-style
-- Block mark / **copy (F5, to the clipboard — paste with Ctrl-V)** / move (F6) /
-  delete (F8), search, **search & replace** (literal or regex), undo/redo, and a
-  status bar showing the byte under the cursor, line/column and totals
+- Block mark / **copy (F5, to the cursor position)** / move (F6) / delete (F8),
+  plus **Ctrl-C** / **Ctrl-V** for clipboard copy/paste, search, **search &
+  replace** (literal or regex), undo/redo, and a status bar showing the byte
+  under the cursor, line/column and totals
 - **Navigation & selection**: **Ctrl-Home/End** jump to the start/end of the
   document, **Ctrl-←/→** jump by word, and **Shift+arrows** (or Shift+Ctrl-arrows)
   mark text without first entering F3 mark mode.
