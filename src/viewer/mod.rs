@@ -103,8 +103,13 @@ pub struct ViewerState {
     temp: Option<PathBuf>,
     /// Incremental syntax highlighter (text mode only), when a syntax matched.
     hl: Option<Highlighter>,
-    /// Byte offset of the start of each text line.
+    /// Byte offset of the start of each text line. Built lazily: only the lines
+    /// within the first [`scanned`](Self::scanned) bytes are present until more
+    /// is needed (scrolling, search, goto), so huge files open instantly.
     line_starts: Vec<usize>,
+    /// Bytes scanned so far for `line_starts`; every newline in `[0, scanned)`
+    /// has been recorded. Equals the file length once fully indexed.
+    scanned: usize,
     pub mode: ViewMode,
     pub wrap: bool,
     /// Top visible logical line (text) or top 16-byte row (hex).
@@ -134,6 +139,7 @@ impl ViewerState {
             data.truncate(MAX_VIEW_BYTES);
         }
         let line_starts = compute_line_starts(&data);
+        let scanned = data.len();
         ViewerState {
             name,
             src: Source::Mem(data),
@@ -141,6 +147,7 @@ impl ViewerState {
             temp: None,
             hl: None,
             line_starts,
+            scanned,
             mode: ViewMode::Text,
             wrap: false,
             top: 0,
@@ -163,6 +170,7 @@ impl ViewerState {
         file: File,
         len: usize,
         line_starts: Vec<usize>,
+        scanned: usize,
         temp: Option<PathBuf>,
     ) -> Self {
         ViewerState {
@@ -172,6 +180,7 @@ impl ViewerState {
             temp,
             hl: None,
             line_starts,
+            scanned,
             mode: ViewMode::Text,
             wrap: false,
             top: 0,
@@ -188,8 +197,8 @@ impl ViewerState {
 
     /// Convenience: open + scan a file in one call (used by tests).
     pub fn open_file(name: String, path: PathBuf, temp: Option<PathBuf>) -> std::io::Result<Self> {
-        let (file, len, line_starts) = scan_file(&path)?;
-        Ok(Self::from_scanned(name, file, len, line_starts, temp))
+        let (file, len, line_starts, scanned) = scan_file(&path)?;
+        Ok(Self::from_scanned(name, file, len, line_starts, scanned, temp))
     }
 
     /// Turn on syntax highlighting if a syntax matches the file name and the
@@ -248,6 +257,51 @@ impl ViewerState {
         self.line_starts.len()
     }
 
+    /// Whether the whole file's line index has been built (so `line_count` is
+    /// exact and the last line's extent is known).
+    fn fully_indexed(&self) -> bool {
+        self.scanned >= self.data_len()
+    }
+
+    /// Index one more chunk of the file, appending newline offsets. Returns
+    /// `false` once fully indexed (a read error is treated as EOF so callers
+    /// that loop can't spin).
+    fn scan_one_chunk(&mut self) -> bool {
+        let len = self.data_len();
+        if self.scanned >= len {
+            return false;
+        }
+        const CHUNK: usize = 256 * 1024;
+        let end = (self.scanned + CHUNK).min(len);
+        let buf = self.src.read_range(self.scanned, end);
+        if buf.is_empty() {
+            self.scanned = len; // give up rather than loop forever on a bad read
+            return false;
+        }
+        for i in memchr::memchr_iter(b'\n', &buf) {
+            self.line_starts.push(self.scanned + i + 1);
+        }
+        self.scanned += buf.len();
+        true
+    }
+
+    /// Extend the index until at least `target` bytes have been scanned (or EOF).
+    fn extend_to_byte(&mut self, target: usize) {
+        let target = target.min(self.data_len());
+        while self.scanned < target && self.scan_one_chunk() {}
+    }
+
+    /// Extend the index until logical line `target` is known (or EOF). Indexing
+    /// one past the last visible line lets `line_str` find that line's end.
+    fn extend_to_line(&mut self, target: usize) {
+        while self.line_starts.len() <= target && self.scan_one_chunk() {}
+    }
+
+    /// Build the rest of the line index (for "go to end" / percentage jumps).
+    fn index_fully(&mut self) {
+        while self.scan_one_chunk() {}
+    }
+
     fn hex_rows(&self) -> usize {
         self.data_len().div_ceil(16)
     }
@@ -285,7 +339,13 @@ impl ViewerState {
             KeyCode::PageDown => self.scroll(self.view_rows as isize - 1),
             KeyCode::PageUp => self.scroll(-(self.view_rows as isize - 1)),
             KeyCode::Home => self.top = 0,
-            KeyCode::End => self.top = self.max_top(),
+            KeyCode::End => {
+                // The true last line is only known once the whole file is indexed.
+                if self.mode == ViewMode::Text {
+                    self.index_fully();
+                }
+                self.top = self.max_top();
+            }
             KeyCode::Left => self.h_offset = self.h_offset.saturating_sub(8),
             KeyCode::Right => self.h_offset += 8,
             _ => {}
@@ -380,8 +440,12 @@ impl ViewerState {
     }
 
     fn scroll(&mut self, delta: isize) {
-        let max = self.max_top() as isize;
-        self.top = (self.top as isize + delta).clamp(0, max.max(0)) as usize;
+        let target = (self.top as isize + delta).max(0) as usize;
+        // Index far enough that `target` is reachable (and a page is renderable).
+        if self.mode == ViewMode::Text {
+            self.extend_to_line(target + self.view_rows);
+        }
+        self.top = target.min(self.max_top());
     }
 
     /// Jump to a position given by the Goto dialog. Returns whether the input
@@ -389,28 +453,48 @@ impl ViewerState {
     /// logical lines; in hex mode they are 16-byte rows.
     pub fn goto(&mut self, value: &str, mode: GotoMode) -> bool {
         let v = value.trim();
+        let text = self.mode == ViewMode::Text;
+        // Parse first, then extend the index as far as the target needs before
+        // computing the top row.
         let target = match mode {
-            GotoMode::Line => v.parse::<usize>().ok().map(|n| n.saturating_sub(1)),
-            GotoMode::Percent => v.parse::<f64>().ok().map(|p| {
+            GotoMode::Line => {
+                let Ok(n) = v.parse::<usize>() else { return false };
+                let line = n.saturating_sub(1);
+                if text {
+                    self.extend_to_line(line);
+                }
+                line
+            }
+            GotoMode::Percent => {
+                let Ok(p) = v.parse::<f64>() else { return false };
+                // A percentage needs the exact total, so finish indexing.
+                if text {
+                    self.index_fully();
+                }
                 let total = match self.mode {
                     ViewMode::Text => self.line_count(),
                     ViewMode::Hex => self.hex_rows(),
                 };
                 ((total.saturating_sub(1)) as f64 * p.clamp(0.0, 100.0) / 100.0).round() as usize
-            }),
-            GotoMode::DecimalOffset => v.parse::<usize>().ok().map(|off| self.offset_to_top(off)),
+            }
+            GotoMode::DecimalOffset => {
+                let Ok(off) = v.parse::<usize>() else { return false };
+                if text {
+                    self.extend_to_byte(off + 1);
+                }
+                self.offset_to_top(off)
+            }
             GotoMode::HexOffset => {
                 let hex = v.strip_prefix("0x").or_else(|| v.strip_prefix("0X")).unwrap_or(v);
-                usize::from_str_radix(hex, 16).ok().map(|off| self.offset_to_top(off))
+                let Ok(off) = usize::from_str_radix(hex, 16) else { return false };
+                if text {
+                    self.extend_to_byte(off + 1);
+                }
+                self.offset_to_top(off)
             }
         };
-        match target {
-            Some(t) => {
-                self.top = t.min(self.max_top());
-                true
-            }
-            None => false,
-        }
+        self.top = target.min(self.max_top());
+        true
     }
 
     /// Map a byte offset to the top index for the current mode.
@@ -431,7 +515,11 @@ impl ViewerState {
         if let Some(off) = found {
             self.last_match = Some(off);
             match self.mode {
-                ViewMode::Text => self.top = self.byte_to_line(off),
+                ViewMode::Text => {
+                    // The match may lie beyond the indexed region; index up to it.
+                    self.extend_to_byte(off + 1);
+                    self.top = self.byte_to_line(off);
+                }
                 ViewMode::Hex => self.top = off / 16,
             }
         }
@@ -504,50 +592,51 @@ impl Drop for ViewerState {
 /// Byte offsets where each text line begins (line 0 always starts at 0).
 fn compute_line_starts(data: &[u8]) -> Vec<usize> {
     let mut starts = vec![0usize];
-    for (i, &b) in data.iter().enumerate() {
-        if b == b'\n' {
-            starts.push(i + 1);
-        }
-    }
-    if data.is_empty() {
-        starts = vec![0];
+    for i in memchr::memchr_iter(b'\n', data) {
+        starts.push(i + 1);
     }
     starts
 }
 
-/// Open a file and build its line-start index (offsets only). Returns the open
-/// handle, byte length, and index — all `Send`, so it can run in `spawn_blocking`
-/// and the (non-`Send`) [`ViewerState`] is then assembled on the main thread.
-pub fn scan_file(path: &Path) -> std::io::Result<(File, usize, Vec<usize>)> {
+/// Bytes scanned up-front when a file is opened. The rest of the line index is
+/// built lazily as the user scrolls/searches, so even multi-gigabyte files open
+/// instantly instead of waiting for a full newline scan.
+const INITIAL_SCAN: usize = 1024 * 1024;
+
+/// Open a file and build the *initial* slice of its line-start index (offsets
+/// only). Returns the open handle, byte length, the partial index, and how many
+/// bytes were scanned — all `Send`, so it can run in `spawn_blocking` and the
+/// (non-`Send`) [`ViewerState`] is then assembled on the main thread. The viewer
+/// extends the index on demand from there.
+pub fn scan_file(path: &Path) -> std::io::Result<(File, usize, Vec<usize>, usize)> {
     let mut file = File::open(path)?;
     let len = file.metadata()?.len() as usize;
-    let line_starts = scan_line_starts(&mut file, len)?;
-    Ok((file, len, line_starts))
+    let (line_starts, scanned) = scan_line_starts(&mut file, INITIAL_SCAN.min(len))?;
+    Ok((file, len, line_starts, scanned))
 }
 
-/// Build the line-start index for a file by scanning it sequentially in chunks.
-/// Only newline offsets are recorded — the file content is never held in memory.
-fn scan_line_starts(file: &mut File, len: usize) -> std::io::Result<Vec<usize>> {
+/// Scan up to `budget` bytes from the start of `file`, recording newline offsets.
+/// Returns the partial index and the number of bytes actually scanned. Only
+/// newline offsets are recorded — the file content is never held in memory.
+fn scan_line_starts(file: &mut File, budget: usize) -> std::io::Result<(Vec<usize>, usize)> {
     let mut starts = vec![0usize];
-    if len == 0 {
-        return Ok(starts);
+    if budget == 0 {
+        return Ok((starts, 0));
     }
     file.seek(SeekFrom::Start(0))?;
-    let mut buf = vec![0u8; 64 * 1024];
+    let mut buf = vec![0u8; 256 * 1024];
     let mut off = 0usize;
-    loop {
+    while off < budget {
         let n = file.read(&mut buf)?;
         if n == 0 {
             break;
         }
-        for (i, &b) in buf[..n].iter().enumerate() {
-            if b == b'\n' {
-                starts.push(off + i + 1);
-            }
+        for i in memchr::memchr_iter(b'\n', &buf[..n]) {
+            starts.push(off + i + 1);
         }
         off += n;
     }
-    Ok(starts)
+    Ok((starts, off))
 }
 
 #[cfg(test)]
@@ -573,6 +662,73 @@ mod tests {
         // Next wraps forward to the uppercase TWO on line 3.
         v.find_next();
         assert_eq!(v.top, 3);
+    }
+
+    #[test]
+    fn lazy_index_builds_on_demand() {
+        // A file large enough that a single read can't swallow it, so a small
+        // initial budget leaves the index genuinely partial. Fixed-width lines
+        // ("00000000\n" = 9 bytes) make offsets predictable.
+        const N: usize = 80_000; // ~720 KB
+        let mut bytes = Vec::with_capacity(N * 9);
+        for i in 0..N {
+            bytes.extend_from_slice(format!("{i:08}\n").as_bytes());
+        }
+        let path = std::env::temp_dir().join(format!("rc_viewer_lazy_{}.txt", std::process::id()));
+        std::fs::write(&path, &bytes).unwrap();
+
+        let make = |budget: usize| {
+            let mut f = File::open(&path).unwrap();
+            let len = f.metadata().unwrap().len() as usize;
+            let (starts, scanned) = scan_line_starts(&mut f, budget).unwrap();
+            ViewerState::from_scanned("t".into(), f, len, starts, scanned, None)
+        };
+
+        // Open with only a tiny budget: the index starts as a short prefix.
+        let mut v = make(100 * 1024);
+        assert!(!v.fully_indexed(), "opens without scanning the whole file");
+        assert!(v.line_count() < N, "only a prefix is indexed ({})", v.line_count());
+        assert_eq!(v.line_str(0), "00000000");
+
+        // Scrolling/extension reveals deeper lines with correct content.
+        v.extend_to_line(70_000);
+        assert_eq!(v.line_str(70_000), format!("{:08}", 70_000));
+
+        // Goto by line extends as far as needed.
+        assert!(v.goto("75000", GotoMode::Line));
+        assert_eq!(v.top, 74_999);
+        assert_eq!(v.line_str(74_999), format!("{:08}", 74_999));
+
+        // A byte-offset goto maps to the right line after extending.
+        assert!(v.goto(&format!("{}", 9 * 60_000), GotoMode::DecimalOffset));
+        assert_eq!(v.top, 60_000);
+
+        // Finishing the index yields the exact total (N lines + the empty line
+        // after the trailing newline).
+        v.index_fully();
+        assert!(v.fully_indexed());
+        assert_eq!(v.line_count(), N + 1);
+        assert_eq!(v.line_str(N - 1), format!("{:08}", N - 1));
+
+        // A percentage jump triggers a full scan and lands on the last line.
+        let mut v2 = make(100 * 1024);
+        assert!(!v2.fully_indexed());
+        assert!(v2.goto("100", GotoMode::Percent));
+        assert!(v2.fully_indexed(), "percent jump finishes indexing");
+        assert_eq!(v2.top, N);
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn small_file_is_fully_indexed_on_open() {
+        let path = std::env::temp_dir().join(format!("rc_viewer_small_{}.txt", std::process::id()));
+        std::fs::write(&path, b"a\nb\nc\n").unwrap();
+        let v = ViewerState::open_file("t".into(), path.clone(), None).unwrap();
+        assert!(v.fully_indexed());
+        assert_eq!(v.line_count(), 4); // a, b, c, trailing empty
+        assert_eq!(v.line_str(1), "b");
+        std::fs::remove_file(&path).ok();
     }
 
     fn mouse(kind: MouseEventKind, col: u16, row: u16) -> MouseEvent {

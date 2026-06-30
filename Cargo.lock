@@ -2304,6 +2304,7 @@ dependencies = [
  "flate2",
  "futures",
  "globset",
+ "memchr",
  "nix 0.31.3",
  "portable-pty",
  "ratatui",

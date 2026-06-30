@@ -72,8 +72,8 @@ impl AppState {
             let dark = self.dark_ui();
             let scanned = tokio::task::spawn_blocking(move || crate::viewer::scan_file(&local)).await;
             match scanned {
-                Ok(Ok((file, len, line_starts))) => {
-                    let mut v = ViewerState::from_scanned(name, file, len, line_starts, None);
+                Ok(Ok((file, len, line_starts, scanned))) => {
+                    let mut v = ViewerState::from_scanned(name, file, len, line_starts, scanned, None);
                     v.enable_syntax(dark);
                     self.viewer = Some(v);
                 }

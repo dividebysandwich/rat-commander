@@ -30,6 +30,12 @@ pub fn render(f: &mut Frame, area: Rect, v: &mut ViewerState, theme: &Theme) {
     v.content_area = content;
     v.footer_area = footer;
 
+    // Make sure the lines about to be drawn (plus one past, so the last line's
+    // extent is known) are indexed — the rest of the file stays unscanned.
+    if v.mode == ViewMode::Text {
+        v.extend_to_line(v.top + v.view_rows);
+    }
+
     render_header(f, header, v, theme);
     match v.mode {
         ViewMode::Text => render_text(f, content, v, theme),
@@ -72,8 +78,11 @@ fn render_header(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
         ViewMode::Text => v.line_count(),
         ViewMode::Hex => v.hex_rows(),
     };
+    // While the line index is still being built, the total is a lower bound, so
+    // flag it with a trailing '+'.
+    let more = if v.mode == ViewMode::Text && !v.fully_indexed() { "+" } else { "" };
     let text = format!(
-        " View: {}  [{mode}/{wrap}]  {}/{} {}{trunc}",
+        " View: {}  [{mode}/{wrap}]  {}/{}{more} {}{trunc}",
         ellipsize(&v.name, area.width.saturating_sub(40) as usize),
         v.top + 1,
         total.max(1),

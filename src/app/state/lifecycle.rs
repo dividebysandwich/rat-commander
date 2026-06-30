@@ -269,12 +269,13 @@ impl AppState {
                         let scanned =
                             tokio::task::spawn_blocking(move || crate::viewer::scan_file(&t)).await;
                         match scanned {
-                            Ok(Ok((file, len, line_starts))) => {
+                            Ok(Ok((file, len, line_starts, scanned))) => {
                                 let mut v = ViewerState::from_scanned(
                                     name,
                                     file,
                                     len,
                                     line_starts,
+                                    scanned,
                                     Some(temp.clone()),
                                 );
                                 v.enable_syntax(dark);
