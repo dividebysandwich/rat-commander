@@ -158,6 +158,15 @@ fn image_save_dialog_builds_a_spec() {
 }
 
 #[test]
+fn drive_dialog_anchors_over_its_panel() {
+    // Alt-F1 → left panel (side 0), Alt-F2 → right panel (side 1); other dialogs
+    // are not panel-anchored.
+    assert_eq!(Dialog::Drive(DriveDialog::new(0, vec![], None, false)).anchor_panel(), Some(0));
+    assert_eq!(Dialog::Drive(DriveDialog::new(1, vec![], None, false)).anchor_panel(), Some(1));
+    assert_eq!(Dialog::Confirm(ConfirmDialog::quit()).anchor_panel(), None);
+}
+
+#[test]
 fn drive_dialog_connection_buttons() {
     // No drives (Linux/macOS): only SFTP/FTP/SCP; default cursor on SFTP.
     let mut d = DriveDialog::new(0, vec![], None, false);

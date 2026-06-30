@@ -85,6 +85,12 @@ impl DriveDialog {
         self.drive_count > 0
     }
 
+    /// Which panel this picker targets (0 = left, 1 = right), so the renderer can
+    /// anchor it over that panel.
+    pub(crate) fn side(&self) -> usize {
+        self.side
+    }
+
     fn move_vert(&mut self, dir: isize) {
         if self.layout.len() != self.items.len() {
             return;

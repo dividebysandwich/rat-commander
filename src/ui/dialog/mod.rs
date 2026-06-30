@@ -247,6 +247,16 @@ pub struct ConfirmValues {
 }
 
 impl Dialog {
+    /// The panel index this dialog should be anchored over (the drive/connection
+    /// picker opens over its target panel), or `None` to center on the whole
+    /// screen like every other dialog.
+    pub fn anchor_panel(&self) -> Option<usize> {
+        match self {
+            Dialog::Drive(d) => Some(d.side()),
+            _ => None,
+        }
+    }
+
     pub fn handle_key(&mut self, key: KeyEvent) -> DialogResult {
         match self {
             Dialog::Input(d) => d.handle_key(key),

@@ -113,7 +113,14 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
     }
 
     if let Some(d) = &mut state.dialog {
-        d.render(f, area, &theme);
+        // The drive/connection picker anchors over its target panel; everything
+        // else centers on the whole screen.
+        let darea = match d.anchor_panel() {
+            Some(0) => left_area,
+            Some(1) => right_area,
+            _ => area,
+        };
+        d.render(f, darea, &theme);
     } else if state.menu.is_none() {
         f.set_cursor_position(caret);
     }
