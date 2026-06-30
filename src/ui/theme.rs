@@ -50,47 +50,142 @@ pub struct Palette {
 }
 
 // ---------------------------------------------------------------------------
-// User-editable palettes (themes.toml)
+// User-editable themes (themes.toml)
 // ---------------------------------------------------------------------------
 
-/// An owned, serializable palette — the form stored in `themes.toml` and used at
-/// runtime. Colors are written/read as `#rrggbb` hex. The built-in [`PALETTES`]
-/// seed the file (and are the fallback if it's missing or invalid).
+/// A theme stored in `themes.toml`: an explicit color for every UI element
+/// (background/foreground pairs where applicable). This is the form edited by
+/// the user and used at runtime — colors map straight onto the [`Theme`] with no
+/// hue mixing. The built-in [`PALETTES`] seed it (their well-known schemes are
+/// derived once into these component colors) and are the fallback if the file is
+/// missing or invalid. Colors are `#rrggbb` hex.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PaletteSpec {
+pub struct ThemeSpec {
     pub name: String,
-    #[serde(with = "hex_color")] pub bg: Color,
-    #[serde(with = "hex_color")] pub fg: Color,
-    #[serde(with = "hex_color")] pub black: Color,
-    #[serde(with = "hex_color")] pub red: Color,
-    #[serde(with = "hex_color")] pub green: Color,
-    #[serde(with = "hex_color")] pub yellow: Color,
-    #[serde(with = "hex_color")] pub blue: Color,
-    #[serde(with = "hex_color")] pub magenta: Color,
-    #[serde(with = "hex_color")] pub cyan: Color,
-    #[serde(with = "hex_color")] pub white: Color,
-    #[serde(with = "hex_color")] pub bright_black: Color,
-    #[serde(with = "hex_color")] pub bright_red: Color,
-    #[serde(with = "hex_color")] pub bright_green: Color,
-    #[serde(with = "hex_color")] pub bright_yellow: Color,
-    #[serde(with = "hex_color")] pub bright_blue: Color,
-    #[serde(with = "hex_color")] pub bright_magenta: Color,
-    #[serde(with = "hex_color")] pub bright_cyan: Color,
-    #[serde(with = "hex_color")] pub bright_white: Color,
+
+    // -- Panels --
+    #[serde(with = "hex_color")] pub panel_bg: Color,
+    #[serde(with = "hex_color")] pub panel_fg: Color,
+    /// Body text in the editor/viewer (usually higher contrast than `panel_fg`).
+    #[serde(with = "hex_color")] pub text_fg: Color,
+    #[serde(with = "hex_color")] pub panel_border: Color,
+    #[serde(with = "hex_color")] pub panel_border_active: Color,
+    /// Column headers (Name/Size/…).
+    #[serde(with = "hex_color")] pub header_fg: Color,
+
+    // -- Cursor (the selection bar over the focused file) --
+    #[serde(with = "hex_color")] pub cursor_bg: Color,
+    #[serde(with = "hex_color")] pub cursor_fg: Color,
+    /// Cursor on the inactive panel.
+    #[serde(with = "hex_color")] pub cursor_inactive_bg: Color,
+    #[serde(with = "hex_color")] pub cursor_inactive_fg: Color,
+
+    // -- File-type name colors --
+    #[serde(with = "hex_color")] pub marked_fg: Color,
+    #[serde(with = "hex_color")] pub dir_fg: Color,
+    #[serde(with = "hex_color")] pub exec_fg: Color,
+    #[serde(with = "hex_color")] pub symlink_fg: Color,
+    #[serde(with = "hex_color")] pub archive_fg: Color,
+    #[serde(with = "hex_color")] pub doc_fg: Color,
+    #[serde(with = "hex_color")] pub image_fg: Color,
+    #[serde(with = "hex_color")] pub media_fg: Color,
+
+    // -- Top menu bar + bottom F-key bar --
+    #[serde(with = "hex_color")] pub menubar_bg: Color,
+    #[serde(with = "hex_color")] pub menubar_fg: Color,
+    #[serde(with = "hex_color")] pub fkey_label_bg: Color,
+    #[serde(with = "hex_color")] pub fkey_label_fg: Color,
+    #[serde(with = "hex_color")] pub fkey_num_bg: Color,
+    #[serde(with = "hex_color")] pub fkey_num_fg: Color,
+
+    // -- Dialogs --
+    #[serde(with = "hex_color")] pub dialog_bg: Color,
+    #[serde(with = "hex_color")] pub dialog_fg: Color,
+    #[serde(with = "hex_color")] pub dialog_title: Color,
+    #[serde(with = "hex_color")] pub dialog_border_fg: Color,
+    #[serde(with = "hex_color")] pub dialog_border_bg: Color,
+    /// Focused control / selected row inside a dialog.
+    #[serde(with = "hex_color")] pub dialog_selection_bg: Color,
+    #[serde(with = "hex_color")] pub dialog_selection_fg: Color,
+
+    // -- Pulldown menus --
+    #[serde(with = "hex_color")] pub menu_bg: Color,
+    #[serde(with = "hex_color")] pub menu_fg: Color,
+    #[serde(with = "hex_color")] pub menu_selection_bg: Color,
+    #[serde(with = "hex_color")] pub menu_selection_fg: Color,
+    /// Underlined accelerator letters in menus.
+    #[serde(with = "hex_color")] pub hotkey_fg: Color,
+
+    // -- Text inputs + buttons --
+    #[serde(with = "hex_color")] pub input_bg: Color,
+    #[serde(with = "hex_color")] pub input_fg: Color,
+    #[serde(with = "hex_color")] pub button_bg: Color,
+    #[serde(with = "hex_color")] pub button_fg: Color,
+    #[serde(with = "hex_color")] pub button_focused_bg: Color,
+    #[serde(with = "hex_color")] pub button_focused_fg: Color,
+
+    // -- Misc --
+    #[serde(with = "hex_color")] pub error_fg: Color,
+    /// Text drawn over animated gradient bars.
+    #[serde(with = "hex_color")] pub bar_fg: Color,
+    /// Animated gradient endpoints (bars/cursor on truecolor terminals).
+    #[serde(with = "hex_color")] pub gradient_from: Color,
+    #[serde(with = "hex_color")] pub gradient_to: Color,
 }
 
-impl From<&Palette> for PaletteSpec {
-    fn from(p: &Palette) -> Self {
-        PaletteSpec {
-            name: p.name.to_string(),
-            bg: p.bg, fg: p.fg,
-            black: p.black, red: p.red, green: p.green, yellow: p.yellow,
-            blue: p.blue, magenta: p.magenta, cyan: p.cyan, white: p.white,
-            bright_black: p.bright_black, bright_red: p.bright_red,
-            bright_green: p.bright_green, bright_yellow: p.bright_yellow,
-            bright_blue: p.bright_blue, bright_magenta: p.bright_magenta,
-            bright_cyan: p.bright_cyan, bright_white: p.bright_white,
-        }
+/// Extract the per-component colors from a (derived) [`Theme`] into a [`ThemeSpec`]
+/// — how the built-in schemes become editable component colors in `themes.toml`.
+fn theme_to_spec(t: &Theme) -> ThemeSpec {
+    let fg = |s: &Style| s.fg.unwrap_or(t.panel_fg);
+    let bg = |s: &Style| s.bg.unwrap_or(t.panel_bg);
+    ThemeSpec {
+        name: t.name.clone(),
+        panel_bg: t.panel_bg,
+        panel_fg: t.panel_fg,
+        text_fg: t.text_fg,
+        panel_border: t.panel_border,
+        panel_border_active: t.panel_border_active,
+        header_fg: t.header_fg,
+        cursor_bg: bg(&t.cursor),
+        cursor_fg: fg(&t.cursor),
+        cursor_inactive_bg: bg(&t.cursor_inactive),
+        cursor_inactive_fg: fg(&t.cursor_inactive),
+        marked_fg: t.marked_fg,
+        dir_fg: t.dir_fg,
+        exec_fg: t.exec_fg,
+        symlink_fg: t.symlink_fg,
+        archive_fg: t.archive_fg,
+        doc_fg: t.doc_fg,
+        image_fg: t.image_fg,
+        media_fg: t.media_fg,
+        menubar_bg: bg(&t.menubar),
+        menubar_fg: fg(&t.menubar),
+        fkey_label_bg: bg(&t.fkey_label),
+        fkey_label_fg: fg(&t.fkey_label),
+        fkey_num_bg: bg(&t.fkey_num),
+        fkey_num_fg: fg(&t.fkey_num),
+        dialog_bg: t.dialog_bg,
+        dialog_fg: t.dialog_fg,
+        dialog_title: t.dialog_title,
+        dialog_border_fg: t.dialog_border_fg,
+        dialog_border_bg: t.dialog_border_bg,
+        dialog_selection_bg: bg(&t.dialog_selection),
+        dialog_selection_fg: fg(&t.dialog_selection),
+        menu_bg: t.menu_bg,
+        menu_fg: t.menu_fg,
+        menu_selection_bg: bg(&t.menu_selection),
+        menu_selection_fg: fg(&t.menu_selection),
+        hotkey_fg: t.hotkey_fg,
+        input_bg: t.input_bg,
+        input_fg: t.input_fg,
+        button_bg: bg(&t.button),
+        button_fg: fg(&t.button),
+        button_focused_bg: bg(&t.button_focused),
+        button_focused_fg: fg(&t.button_focused),
+        error_fg: t.error_fg,
+        bar_fg: t.bar_fg,
+        gradient_from: Color::Rgb(t.grad_a.0, t.grad_a.1, t.grad_a.2),
+        gradient_to: Color::Rgb(t.grad_b.0, t.grad_b.1, t.grad_b.2),
     }
 }
 
@@ -98,7 +193,7 @@ impl From<&Palette> for PaletteSpec {
 #[derive(Default, Serialize, Deserialize)]
 struct ThemesFile {
     #[serde(default, rename = "theme")]
-    theme: Vec<PaletteSpec>,
+    theme: Vec<ThemeSpec>,
 }
 
 /// (De)serialize a [`Color`] as a `#rrggbb` hex string.
@@ -130,22 +225,25 @@ fn parse_hex(s: &str) -> Option<Color> {
 }
 
 const THEMES_HEADER: &str = "\
-# rat-commander themes. Each [[theme]] is a 16-color ANSI palette (plus bg/fg)
-# from which the UI styles are derived. Colors are #rrggbb hex. Edit any preset,
-# add your own [[theme]] blocks, then pick one in Options → Settings (the Theme
-# field). Delete this file to regenerate the presets.\n\n";
+# rat-commander themes. Each [[theme]] sets an explicit #rrggbb color for every
+# UI element (e.g. menu_bg, dialog_bg, dialog_border_fg, input_bg, cursor_bg).
+# Edit any preset, add your own [[theme]] blocks, then pick one in Options →
+# Settings (the Theme field). Saving applies the change at once. Delete this file
+# to regenerate the presets.\n\n";
 
-/// The built-in presets as owned specs (seeds `themes.toml`; the fallback set).
-fn builtin_specs() -> Vec<PaletteSpec> {
-    PALETTES.iter().map(PaletteSpec::from).collect()
+/// The built-in presets as component specs: each well-known ANSI scheme is
+/// derived once (via [`Theme::from_ansi`]) into explicit per-element colors,
+/// which seed `themes.toml` and serve as the fallback set.
+fn builtin_specs() -> Vec<ThemeSpec> {
+    PALETTES.iter().map(|p| theme_to_spec(&Theme::from_ansi(p, true))).collect()
 }
 
-static BUILTIN: LazyLock<Vec<PaletteSpec>> = LazyLock::new(builtin_specs);
-/// The palettes currently in effect (built-ins until `themes.toml` is loaded).
-static ACTIVE: LazyLock<RwLock<Vec<PaletteSpec>>> = LazyLock::new(|| RwLock::new(builtin_specs()));
+static BUILTIN: LazyLock<Vec<ThemeSpec>> = LazyLock::new(builtin_specs);
+/// The themes currently in effect (built-ins until `themes.toml` is loaded).
+static ACTIVE: LazyLock<RwLock<Vec<ThemeSpec>>> = LazyLock::new(|| RwLock::new(builtin_specs()));
 
-/// Replace the active palette set (ignored if empty).
-fn set_palettes(specs: Vec<PaletteSpec>) {
+/// Replace the active theme set (ignored if empty).
+fn set_palettes(specs: Vec<ThemeSpec>) {
     if !specs.is_empty() {
         *ACTIVE.write().unwrap() = specs;
     }
@@ -193,7 +291,7 @@ pub fn ensure_themes_file() -> Option<PathBuf> {
     Some(path)
 }
 
-fn write_themes(path: &Path, specs: &[PaletteSpec]) -> std::io::Result<()> {
+fn write_themes(path: &Path, specs: &[ThemeSpec]) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -235,6 +333,10 @@ pub struct Theme {
     pub dialog_bg: Color,
     pub dialog_fg: Color,
     pub dialog_title: Color,
+    /// The dialog's border (frame) — foreground and background, separate from the
+    /// interior so a theme can outline dialogs distinctly.
+    pub dialog_border_fg: Color,
+    pub dialog_border_bg: Color,
     /// Highlight style for a focused control / selected row inside a dialog.
     pub dialog_selection: Style,
     /// Background/foreground of pulldown menu dropdowns (kept distinct from
@@ -265,11 +367,65 @@ pub struct Theme {
 impl Theme {
     /// The default theme (classic Midnight Commander blue).
     pub fn mc() -> Self {
-        Theme::from_palette(&BUILTIN[0], true)
+        Theme::from_spec(&BUILTIN[0], true)
     }
 
-    /// Build a theme from a palette. `truecolor` enables RGB gradients.
-    pub fn from_palette(p: &PaletteSpec, truecolor: bool) -> Self {
+    /// Build a [`Theme`] from explicit per-component colors (the `themes.toml`
+    /// form). `truecolor` only governs gradient animation; the colors are used
+    /// as-is. Structural emphasis (bold cursor/selection/buttons) is applied here.
+    pub fn from_spec(s: &ThemeSpec, truecolor: bool) -> Self {
+        let bg_fg = |bg: Color, fg: Color| Style::default().bg(bg).fg(fg);
+        let bold = |bg: Color, fg: Color| bg_fg(bg, fg).add_modifier(Modifier::BOLD);
+        Theme {
+            name: s.name.clone(),
+            truecolor,
+            panel_bg: s.panel_bg,
+            panel_fg: s.panel_fg,
+            text_fg: s.text_fg,
+            panel_border: s.panel_border,
+            panel_border_active: s.panel_border_active,
+            header_fg: s.header_fg,
+            cursor: bold(s.cursor_bg, s.cursor_fg),
+            cursor_inactive: bg_fg(s.cursor_inactive_bg, s.cursor_inactive_fg),
+            cursor_fg: s.cursor_fg,
+            marked_fg: s.marked_fg,
+            dir_fg: s.dir_fg,
+            exec_fg: s.exec_fg,
+            symlink_fg: s.symlink_fg,
+            archive_fg: s.archive_fg,
+            doc_fg: s.doc_fg,
+            image_fg: s.image_fg,
+            media_fg: s.media_fg,
+            menubar: bg_fg(s.menubar_bg, s.menubar_fg),
+            fkey_label: bg_fg(s.fkey_label_bg, s.fkey_label_fg),
+            fkey_num: bold(s.fkey_num_bg, s.fkey_num_fg),
+            dialog_bg: s.dialog_bg,
+            dialog_fg: s.dialog_fg,
+            dialog_title: s.dialog_title,
+            dialog_border_fg: s.dialog_border_fg,
+            dialog_border_bg: s.dialog_border_bg,
+            dialog_selection: bold(s.dialog_selection_bg, s.dialog_selection_fg),
+            menu_bg: s.menu_bg,
+            menu_fg: s.menu_fg,
+            menu_selection: bold(s.menu_selection_bg, s.menu_selection_fg),
+            hotkey_fg: s.hotkey_fg,
+            input_bg: s.input_bg,
+            input_fg: s.input_fg,
+            button: bg_fg(s.button_bg, s.button_fg),
+            button_focused: bold(s.button_focused_bg, s.button_focused_fg),
+            error_fg: s.error_fg,
+            bar_fg: s.bar_fg,
+            anim: 0,
+            animated: false,
+            grad_a: to_rgb(s.gradient_from),
+            grad_b: to_rgb(s.gradient_to),
+        }
+    }
+
+    /// Derive the default component colors for a built-in ANSI scheme. Used only
+    /// to seed the editable [`ThemeSpec`]s; the runtime builds themes via
+    /// [`from_spec`](Self::from_spec).
+    fn from_ansi(p: &Palette, truecolor: bool) -> Self {
         let surface = if truecolor {
             mix(p.bg, p.fg, 0.12)
         } else {
@@ -279,7 +435,7 @@ impl Theme {
         // with black text (like the real program); other themes use the
         // (gradient-friendly) bright-blue cursor.
         let is_mc =
-            p.name.as_str() == "Midnight Commander" || p.name.as_str() == "MidnightCommander Classic";
+            p.name == "Midnight Commander" || p.name == "MidnightCommander Classic";
         let (cursor_bg, cursor_fg) = if is_mc {
             (p.cyan, p.black)
         } else {
@@ -333,6 +489,10 @@ impl Theme {
             dialog_bg: dialog_surface,
             dialog_fg: p.fg,
             dialog_title: p.bright_cyan,
+            // The frame matches the title/interior by default (set after the MC
+            // override below, so it tracks any per-theme dialog adjustments).
+            dialog_border_fg: p.bright_cyan,
+            dialog_border_bg: dialog_surface,
             dialog_selection: Style::default()
                 .bg(p.bright_cyan)
                 .fg(best_contrast(p.bright_cyan, p.bg, p.bright_white))
@@ -373,7 +533,7 @@ impl Theme {
         // bar, while dialogs are a light "paper" gray with black text, blue
         // titles, and teal selection bars / input fields (like the real
         // program's Configure-options dialog).
-        if p.name.as_str() == "Midnight Commander" {
+        if p.name == "Midnight Commander" {
             let cyan = rgb(0x0dcdcd);
             let paper = rgb(0xc6c6c6);
             let white = rgb(0xffffff);
@@ -403,11 +563,14 @@ impl Theme {
             theme.fkey_num = Style::default().bg(black).fg(white).add_modifier(Modifier::BOLD);
         }
 
+        // The dialog frame matches the (possibly overridden) title/interior.
+        theme.dialog_border_fg = theme.dialog_title;
+        theme.dialog_border_bg = theme.dialog_bg;
         theme
     }
 
-    /// Look up an active theme by palette name (case-insensitive, ignoring
-    /// spaces/dashes), falling back to the default (mc) palette.
+    /// Look up an active theme by name (case-insensitive, ignoring spaces and
+    /// dashes), falling back to the default (mc) theme.
     pub fn by_name(name: &str, truecolor: bool) -> Self {
         let key = norm_name(name);
         let spec = ACTIVE
@@ -417,7 +580,7 @@ impl Theme {
             .find(|p| norm_name(&p.name) == key)
             .cloned()
             .unwrap_or_else(|| BUILTIN[0].clone());
-        Theme::from_palette(&spec, truecolor)
+        Theme::from_spec(&spec, truecolor)
     }
 
     /// Base style for panel content (background + default foreground).
@@ -792,6 +955,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn editing_one_component_changes_only_that_element() {
+        let mut spec = builtin_specs()[0].clone(); // Midnight Commander
+        let base = Theme::from_spec(&spec, true);
+        // Give the dialog a completely different background — directly, no mixing.
+        spec.dialog_bg = rgb(0x123456);
+        let edited = Theme::from_spec(&spec, true);
+        assert_eq!(edited.dialog_bg, rgb(0x123456), "dialog bg follows the spec verbatim");
+        // Unrelated elements are untouched.
+        assert_eq!(edited.panel_bg, base.panel_bg);
+        assert_eq!(edited.menu_bg, base.menu_bg);
+        assert_eq!(edited.cursor.bg, base.cursor.bg);
+        assert_eq!(edited.input_bg, base.input_bg);
+    }
+
+    #[test]
     fn builtin_themes_serialize_and_reparse() {
         let specs = builtin_specs();
         assert!(specs.len() >= 10, "expected the full preset set");
@@ -800,9 +978,10 @@ mod tests {
         assert_eq!(back.theme.len(), specs.len());
         for (a, b) in specs.iter().zip(&back.theme) {
             assert_eq!(a.name, b.name);
-            assert_eq!(a.bg, b.bg, "{} bg", a.name);
-            assert_eq!(a.cyan, b.cyan, "{} cyan", a.name);
-            assert_eq!(a.bright_white, b.bright_white, "{} bright_white", a.name);
+            assert_eq!(a.panel_bg, b.panel_bg, "{} panel_bg", a.name);
+            assert_eq!(a.menu_bg, b.menu_bg, "{} menu_bg", a.name);
+            assert_eq!(a.dialog_border_fg, b.dialog_border_fg, "{} dialog_border_fg", a.name);
+            assert_eq!(a.cursor_bg, b.cursor_bg, "{} cursor_bg", a.name);
         }
     }
 
@@ -812,7 +991,7 @@ mod tests {
         write_themes(&path, &builtin_specs()).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.starts_with("# rat-commander themes"), "has a header comment");
-        assert!(text.contains("[[theme]]") && text.contains("cyan = \"#"));
+        assert!(text.contains("[[theme]]") && text.contains("dialog_bg = \"#"));
         let tf: ThemesFile = toml::from_str(&text).unwrap();
         assert_eq!(tf.theme.len(), builtin_specs().len());
         std::fs::remove_file(&path).ok();

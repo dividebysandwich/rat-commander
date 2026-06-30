@@ -200,12 +200,12 @@ pub(crate) fn dialog_block(title: &str, theme: &Theme) -> Block<'static> {
     Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(theme.dialog_title).bg(theme.dialog_bg))
+        .border_style(Style::default().fg(theme.dialog_border_fg).bg(theme.dialog_border_bg))
         .title(Span::styled(
             format!(" {title} "),
             Style::default()
                 .fg(theme.dialog_title)
-                .bg(theme.dialog_bg)
+                .bg(theme.dialog_border_bg)
                 .add_modifier(Modifier::BOLD),
         ))
         .title_alignment(ratatui::layout::Alignment::Center)
@@ -217,12 +217,12 @@ pub(crate) fn danger_block(title: &str, theme: &Theme) -> Block<'static> {
     Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Double)
-        .border_style(Style::default().fg(theme.error_fg).bg(theme.dialog_bg))
+        .border_style(Style::default().fg(theme.error_fg).bg(theme.dialog_border_bg))
         .title(Span::styled(
             format!(" ⚠ {title} ⚠ "),
             Style::default()
                 .fg(theme.error_fg)
-                .bg(theme.dialog_bg)
+                .bg(theme.dialog_border_bg)
                 .add_modifier(Modifier::BOLD),
         ))
         .title_alignment(ratatui::layout::Alignment::Center)

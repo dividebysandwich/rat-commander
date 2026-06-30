@@ -454,13 +454,16 @@ used. Truecolor, animations, and the system-status widget can each be toggled in
 Settings.
 
 **Custom themes** live in **`themes.toml`** in the config directory, generated
-with all the built-in presets on first run. Each theme is a 16-color ANSI
-palette (plus background/foreground) written as `#rrggbb` hex; the UI styles are
-derived from it. Edit any preset's colors, or add your own `[[theme]]` blocks —
-they appear in the Settings theme chooser. Open the file straight from
-**Options → Edit themes…** (it opens in the built-in editor with TOML
-highlighting); saving applies the changes immediately. Delete the file to
-regenerate the presets.
+with all the built-in presets on first run. Each `[[theme]]` sets an explicit
+`#rrggbb` color for **every UI element** — `panel_bg`, `menu_bg`, `dialog_bg`,
+`dialog_border_fg` / `dialog_border_bg`, `input_bg` / `input_fg`, `cursor_bg` /
+`cursor_fg`, `menu_selection_bg` / `menu_selection_fg`, the file-type colors, the
+gradient endpoints, and so on — so you have full control (e.g. a completely
+different dialog background) with no hue-mixing in between. Edit any preset, or
+add your own `[[theme]]` blocks — they appear in the Settings theme chooser. Open
+the file straight from **Options → Edit themes…** (it opens in the built-in
+editor with TOML highlighting); saving applies the changes immediately. Delete
+the file to regenerate the presets.
 
 ### Remote connections
 
