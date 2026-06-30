@@ -72,9 +72,12 @@ pub struct ProcView {
     pub mem_used: u64,
     /// Memory-used percentage history (0..=100) for the memory sparkline.
     pub mem_history: VecDeque<f64>,
-    /// Combined disk read+write rate (bytes/s) and its history.
-    pub disk_rate: f64,
-    pub disk_history: VecDeque<f64>,
+    /// Disk read and write rates (bytes/s) and their histories, sampled by
+    /// summing each process's read/written bytes since the last refresh.
+    pub disk_read: f64,
+    pub disk_write: f64,
+    pub disk_read_history: VecDeque<f64>,
+    pub disk_write_history: VecDeque<f64>,
     /// Network receive/transmit rates (bytes/s) and their histories.
     pub net_down: f64,
     pub net_up: f64,
@@ -132,8 +135,10 @@ impl ProcView {
             mem_total: 0,
             mem_used: 0,
             mem_history: VecDeque::with_capacity(SYS_HISTORY),
-            disk_rate: 0.0,
-            disk_history: VecDeque::with_capacity(SYS_HISTORY),
+            disk_read: 0.0,
+            disk_write: 0.0,
+            disk_read_history: VecDeque::with_capacity(SYS_HISTORY),
+            disk_write_history: VecDeque::with_capacity(SYS_HISTORY),
             net_down: 0.0,
             net_up: 0.0,
             net_down_history: VecDeque::with_capacity(SYS_HISTORY),
@@ -383,11 +388,11 @@ impl ProcView {
         self.mem_total = self.sys.total_memory();
         self.mem_used = self.sys.used_memory();
 
-        // -- Processes, plus the system-wide disk throughput summed from each
-        //    process's read+written bytes since the last refresh. --
+        // -- Processes, plus the system-wide disk read/write throughput summed
+        //    from each process's bytes read/written since the last refresh. --
         let max_cpu = 100.0 * self.ncores as f32;
         let mut procs = Vec::with_capacity(self.sys.processes().len());
-        let mut disk_bytes = 0u64;
+        let (mut disk_read, mut disk_write) = (0u64, 0u64);
         for (pid, p) in self.sys.processes() {
             let pid = pid.as_u32() as i32;
             let name = p.name().to_string_lossy().into_owned();
@@ -402,9 +407,8 @@ impl ProcView {
             // available (Linux); it reads 0 elsewhere (e.g. Windows/macOS).
             let threads = p.tasks().map(|t| t.len() as u32).unwrap_or(0);
             let du = p.disk_usage();
-            disk_bytes = disk_bytes
-                .saturating_add(du.read_bytes)
-                .saturating_add(du.written_bytes);
+            disk_read = disk_read.saturating_add(du.read_bytes);
+            disk_write = disk_write.saturating_add(du.written_bytes);
 
             // Append to this process's CPU sparkline history.
             let h = self.proc_cpu_history.entry(pid).or_default();
@@ -419,7 +423,8 @@ impl ProcView {
         let live: HashSet<i32> = procs.iter().map(|p| p.pid).collect();
         self.proc_cpu_history.retain(|pid, _| live.contains(pid));
         self.procs = procs;
-        self.disk_rate = if dt > 0.0 { disk_bytes as f64 / dt } else { 0.0 };
+        self.disk_read = if dt > 0.0 { disk_read as f64 / dt } else { 0.0 };
+        self.disk_write = if dt > 0.0 { disk_write as f64 / dt } else { 0.0 };
 
         // -- Network throughput (sum of non-loopback interfaces). --
         self.networks.refresh(true);
@@ -457,7 +462,8 @@ impl ProcView {
                 0.0
             };
             push_sys(&mut self.mem_history, mem_pct);
-            push_sys(&mut self.disk_history, self.disk_rate);
+            push_sys(&mut self.disk_read_history, self.disk_read);
+            push_sys(&mut self.disk_write_history, self.disk_write);
             push_sys(&mut self.net_down_history, self.net_down);
             push_sys(&mut self.net_up_history, self.net_up);
         }

@@ -274,37 +274,33 @@ fn render_mem_panel(f: &mut Frame, area: Rect, pv: &ProcView, theme: &Theme) {
 }
 
 fn render_disk_panel(f: &mut Frame, area: Rect, pv: &ProcView, theme: &Theme) {
-    let title = format!(" Disk {}/s ", human_size(pv.disk_rate as u64));
+    // ▲ writes (grow upward), ▼ reads (grow downward) from the centre line.
+    let title = format!(
+        " Disk ▼{}/s ▲{}/s ",
+        human_size(pv.disk_read as u64),
+        human_size(pv.disk_write as u64)
+    );
     let inner = titled(f, area, title, theme);
-    let samples: Vec<f64> = pv.disk_history.iter().copied().collect();
-    let max = peak(&samples);
-    let color = theme.exec_fg;
-    draw_sparkline(f, inner, &samples, max, &|_| color, theme);
+    let read: Vec<f64> = pv.disk_read_history.iter().copied().collect();
+    let write: Vec<f64> = pv.disk_write_history.iter().copied().collect();
+    // Shared scale so reads and writes are directly comparable.
+    let max = peak(&read).max(peak(&write));
+    draw_mirror_bars(f, inner, (&write, theme.header_fg), (&read, theme.exec_fg), max, theme);
 }
 
 fn render_net_panel(f: &mut Frame, area: Rect, pv: &ProcView, theme: &Theme) {
+    // ▲ uploads (grow upward), ▼ downloads (grow downward) from the centre line.
     let title = format!(
         " Net ▼{}/s ▲{}/s ",
         human_size(pv.net_down as u64),
         human_size(pv.net_up as u64)
     );
     let inner = titled(f, area, title, theme);
-    if inner.width == 0 || inner.height == 0 {
-        return;
-    }
     let down: Vec<f64> = pv.net_down_history.iter().copied().collect();
     let up: Vec<f64> = pv.net_up_history.iter().copied().collect();
-    // Shared scale so the two halves are comparable; split interior in two.
+    // Shared scale so the upload/download halves are directly comparable.
     let max = peak(&down).max(peak(&up));
-    if inner.height >= 2 {
-        let half = inner.height / 2;
-        let top = Rect { height: half, ..inner };
-        let bottom = Rect { y: inner.y + half, height: inner.height - half, ..inner };
-        draw_sparkline(f, top, &down, max, &|_| theme.panel_border_active, theme);
-        draw_sparkline(f, bottom, &up, max, &|_| theme.header_fg, theme);
-    } else {
-        draw_sparkline(f, inner, &down, max, &|_| theme.panel_border_active, theme);
-    }
+    draw_mirror_bars(f, inner, (&up, theme.header_fg), (&down, theme.panel_border_active), max, theme);
 }
 
 /// The peak of `samples`, floored at 1.0 so a flat/empty series doesn't divide
@@ -350,6 +346,83 @@ fn draw_sparkline(
                 ch.to_string(),
                 Style::default().fg(color).bg(theme.panel_bg),
             );
+        }
+    }
+}
+
+/// Draw a centre-line mirrored bar graph in `area`: `up` samples grow upward
+/// from the horizontal mid-line, `down` samples grow downward. Newest sample is
+/// at the right edge; both are scaled to the shared `max`. Used by the disk
+/// (write ▲ / read ▼) and network (upload ▲ / download ▼) panels.
+fn draw_mirror_bars(
+    f: &mut Frame,
+    area: Rect,
+    up: (&[f64], ratatui::style::Color),
+    down: (&[f64], ratatui::style::Color),
+    max: f64,
+    theme: &Theme,
+) {
+    let (up, up_color) = up;
+    let (down, down_color) = down;
+    let (w, h) = (area.width as usize, area.height as usize);
+    if w == 0 || h == 0 {
+        return;
+    }
+    // One row is reserved for the horizontal centre axis; the remaining rows
+    // split into an upper band (grows up) and a lower band (grows down). With an
+    // odd leftover the spare row goes to the lower band.
+    let up_h = (h - 1) / 2;
+    let down_h = h - 1 - up_h;
+    let axis_y = area.y + up_h as u16;
+    let up_levels = up_h * 8;
+    let down_levels = down_h * 8;
+    let (nu, nd) = (up.len(), down.len());
+    let bg = theme.panel_bg;
+    let axis_style = Style::default().fg(theme.panel_border).bg(bg);
+    let frac = |v: f64, levels: usize| -> usize {
+        if max > 0.0 {
+            ((v / max).clamp(0.0, 1.0) * levels as f64).round() as usize
+        } else {
+            0
+        }
+    };
+    let buf = f.buffer_mut();
+    for col in 0..w {
+        // Right-align: the rightmost column is the newest sample.
+        let from_right = w - 1 - col;
+        let uv = if from_right < nu { up[nu - 1 - from_right] } else { 0.0 };
+        let dv = if from_right < nd { down[nd - 1 - from_right] } else { 0.0 };
+        let u_filled = frac(uv, up_levels);
+        let d_filled = frac(dv, down_levels);
+        let x = area.x + col as u16;
+
+        // Upper band: bottom-anchored cells (fill from the centre upward), using
+        // the lower-block glyphs in the bar colour.
+        for r in 0..up_h {
+            let from_centre = up_h - 1 - r; // 0 = the row just above the axis
+            let cell = u_filled.saturating_sub(from_centre * 8).min(8);
+            let (ch, style) = if cell == 0 {
+                (' ', Style::default().fg(theme.panel_border).bg(bg))
+            } else {
+                (LEVELS[cell], Style::default().fg(up_color).bg(bg))
+            };
+            buf.set_string(x, area.y + r as u16, ch.to_string(), style);
+        }
+        // The centre axis line.
+        buf.set_string(x, axis_y, "─", axis_style);
+        // Lower band: top-anchored cells (fill from the centre downward). A cell's
+        // top `cell`/8 is painted in the bar colour by using it as the cell
+        // background and "erasing" the unfilled lower part with a lower-block
+        // glyph drawn in the panel background colour.
+        for r in 0..down_h {
+            let from_centre = r; // 0 = the row just below the axis
+            let cell = d_filled.saturating_sub(from_centre * 8).min(8);
+            let (ch, style) = if cell == 0 {
+                (' ', Style::default().fg(theme.panel_border).bg(bg))
+            } else {
+                (LEVELS[8 - cell], Style::default().fg(bg).bg(down_color))
+            };
+            buf.set_string(x, axis_y + 1 + r as u16, ch.to_string(), style);
         }
     }
 }
@@ -535,4 +608,41 @@ fn render_footer(f: &mut Frame, area: Rect, _pv: &ProcView, theme: &Theme) {
         Paragraph::new(Line::from(Span::styled(line, theme.fkey_label))).style(theme.fkey_label),
         area,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    use ratatui::style::Color;
+
+    /// `draw_mirror_bars` must grow the `up` series upward (top band, bar-colored
+    /// foreground) and the `down` series downward (bottom band, bar-colored
+    /// background) from the centre line, with the newest sample at the right.
+    #[test]
+    fn mirror_bars_split_up_and_down() {
+        let theme = crate::ui::theme::Theme::mc();
+        let area = Rect { x: 0, y: 0, width: 3, height: 4 };
+        let (up_c, down_c) = (Color::Red, Color::Blue);
+        let cx = 2u16; // rightmost column = newest sample
+
+        // Upload-only: a full bar fills the TOP band; the bottom band stays clear.
+        let mut t = Terminal::new(TestBackend::new(3, 4)).unwrap();
+        t.draw(|f| draw_mirror_bars(f, area, (&[1.0], up_c), (&[], down_c), 1.0, &theme))
+            .unwrap();
+        let b = t.backend().buffer();
+        assert_eq!(b[(cx, 0)].fg, up_c, "top band carries the up colour");
+        assert_ne!(b[(cx, 0)].symbol(), " ", "top band draws a bar glyph");
+        assert_eq!(b[(cx, 1)].symbol(), "─", "the centre axis line is drawn");
+        assert_ne!(b[(cx, 3)].bg, down_c, "bottom band is clear with no downloads");
+
+        // Download-only: a full bar fills the BOTTOM band; the top band stays clear.
+        let mut t = Terminal::new(TestBackend::new(3, 4)).unwrap();
+        t.draw(|f| draw_mirror_bars(f, area, (&[], up_c), (&[1.0], down_c), 1.0, &theme))
+            .unwrap();
+        let b = t.backend().buffer();
+        assert_eq!(b[(cx, 3)].bg, down_c, "bottom band carries the down colour");
+        assert_ne!(b[(cx, 0)].fg, up_c, "top band is clear with no uploads");
+    }
 }

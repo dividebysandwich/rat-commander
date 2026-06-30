@@ -541,9 +541,12 @@ network — and killing a runaway process.
 **Operation.** The table lists processes with CPU%, memory, thread count and a
 per-process CPU sparkline; sort by **name, CPU, memory, threads or PID** (the
 sort hotkey is shown in each column header). The layout adds a CPU-load line
-graph and per-core meters, with memory, disk-I/O and network sparklines.
-**`+`/`-`** adjust the refresh interval. **`k`** kills the selected process,
-**`K`** force-kills it; both ask to confirm.
+graph and per-core meters, a memory sparkline, and two **centre-line graphs**
+that split a metric into its two directions around a drawn **horizontal axis
+line**: the **Disk** panel grows **writes upward (▲)** and **reads downward
+(▼)**, and the **Net** panel grows **uploads upward (▲)** and **downloads
+downward (▼)**, each direction scaled to their shared peak. **`+`/`-`** adjust the refresh interval.
+**`k`** kills the selected process, **`K`** force-kills it; both ask to confirm.
 
 A couple of details are platform-specific: on **Unix**, `k`/`K` send SIGTERM
 /SIGKILL (graceful vs. forced), while on **Windows** both terminate the process
