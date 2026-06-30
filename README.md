@@ -94,6 +94,11 @@ The installed executable is named **`rc`** for quick typing.
   **GraphQL**, **Protobuf**, **CMake**, **TypeScript/TSX**, **Kotlin**, **Swift**,
   **SCSS/Sass**, **Elixir**, **Zig** and **Nix** — are bundled as embedded
   `.sublime-syntax` files, and more can be dropped in to extend it
+- **Markdown view** — `.md` files open in a rendered approximation: the markup
+  (`#`, `**`, `*`, `` ` ``, `[…](…)`) is **removed**, headings are colored by
+  level, **bold**/*italic*/`code`/links are styled, list bullets become `•`, and
+  blockquotes/rules are drawn. Press **F8** (*Raw*) to switch to the raw source
+  (still syntax-highlighted), and **F8** again (*Render*) to switch back
 - **Hex-color swatches** — any `#rgb` / `#rrggbb` / `#rrggbbaa` token has its
   `#` painted in the color it names (in both the viewer and editor, regardless of
   syntax highlighting), so colors in code/configs are visible at a glance

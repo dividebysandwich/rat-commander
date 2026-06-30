@@ -38,8 +38,11 @@ pub fn render(f: &mut Frame, area: Rect, v: &mut ViewerState, theme: &Theme) {
 
     render_header(f, header, v, theme);
     match v.mode {
-        ViewMode::Text => render_text(f, content, v, theme),
         ViewMode::Hex => render_hex(f, content, v, theme),
+        // Markdown files render the approximation by default; F8 shows the raw,
+        // syntax-highlighted source.
+        ViewMode::Text if v.markdown_active() => render_markdown(f, content, v, theme),
+        ViewMode::Text => render_text(f, content, v, theme),
     }
     render_footer(f, footer, v, theme);
 }
@@ -67,10 +70,34 @@ fn build_spans(chars: &[char], base: usize, fg: &[Color], default: Color, bg: Co
     Line::from(spans)
 }
 
+/// Like [`build_spans`] but carrying a full per-character [`Style`] (so Markdown
+/// bold/italic/underline modifiers survive), merging adjacent same-style runs.
+fn build_styled(chars: &[char], base: usize, styles: &[Style], default: Style) -> Line<'static> {
+    let mut spans: Vec<Span> = Vec::new();
+    let mut run = String::new();
+    let mut cur = default;
+    for (j, &ch) in chars.iter().enumerate() {
+        let st = styles.get(base + j).copied().unwrap_or(default);
+        if st != cur && !run.is_empty() {
+            spans.push(Span::styled(std::mem::take(&mut run), cur));
+        }
+        cur = st;
+        run.push(ch);
+    }
+    if !run.is_empty() {
+        spans.push(Span::styled(run, cur));
+    }
+    if spans.is_empty() {
+        spans.push(Span::styled(String::new(), default));
+    }
+    Line::from(spans)
+}
+
 fn render_header(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
     let mode = match v.mode {
-        ViewMode::Text => "Text",
         ViewMode::Hex => "Hex",
+        ViewMode::Text if v.markdown_active() => "Markdown",
+        ViewMode::Text => "Text",
     };
     let wrap = if v.wrap { "Wrap" } else { "Unwrap" };
     let trunc = if v.truncated { " [TRUNCATED]" } else { "" };
@@ -159,6 +186,49 @@ fn render_text(f: &mut Frame, area: Rect, v: &mut ViewerState, theme: &Theme) {
         Paragraph::new(lines).style(Style::default().bg(theme.panel_bg)),
         area,
     );
+}
+
+/// Render text as an *approximation* of rendered Markdown: per-line styling from
+/// [`markdown::line_styles`](super::markdown::line_styles) (headings colored by
+/// level, emphasis/code/links styled, markers dimmed). Mirrors `render_text`'s
+/// wrap / horizontal-scroll handling.
+fn render_markdown(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
+    let bg = theme.panel_bg;
+    let default = Style::default().fg(theme.text_fg).bg(bg);
+    let width = area.width as usize;
+    let rows = area.height as usize;
+    let mut lines: Vec<Line> = Vec::with_capacity(rows);
+    let mut line_idx = v.top;
+
+    while lines.len() < rows && line_idx < v.line_count() {
+        let raw: Vec<char> = v.line_str(line_idx).chars().collect();
+        // Render the line: markup is stripped, leaving display text + styles.
+        let (chars, mut styles) = super::markdown::render_line(&raw, theme);
+        // Tint the `#` of any hex-color token, regardless of the Markdown styling.
+        for (i, color) in crate::ui::hexcolor::hex_color_hashes(&chars) {
+            if i < styles.len() {
+                styles[i] = styles[i].fg(color);
+            }
+        }
+
+        if v.wrap {
+            if chars.is_empty() {
+                lines.push(build_styled(&[], 0, &styles, default));
+            } else {
+                let mut start = 0;
+                while start < chars.len() && lines.len() < rows {
+                    let end = (start + width.max(1)).min(chars.len());
+                    lines.push(build_styled(&chars[start..end], start, &styles, default));
+                    start = end;
+                }
+            }
+        } else {
+            let from = v.h_offset.min(chars.len());
+            lines.push(build_styled(&chars[from..], from, &styles, default));
+        }
+        line_idx += 1;
+    }
+    f.render_widget(Paragraph::new(lines).style(Style::default().bg(bg)), area);
 }
 
 fn render_hex(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {

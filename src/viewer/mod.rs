@@ -6,6 +6,7 @@
 //! advance a search. Only a per-line offset index is kept (8 bytes per line).
 //! Scrolling is by logical line (text) or 16-byte row (hex).
 
+pub mod markdown;
 pub mod render;
 
 use crate::syntax::{ColorRun, Highlighter};
@@ -111,6 +112,12 @@ pub struct ViewerState {
     /// has been recorded. Equals the file length once fully indexed.
     scanned: usize,
     pub mode: ViewMode,
+    /// The file looks like Markdown (by extension), so the Markdown render mode
+    /// and its F8 Raw/Render toggle are offered.
+    is_markdown: bool,
+    /// In text mode, whether to draw the Markdown approximation (true) or the raw
+    /// text with syntax highlighting (false). Only meaningful when `is_markdown`.
+    markdown_render: bool,
     pub wrap: bool,
     /// Top visible logical line (text) or top 16-byte row (hex).
     top: usize,
@@ -140,6 +147,7 @@ impl ViewerState {
         }
         let line_starts = compute_line_starts(&data);
         let scanned = data.len();
+        let is_markdown = is_markdown_name(&name);
         ViewerState {
             name,
             src: Source::Mem(data),
@@ -149,6 +157,8 @@ impl ViewerState {
             line_starts,
             scanned,
             mode: ViewMode::Text,
+            is_markdown,
+            markdown_render: is_markdown,
             wrap: false,
             top: 0,
             h_offset: 0,
@@ -173,6 +183,7 @@ impl ViewerState {
         scanned: usize,
         temp: Option<PathBuf>,
     ) -> Self {
+        let is_markdown = is_markdown_name(&name);
         ViewerState {
             name,
             src: Source::File { file: RefCell::new(file), len },
@@ -182,6 +193,8 @@ impl ViewerState {
             line_starts,
             scanned,
             mode: ViewMode::Text,
+            is_markdown,
+            markdown_render: is_markdown,
             wrap: false,
             top: 0,
             h_offset: 0,
@@ -332,6 +345,11 @@ impl ViewerState {
                 self.top = self.top.min(self.max_top());
             }
             KeyCode::F(5) => return ViewerSignal::OpenGoto,
+            // F8 (Markdown files only): toggle the Markdown render and the raw
+            // (syntax-highlighted) text.
+            KeyCode::F(8) if self.is_markdown && self.mode == ViewMode::Text => {
+                self.markdown_render = !self.markdown_render;
+            }
             KeyCode::F(7) => self.search_input = Some(String::new()),
             KeyCode::Char('n') => self.find_next(),
             KeyCode::Down => self.scroll(1),
@@ -395,10 +413,23 @@ impl ViewerState {
 
     /// The F-key bar labels for the current mode (kept in sync with the footer
     /// renderer, which calls this).
+    /// Whether the Markdown approximation should be drawn (a Markdown file in
+    /// text mode with the render toggle on).
+    fn markdown_active(&self) -> bool {
+        self.is_markdown && self.markdown_render && self.mode == ViewMode::Text
+    }
+
     pub(crate) fn footer_labels(&self) -> [&'static str; 10] {
         let wrap = if self.wrap { "Unwrap" } else { "Wrap" };
         let mode = if self.mode == ViewMode::Hex { "Text" } else { "Hex" };
-        ["Help", wrap, "Quit", mode, "Goto", "", "Search", "", "Next", "Quit"]
+        // F8: only for Markdown files in text mode — "Raw" shows the source,
+        // "Render" returns to the Markdown approximation.
+        let md = if self.is_markdown && self.mode == ViewMode::Text {
+            if self.markdown_render { "Raw" } else { "Render" }
+        } else {
+            ""
+        };
+        ["Help", wrap, "Quit", mode, "Goto", "", "Search", md, "Next", "Quit"]
     }
 
     /// Perform the action of F-key index `i` (0-based) from a bar click.
@@ -409,6 +440,7 @@ impl ViewerState {
             3 => KeyCode::F(4),               // Text / Hex
             4 => return ViewerSignal::OpenGoto, // Goto
             6 => KeyCode::F(7),               // Search
+            7 => KeyCode::F(8),               // Raw / Render (Markdown)
             8 => KeyCode::Char('n'),          // Next match
             _ => return ViewerSignal::Stay,   // Help / empty: no-op
         };
@@ -589,6 +621,12 @@ impl Drop for ViewerState {
     }
 }
 
+/// Whether `name` looks like a Markdown file (by extension).
+fn is_markdown_name(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    [".md", ".markdown", ".mdown", ".mkd", ".mdx"].iter().any(|ext| lower.ends_with(ext))
+}
+
 /// Byte offsets where each text line begins (line 0 always starts at 0).
 fn compute_line_starts(data: &[u8]) -> Vec<usize> {
     let mut starts = vec![0usize];
@@ -642,6 +680,31 @@ fn scan_line_starts(file: &mut File, budget: usize) -> std::io::Result<(Vec<usiz
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn markdown_mode_defaults_on_and_f8_toggles_raw() {
+        // A .md file opens in the Markdown approximation; F8 toggles raw text.
+        let mut v = ViewerState::new("README.md".into(), b"# Title\n".to_vec());
+        assert!(v.markdown_active(), "markdown files render markdown by default");
+        assert_eq!(v.footer_labels()[7], "Raw", "F8 shows 'Raw' while rendering markdown");
+
+        v.handle_key(KeyEvent::new(KeyCode::F(8), KeyModifiers::NONE));
+        assert!(!v.markdown_active(), "F8 switches to raw text");
+        assert_eq!(v.footer_labels()[7], "Render", "F8 shows 'Render' while raw");
+
+        v.handle_key(KeyEvent::new(KeyCode::F(8), KeyModifiers::NONE));
+        assert!(v.markdown_active(), "F8 toggles back to markdown");
+
+        // Switching to hex (F4) hides the markdown toggle.
+        v.handle_key(KeyEvent::new(KeyCode::F(4), KeyModifiers::NONE));
+        assert_eq!(v.mode, ViewMode::Hex);
+        assert_eq!(v.footer_labels()[7], "");
+
+        // A non-markdown file never offers the markdown mode.
+        let v = ViewerState::new("notes.txt".into(), b"# not a heading\n".to_vec());
+        assert!(!v.markdown_active());
+        assert_eq!(v.footer_labels()[7], "");
+    }
 
     #[test]
     fn line_indexing_and_content() {
