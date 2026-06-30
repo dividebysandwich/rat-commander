@@ -777,8 +777,9 @@ impl EditorState {
     }
 
     /// Selection bookkeeping run before a cursor movement: with Shift held, start
-    /// (or keep extending) a live selection; without it, a Shift-started
-    /// selection collapses. An F3 mark is left untouched either way.
+    /// (or keep extending) a live selection. Releasing Shift *finalizes* the
+    /// live selection into a fixed block so it stays marked while the cursor
+    /// moves around (rather than collapsing). An F3 mark keeps extending.
     fn pre_move(&mut self, shift: bool) {
         if shift {
             if self.anchor.is_none() {
@@ -787,7 +788,7 @@ impl EditorState {
                 self.shift_marking = true;
             }
         } else if self.shift_marking {
-            self.clear_marks();
+            self.finalize_marks();
         }
     }
 
@@ -825,36 +826,46 @@ impl EditorState {
     // -- Editing -----------------------------------------------------------
 
     fn insert_text(&mut self, text: &str) {
-        self.cursor = self.buf.insert(self.cursor, text);
+        self.finalize_marks();
+        let pos = self.cursor;
+        let len = text.chars().count();
+        self.cursor = self.buf.insert(pos, text);
+        self.adjust_block_insert(pos, len);
         self.dirty = true;
         self.goal_col = None;
-        self.clear_marks();
     }
 
     fn backspace(&mut self) {
+        self.finalize_marks();
         if self.cursor > 0 {
-            self.cursor = self.buf.delete(self.cursor - 1, self.cursor);
+            let (d0, d1) = (self.cursor - 1, self.cursor);
+            self.cursor = self.buf.delete(d0, d1);
+            self.adjust_block_delete(d0, d1);
             self.dirty = true;
         }
         self.goal_col = None;
-        self.clear_marks();
     }
 
     fn delete_forward(&mut self) {
+        self.finalize_marks();
         if self.cursor < self.buf.len_chars() {
-            self.buf.delete(self.cursor, self.cursor + 1);
+            let (d0, d1) = (self.cursor, self.cursor + 1);
+            self.buf.delete(d0, d1);
+            self.adjust_block_delete(d0, d1);
             self.dirty = true;
         }
         self.goal_col = None;
-        self.clear_marks();
     }
 
     fn paste(&mut self) {
         if !self.clipboard.is_empty() {
+            self.finalize_marks();
             let text = self.clipboard.clone();
-            self.cursor = self.buf.insert(self.cursor, &text);
+            let pos = self.cursor;
+            let len = text.chars().count();
+            self.cursor = self.buf.insert(pos, &text);
+            self.adjust_block_insert(pos, len);
             self.dirty = true;
-            self.clear_marks();
         }
     }
 
@@ -864,6 +875,48 @@ impl EditorState {
         self.anchor = None;
         self.block = None;
         self.shift_marking = false;
+    }
+
+    /// Turn a live (anchor-based) selection into a fixed block so it survives
+    /// cursor moves and edits. A zero-length selection is dropped. No-op when
+    /// there's no live anchor (a fixed block is left as-is).
+    fn finalize_marks(&mut self) {
+        if let Some(a) = self.anchor.take() {
+            let (s, e) = order(a, self.cursor);
+            self.block = (s != e).then_some((s, e));
+        }
+        self.shift_marking = false;
+    }
+
+    /// Shift the fixed block to keep the *same text* marked after inserting `len`
+    /// chars at `pos`: text before the block moves it; text inside grows it; text
+    /// after it is unaffected. (Live anchors are finalized before any edit.)
+    fn adjust_block_insert(&mut self, pos: usize, len: usize) {
+        if let Some((s, e)) = self.block {
+            let s2 = if pos <= s { s + len } else { s };
+            let e2 = if pos < e { e + len } else { e };
+            self.block = Some((s2, e2));
+        }
+    }
+
+    /// Shift the fixed block to keep the same text marked after deleting
+    /// `[d0, d1)`. The block shrinks by whatever overlap was removed and is
+    /// dropped if the whole marked range is gone.
+    fn adjust_block_delete(&mut self, d0: usize, d1: usize) {
+        if let Some((s, e)) = self.block {
+            let len = d1 - d0;
+            let map = |x: usize| {
+                if x <= d0 {
+                    x
+                } else if x >= d1 {
+                    x - len
+                } else {
+                    d0 // a marker inside the removed range collapses to its start
+                }
+            };
+            let (s2, e2) = (map(s), map(e));
+            self.block = (s2 < e2).then_some((s2, e2));
+        }
     }
 
     fn toggle_mark(&mut self) {
@@ -893,7 +946,9 @@ impl EditorState {
     fn copy_block(&mut self) {
         if let Some((s, e)) = self.block_range() {
             self.clipboard = self.buf.slice(s, e);
-            self.status = format!("Copied {} chars", e - s);
+            self.status = format!("Copied {} chars (Ctrl-V to paste)", e - s);
+        } else {
+            self.status = "No block is marked".to_string();
         }
     }
 
@@ -1011,14 +1066,82 @@ mod tests {
         assert_eq!(e.block_range(), Some((0, 2)), "Shift+Right marks a block");
         e.handle_key(key(KeyCode::F(5))); // copy works on the selection
         assert_eq!(e.clipboard, "ab");
-        // A plain move collapses the Shift-selection.
+        // A plain move now *keeps* the selection (it finalizes to a fixed block).
         e.handle_key(key(KeyCode::Right));
-        assert_eq!(e.block_range(), None);
+        assert_eq!(e.block_range(), Some((0, 2)), "Shift-selection persists across plain moves");
 
         // Shift+Ctrl-Right selects a whole word ("foo " up to the next word).
         let mut e = ed("foo bar");
         e.handle_key(key_mod(KeyCode::Right, KeyModifiers::SHIFT | KeyModifiers::CONTROL));
         assert_eq!(e.block_range(), Some((0, 4)));
+    }
+
+    #[test]
+    fn shift_selection_persists_and_f5_copies_after_moving() {
+        let mut e = ed("hello world");
+        // Shift-select "hello".
+        for _ in 0..5 {
+            e.handle_key(key_mod(KeyCode::Right, KeyModifiers::SHIFT));
+        }
+        assert_eq!(e.block_range(), Some((0, 5)));
+        // Move the cursor away with plain arrows — the selection must stay.
+        for _ in 0..3 {
+            e.handle_key(key(KeyCode::Right));
+        }
+        assert_eq!(e.block_range(), Some((0, 5)), "selection persists across plain moves");
+        // F5 still copies the marked text.
+        e.handle_key(key(KeyCode::F(5)));
+        assert_eq!(e.clipboard, "hello");
+        // …and it pastes at the cursor.
+        e.handle_key(key(KeyCode::End));
+        e.handle_key(KeyEvent::new(KeyCode::Char('v'), KeyModifiers::CONTROL));
+        assert_eq!(e.contents(), "hello worldhello");
+    }
+
+    #[test]
+    fn block_stays_anchored_to_text_across_edits() {
+        let marked = |e: &EditorState| -> Option<String> {
+            e.block_range().map(|(s, end)| e.buf.slice(s, end))
+        };
+        // Mark "cde" in "abcdefg" → fixed block [2,5).
+        let mut e = ed("abcdefg");
+        for _ in 0..2 {
+            e.handle_key(key(KeyCode::Right));
+        }
+        e.handle_key(key(KeyCode::F(3))); // anchor at 2
+        for _ in 0..3 {
+            e.handle_key(key(KeyCode::Right)); // cursor → 5
+        }
+        e.handle_key(key(KeyCode::F(3))); // finalize block [2,5)
+        assert_eq!(marked(&e).as_deref(), Some("cde"));
+
+        // Insert before the block — the same text stays marked.
+        e.handle_key(key_mod(KeyCode::Home, KeyModifiers::CONTROL));
+        e.handle_key(key(KeyCode::Char('X')));
+        e.handle_key(key(KeyCode::Char('Y')));
+        assert_eq!(e.contents(), "XYabcdefg");
+        assert_eq!(marked(&e).as_deref(), Some("cde"), "tracks an insert before the block");
+
+        // Delete before the block — still the same text.
+        e.handle_key(key_mod(KeyCode::Home, KeyModifiers::CONTROL));
+        e.handle_key(key(KeyCode::Delete)); // remove 'X'
+        assert_eq!(e.contents(), "Yabcdefg");
+        assert_eq!(marked(&e).as_deref(), Some("cde"), "tracks a delete before the block");
+
+        // Editing *inside* the block keeps the selection (it grows to stay
+        // contiguous), it does not clear it. Block is [3,6) ("cde"); insert 'Z'
+        // between 'c' and 'd' (index 4).
+        e.handle_key(key_mod(KeyCode::Home, KeyModifiers::CONTROL));
+        for _ in 0..4 {
+            e.handle_key(key(KeyCode::Right));
+        }
+        e.handle_key(key(KeyCode::Char('Z')));
+        assert_eq!(e.contents(), "YabcZdefg");
+        assert_eq!(
+            marked(&e).as_deref(),
+            Some("cZde"),
+            "an edit inside the block keeps it marked (and contiguous)"
+        );
     }
 
     #[test]
