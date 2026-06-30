@@ -142,6 +142,43 @@ impl AppState {
         Flow::Continue
     }
 
+    /// Open a local file directly in the internal editor — used by the `/edit`
+    /// startup mode. A missing file opens an empty buffer (so it can be created);
+    /// a file too large to load as text opens in in-place hex mode.
+    pub(crate) async fn open_path_in_editor(&mut self, path: std::path::PathBuf) {
+        // Resolve to an absolute path so saving is unaffected by any later change
+        // of the active panel's directory.
+        let abs = if path.is_absolute() {
+            path
+        } else {
+            std::env::current_dir().map(|d| d.join(&path)).unwrap_or(path)
+        };
+        let name = abs
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| abs.to_string_lossy().into_owned());
+        let meta = std::fs::metadata(&abs).ok();
+        if meta.as_ref().is_some_and(|m| m.is_dir()) {
+            self.show_error(format!("{name} is a directory"));
+            return;
+        }
+        let vpath = VfsPath::local(&abs);
+        let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+        if size > crate::editor::MAX_TEXT_EDIT {
+            match EditorState::new_hex(name, vpath) {
+                Ok(ed) => self.editor = Some(ed),
+                Err(e) => self.show_error(format!("cannot open file: {e}")),
+            }
+            return;
+        }
+        let text = std::fs::read(&abs)
+            .map(|b| String::from_utf8_lossy(&b).into_owned())
+            .unwrap_or_default();
+        let mut ed = EditorState::new(name, vpath, &text);
+        ed.enable_syntax(self.dark_ui());
+        self.editor = Some(ed);
+    }
+
     /// Stream a (remote/archive) file to a local temp file for view/edit, showing
     /// a cancellable progress dialog. Delivers `FileFetched` on success.
     fn start_fetch(

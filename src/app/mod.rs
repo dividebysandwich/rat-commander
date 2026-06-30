@@ -23,13 +23,20 @@ use std::io::{self, Stdout, Write};
 type Term = Terminal<CrosstermBackend<Stdout>>;
 
 /// Set up, run, and tear down the application.
-pub async fn run() -> Result<()> {
+pub async fn run(edit_file: Option<std::path::PathBuf>) -> Result<()> {
     // Load user themes (generating themes.toml from the presets on first run)
     // before the initial theme is derived from the config.
     crate::ui::theme::load_user_themes();
     let (tx, mut rx) = async_bridge::channel();
     let mut state = AppState::new(tx);
     state.init().await;
+
+    // `rc /edit <file>` (or the `rcedit` shim) opens straight into the editor;
+    // closing it then exits the program (rather than dropping to the panels).
+    if let Some(file) = edit_file {
+        state.edit_only = true;
+        state.open_path_in_editor(file).await;
+    }
 
     let mut term = setup_terminal()?;
     let mut events = EventStream::new();
@@ -54,6 +61,12 @@ async fn run_loop(
     let mut subshell: Option<crate::shell::Subshell> = None;
 
     loop {
+        // Start-in-editor mode (`rc /edit …`): once the editor and any of its
+        // dialogs are closed, the program's work is done — exit instead of
+        // revealing the file-manager panels.
+        if state.edit_only && state.editor.is_none() && state.dialog.is_none() {
+            break;
+        }
         // Refresh the Details panel(s) before drawing: this detects when the
         // source panel's cursor/selection changed and (re)starts background size
         // scans. Cheap when nothing changed.

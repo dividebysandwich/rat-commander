@@ -78,6 +78,8 @@ jobs:
         run: |
           mkdir -p dist staging
           cp "target/${{ matrix.target }}/release/rc" staging/
+          # `rcedit` shim → `rc` (start in the editor); rc detects its own name.
+          ln -sf rc staging/rcedit
           cp README.md staging/ 2>/dev/null || true
           tar -C staging -czf "dist/rc-${VERSION}-${{ matrix.target }}.tar.gz" .
 
@@ -86,7 +88,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Compress-Archive -Path "target/${{ matrix.target }}/release/rc.exe", "README.md" `
+          Compress-Archive -Path "target/${{ matrix.target }}/release/rc.exe", "README.md", "packaging/windows/rcedit.cmd" `
             -DestinationPath "dist/rc-$env:VERSION-${{ matrix.target }}.zip" -Force
 
       # ---- Debian packages (amd64 / arm64 / armhf) ----
@@ -112,6 +114,8 @@ jobs:
         run: |
           mkdir -p pkgroot
           cp "target/${{ matrix.target }}/release/rc" pkgroot/
+          # `rcedit` shim → `rc` (start in the editor); rc detects its own name.
+          ln -sf rc pkgroot/rcedit
           pkgbuild --identifier com.rat-commander.rc \
             --version "${VERSION}" \
             --install-location /usr/local/bin \

@@ -151,6 +151,9 @@ pub struct AppState {
     /// After a delete completes, place the active panel's cursor on this entry
     /// (the surviving file just above the deleted one) instead of the top.
     pending_focus: Option<String>,
+    /// Launched via `rc /edit <file>` (or the `rcedit` shim): the program opens
+    /// straight into the editor and exits when it is closed.
+    pub edit_only: bool,
 }
 
 /// How long a lone Esc is held, waiting for a digit, before it is delivered as

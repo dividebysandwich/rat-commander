@@ -979,6 +979,34 @@ async fn f1_opens_help_in_viewer() {
 }
 
 #[tokio::test]
+async fn edit_startup_opens_file_in_editor() {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("rc_edit_{}_{nanos}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("hello.txt");
+    std::fs::write(&file, b"hello world").unwrap();
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    assert!(st.editor.is_none());
+    st.open_path_in_editor(file.clone()).await;
+    let ed = st.editor.as_ref().expect("/edit should open the editor");
+    assert!(ed.contents().contains("hello world"), "the file's text is loaded");
+
+    // A non-existent path opens an empty buffer (so it can be created on save).
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.open_path_in_editor(dir.join("brand-new.txt")).await;
+    assert!(st.editor.is_some(), "a new file still opens the editor");
+    assert!(st.editor.as_ref().unwrap().contents().is_empty(), "new file starts empty");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
 async fn disk_mounter_opens_and_prompts_for_path() {
     let (tx, _rx) = async_bridge::channel();
     let mut st = AppState::new(tx);

@@ -19,6 +19,11 @@
         <Component Id="MainExe" Guid="*">
           <File Id="rc.exe" Source="$(var.BinDir)\rc.exe" KeyPath="yes" />
         </Component>
+        <!-- `rcedit` shim: `rcedit <file>` == `rc /edit <file>` (start in the
+             editor). Shipped from the source tree, not the build dir. -->
+        <Component Id="EditShim" Guid="*">
+          <File Id="rcedit.cmd" Source="$(sys.SOURCEFILEDIR)rcedit.cmd" KeyPath="yes" />
+        </Component>
         <Component Id="PathEnv" Guid="9F8E7D6C-5B4A-3210-FEDC-BA9876543210">
           <CreateFolder />
           <Environment Id="UpdatePath"
@@ -34,6 +39,7 @@
 
     <Feature Id="Main" Title="rat-commander" Level="1">
       <ComponentRef Id="MainExe" />
+      <ComponentRef Id="EditShim" />
       <ComponentRef Id="PathEnv" />
     </Feature>
   </Package>

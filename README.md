@@ -29,7 +29,9 @@ The installed executable is named **`rc`** for quick typing.
   swatches. Pages huge files straight from disk.
 - **Built-in editor (F4)** — `mcedit`-style block copy/move/delete, clipboard,
   search & replace (literal or regex), undo/redo, syntax highlighting, and an
-  in-place **hex editor** for arbitrarily large files.
+  in-place **hex editor** for arbitrarily large files. Launch straight into it
+  with **`rc /edit <file>`** (or the installed **`rcedit <file>`** shortcut);
+  closing the editor then exits.
 - **Multi rename** — batch-rename selected files with a masked, live two-column
   preview, counter, case transform and search-and-replace.
 - **Find file**, **Compare directories**, **Find duplicates**, and a

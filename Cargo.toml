@@ -1,6 +1,6 @@
 [package]
 name = "rat-commander"
-version = "1.0.1"
+version = "1.1.0"
 edition = "2024"
 description = "A self-contained Norton/Midnight-Commander-style TUI file manager"
 license = "GPL-2.0-only"
@@ -17,6 +17,9 @@ maintainer = "rat-commander maintainers"
 copyright = "rat-commander contributors"
 section = "utils"
 priority = "optional"
+# postinst/postrm create and remove the `rcedit` shim (`/usr/bin/rcedit` → `rc`),
+# which starts the program in the editor.
+maintainer-scripts = "packaging/debian"
 # Explicit dependencies (skips dpkg-shlibdeps, which cannot analyse the
 # cross-compiled arm64/armhf binaries on an x86_64 CI host). These shared
 # libraries ship by default on Debian and Raspberry Pi OS.

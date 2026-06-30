@@ -1,0 +1,8 @@
+#!/bin/sh
+# Create the `rcedit` shim: running `rcedit <file>` is the same as `rc /edit
+# <file>` (start rat-commander in the editor). `rc` detects when it was invoked
+# under this name from argv[0].
+set -e
+if [ "$1" = "configure" ]; then
+    ln -sf rc /usr/bin/rcedit
+fi

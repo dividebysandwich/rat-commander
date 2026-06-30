@@ -1,0 +1,6 @@
+#!/bin/sh
+# Remove the `rcedit` shim created by postinst.
+set -e
+if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
+    rm -f /usr/bin/rcedit
+fi

@@ -52,6 +52,7 @@ impl AppState {
             last_click: None,
             details: Default::default(),
             pending_focus: None,
+            edit_only: false,
         }
     }
 
