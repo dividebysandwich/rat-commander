@@ -20,6 +20,7 @@ impl AppState {
                     self.dialog = Some(Dialog::Confirm(ConfirmDialog::save_editor(&name)));
                 }
             }
+            EditorSignal::SaveAs => self.open_save_as(None),
             EditorSignal::ConfirmQuit => {
                 let name = self.editor.as_ref().map(|e| e.name.clone()).unwrap_or_default();
                 self.dialog = Some(Dialog::Confirm(ConfirmDialog::editor_quit(&name)));
@@ -270,7 +271,58 @@ impl AppState {
                 // Editing themes.toml applies immediately on save.
                 self.reload_themes_if_edited(&path);
             }
-            Err(e) => self.show_error(format!("save failed: {e}")),
+            // A failed save (e.g. read-only location, permission denied) drops the
+            // user into "Save as" prefilled with the path, so they can redirect it.
+            Err(e) => self.open_save_as(Some(format!("Save failed: {e}"))),
+        }
+    }
+
+    /// Open the editor's "Save as" browser, prefilled with the current file's
+    /// directory and name. `error` shows the reason a prior save failed.
+    pub(in crate::app::state) fn open_save_as(&mut self, error: Option<String>) {
+        let Some(ed) = self.editor.as_ref() else {
+            return;
+        };
+        let local = ed.path.scheme == "file";
+        let dir = if local {
+            ed.path
+                .path
+                .parent()
+                .map(|p| p.to_path_buf())
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")))
+        } else {
+            // The browser is local-only, so a remote-edited file saves to disk.
+            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+        };
+        self.dialog = Some(Dialog::SaveAs(SaveAsDialog::new(dir, ed.name.clone(), error)));
+    }
+
+    /// Write the editor buffer to `dest` (from the "Save as" dialog) and retarget
+    /// the editor at the new path on success.
+    pub(in crate::app::state) async fn do_save_as(&mut self, dest: std::path::PathBuf) {
+        let Some(ed) = self.editor.as_ref() else {
+            return;
+        };
+        let contents = ed.contents();
+        match tokio::fs::write(&dest, contents.as_bytes()).await {
+            Ok(()) => {
+                let name = dest
+                    .file_name()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| dest.to_string_lossy().into_owned());
+                let dark = self.dark_ui();
+                let new_path = VfsPath::local(&dest);
+                if let Some(ed) = self.editor.as_mut() {
+                    ed.path = new_path.clone();
+                    ed.name = name;
+                    ed.mark_saved();
+                    ed.enable_syntax(dark); // re-detect syntax for the new name
+                }
+                self.reload_themes_if_edited(&new_path);
+                self.reload_all().await;
+            }
+            // Still failing: re-prompt with the new error so the user can adjust.
+            Err(e) => self.open_save_as(Some(format!("Save failed: {e}"))),
         }
     }
 

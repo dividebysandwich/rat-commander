@@ -84,6 +84,7 @@ impl AppState {
             Submit::Quit => self.pending_quit = true,
             Submit::EditorSaveQuit => self.save_editor(true).await,
             Submit::EditorSave => self.save_editor(false).await,
+            Submit::EditorSaveAs(dest) => self.do_save_as(dest).await,
             Submit::DiffSave => self.save_diff().await,
             Submit::DiffSaveQuit => {
                 self.save_diff().await;

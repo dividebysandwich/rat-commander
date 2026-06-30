@@ -22,6 +22,8 @@ pub enum EditorSignal {
     Close,
     /// Persist the buffer; close the editor afterwards if `close_after`.
     Save { close_after: bool },
+    /// Open the "Save as" browser to write the buffer to a chosen path.
+    SaveAs,
     /// The buffer is modified and the user asked to quit: the app should show a
     /// modal save/discard/cancel confirmation.
     ConfirmQuit,
@@ -76,11 +78,41 @@ pub struct EditorState {
     last_hex_search: String,
     /// Incremental syntax highlighter (text mode), when a syntax matched.
     hl: Option<crate::syntax::Highlighter>,
+    /// Virtual (display-only) word wrap: long logical lines are shown across
+    /// several screen rows, each continued row ending in a `>` marker.
+    wrap: bool,
+    /// First visible *sub-row* within `top_line` when wrapping (0 otherwise).
+    top_sub: usize,
+    /// Whether the F1 keyboard-shortcut help overlay is showing.
+    help_open: bool,
 }
 
 /// Above this size a file is opened straight into hex mode (text mode loads the
 /// whole file, so it's reserved for reasonably sized files).
 pub const MAX_TEXT_EDIT: u64 = crate::viewer::MAX_VIEW_BYTES as u64;
+
+/// Editor keyboard shortcuts shown by the F1 help overlay: `(keys, description)`.
+pub const EDITOR_HELP: &[(&str, &str)] = &[
+    ("F1", "This help"),
+    ("F2", "Save"),
+    ("Shift-F2 / Ctrl-F2", "Save as…"),
+    ("F3", "Start / end block mark"),
+    ("F4", "Search & replace"),
+    ("F5", "Copy block to the cursor"),
+    ("F6", "Move block to the cursor"),
+    ("F7", "Search"),
+    ("F8", "Delete block"),
+    ("F9", "Toggle hex editor"),
+    ("Shift-F9 / Ctrl-F9", "Toggle word wrap"),
+    ("F10 / Esc", "Quit (prompts if modified)"),
+    ("Ctrl-C / Ctrl-V", "Copy block to clipboard / paste"),
+    ("Ctrl-Z / Ctrl-Y", "Undo / redo"),
+    ("Shift + arrows", "Mark text while moving"),
+    ("Ctrl-← / →", "Move by word"),
+    ("Ctrl-Home / End", "Start / end of document"),
+    ("Home / End", "Start / end of line"),
+    ("PgUp / PgDn", "Page up / down"),
+];
 
 impl EditorState {
     pub fn new(name: String, path: VfsPath, text: &str) -> Self {
@@ -107,7 +139,20 @@ impl EditorState {
             hex: None,
             last_hex_search: String::new(),
             hl: None,
+            wrap: false,
+            top_sub: 0,
+            help_open: false,
         }
+    }
+
+    /// Whether the F1 shortcut-help overlay is currently shown.
+    pub fn help_open(&self) -> bool {
+        self.help_open
+    }
+
+    /// Whether virtual word wrap is on (for the renderer / status line).
+    pub fn wrap(&self) -> bool {
+        self.wrap
     }
 
     /// Turn on syntax highlighting if a syntax matches the file name and the
@@ -250,11 +295,36 @@ impl EditorState {
 
     pub fn handle_key(&mut self, key: KeyEvent) -> EditorSignal {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        let shift = key.modifiers.contains(KeyModifiers::SHIFT);
         self.status.clear();
 
-        // F9 toggles hex mode in either direction.
+        // The F1 help overlay swallows the next key (any key closes it).
+        if self.help_open {
+            self.help_open = false;
+            return EditorSignal::Stay;
+        }
+        if key.code == KeyCode::F(1) {
+            self.help_open = true;
+            return EditorSignal::Stay;
+        }
+
+        // F9 toggles hex mode; Shift-F9 / Ctrl-F9 toggle word wrap (text mode).
         if key.code == KeyCode::F(9) {
-            self.toggle_hex();
+            if shift || ctrl {
+                if self.hex.is_none() {
+                    self.wrap = !self.wrap;
+                    self.left_col = 0;
+                    self.top_sub = 0;
+                    self.goal_col = None;
+                    self.status = if self.wrap {
+                        "Word wrap ON".to_string()
+                    } else {
+                        "Word wrap OFF".to_string()
+                    };
+                }
+            } else {
+                self.toggle_hex();
+            }
             return EditorSignal::Stay;
         }
         if self.hex.is_some() {
@@ -279,6 +349,12 @@ impl EditorState {
     /// a block (like F3), the wheel scrolls, and the F-key bar acts as buttons.
     pub fn handle_mouse(&mut self, ev: MouseEvent) -> EditorSignal {
         let (col, row) = (ev.column, ev.row);
+
+        // Any click dismisses the help overlay.
+        if self.help_open && matches!(ev.kind, MouseEventKind::Down(_)) {
+            self.help_open = false;
+            return EditorSignal::Stay;
+        }
 
         // A click on the F-key bar acts as that function key (when the bar is
         // actually showing — a status message replaces it).
@@ -435,6 +511,8 @@ impl EditorState {
                 }
                 return EditorSignal::Close;
             }
+            // Shift-F2 / Ctrl-F2 → Save as; plain F2 saves to the current path.
+            KeyCode::F(2) if shift || ctrl => return EditorSignal::SaveAs,
             KeyCode::F(2) => return EditorSignal::Save { close_after: false },
             KeyCode::F(3) => self.toggle_mark(),
             KeyCode::F(5) => self.copy_block(),

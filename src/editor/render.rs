@@ -48,9 +48,58 @@ pub fn render(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) {
     let cursor_pos = render_text(f, text_area, ed, theme);
     render_footer(f, footer, ed, theme);
 
+    // The F1 help overlay sits above the text and hides the hardware cursor.
+    if ed.help_open() {
+        render_help(f, area, theme);
+        return;
+    }
     if let Some(p) = cursor_pos {
         f.set_cursor_position(p);
     }
+}
+
+/// A centered modal listing the editor's keyboard shortcuts (F1).
+fn render_help(f: &mut Frame, area: Rect, theme: &Theme) {
+    use ratatui::widgets::{Block, BorderType, Borders, Clear};
+    let help = super::EDITOR_HELP;
+    // Width = widest "keys  description" line (+ padding); height = rows + border.
+    let key_w = help.iter().map(|(k, _)| k.chars().count()).max().unwrap_or(0);
+    let inner_w = help
+        .iter()
+        .map(|(_k, d)| key_w + 2 + d.chars().count())
+        .max()
+        .unwrap_or(20);
+    let w = (inner_w as u16 + 4).min(area.width.saturating_sub(2));
+    let h = (help.len() as u16 + 2).min(area.height.saturating_sub(2));
+    let x = area.x + (area.width.saturating_sub(w)) / 2;
+    let y = area.y + (area.height.saturating_sub(h)) / 2;
+    let rect = Rect { x, y, width: w, height: h };
+    f.render_widget(Clear, rect);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(theme.dialog_border_fg).bg(theme.dialog_border_bg))
+        .title(Span::styled(
+            " Editor shortcuts ",
+            Style::default().fg(theme.dialog_title).bg(theme.dialog_border_bg).add_modifier(Modifier::BOLD),
+        ))
+        .title_alignment(ratatui::layout::Alignment::Center)
+        .style(Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg));
+    let inner = block.inner(rect);
+    f.render_widget(block, rect);
+
+    let key_style = Style::default().fg(theme.header_fg).bg(theme.dialog_bg).add_modifier(Modifier::BOLD);
+    let desc_style = Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg);
+    let mut lines: Vec<Line> = Vec::with_capacity(help.len());
+    for (k, d) in help {
+        let pad = " ".repeat(key_w + 2 - k.chars().count());
+        lines.push(Line::from(vec![
+            Span::styled(format!(" {k}"), key_style),
+            Span::styled(pad, desc_style),
+            Span::styled((*d).to_string(), desc_style),
+        ]));
+    }
+    f.render_widget(Paragraph::new(lines).style(Style::default().bg(theme.dialog_bg)), inner);
 }
 
 /// Render the hex view (offset | bytes | ascii). Returns the hardware cursor

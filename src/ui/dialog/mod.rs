@@ -18,6 +18,7 @@ mod message;
 mod multirename;
 mod overwrite;
 mod progress;
+mod saveas;
 mod search;
 mod select;
 mod usermenu;
@@ -46,6 +47,7 @@ pub use message::MessageDialog;
 pub use multirename::MultiRenameDialog;
 pub use overwrite::OverwriteDialog;
 pub use progress::{BusyDialog, ProgressDialog};
+pub use saveas::SaveAsDialog;
 pub use search::{SearchReplaceDialog, SearchReplaceParams};
 pub use select::SelectDialog;
 pub use usermenu::UserMenuDialog;
@@ -75,6 +77,8 @@ pub enum Dialog {
     FileBrowser(FileBrowserDialog),
     /// A "save as" browser for choosing where to write a device image.
     ImageSave(ImageSaveDialog),
+    /// The editor's "Save as" browser (choose a path to write the buffer to).
+    SaveAs(SaveAsDialog),
     /// The Windows drive-letter picker.
     Drive(DriveDialog),
     /// The multi-file rename dialog.
@@ -115,6 +119,8 @@ pub enum Submit {
     EditorDiscardQuit,
     /// Confirmed F2 save in the editor (no quit).
     EditorSave,
+    /// "Save as" target chosen for the editor: write the buffer to this path.
+    EditorSaveAs(std::path::PathBuf),
     /// Confirmed F2 save in the file-comparison view.
     DiffSave,
     /// Close the file-comparison view, saving changes first.
@@ -286,6 +292,7 @@ impl Dialog {
             Dialog::FlashTarget(d) => d.handle_key(key),
             Dialog::FileBrowser(d) => d.handle_key(key),
             Dialog::ImageSave(d) => d.handle_key(key),
+            Dialog::SaveAs(d) => d.handle_key(key),
             Dialog::Drive(d) => d.handle_key(key),
             Dialog::MultiRename(d) => d.handle_key(key),
             Dialog::Message(_) => DialogResult::Cancel, // any key closes
@@ -309,6 +316,7 @@ impl Dialog {
             Dialog::FlashTarget(d) => d.render(f, area, theme),
             Dialog::FileBrowser(d) => d.render(f, area, theme),
             Dialog::ImageSave(d) => d.render(f, area, theme),
+            Dialog::SaveAs(d) => d.render(f, area, theme),
             Dialog::Drive(d) => d.render(f, area, theme),
             Dialog::MultiRename(d) => d.render(f, area, theme),
             Dialog::Message(d) => d.render(f, area, theme),
@@ -348,6 +356,7 @@ impl Dialog {
             Dialog::FlashTarget(d) => return d.handle_click(area, col, row),
             Dialog::FileBrowser(d) => return d.handle_click(area, col, row),
             Dialog::ImageSave(d) => return d.handle_click(area, col, row),
+            Dialog::SaveAs(d) => return d.handle_click(area, col, row),
             Dialog::Drive(d) => return d.handle_click(area, col, row),
             Dialog::MultiRename(d) => return d.handle_click(area, col, row),
             // The connect form's history chevron/dropdown take clicks first.
