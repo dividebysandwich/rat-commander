@@ -14,6 +14,7 @@ mod mount;
 mod ops;
 mod panel;
 mod proc;
+mod rename;
 mod shell;
 mod syntax;
 mod ui;

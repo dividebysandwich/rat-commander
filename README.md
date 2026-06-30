@@ -62,6 +62,15 @@ The installed executable is named **`rc`** for quick typing.
   applies it the other way. Edits happen in memory; **F2** asks to save and writes
   changed files back to disk, **Esc** closes (prompting save/discard/cancel when
   there are unsaved changes)
+- **Multi rename** (File menu → *Multi rename…*, or **Shift-F6** / **Ctrl-F6**): batch-rename the **selected**
+  files with a live two-column preview (original names on the left, projected
+  names on the right) that scroll in sync. The rename mask supports placeholders
+  — `[N]` name, `[E]` extension, `[C]` counter, `[YMD]` date, `[hms]` time, and
+  slices like `[N1-3]` / `[E1-2]` — plus a **case** transform (unchanged /
+  lowercase / UPPERCASE), an adjustable **counter** (start / step / digits), and a
+  **search-and-replace** (with a case-sensitivity toggle). Renames run in two
+  phases through temporary names, so swaps and renumberings can't clobber a
+  sibling, and an existing file outside the batch is never overwritten
 
 **Built-in viewer (F3)**
 - Text and **hex** modes, line wrap toggle, and search
@@ -301,6 +310,7 @@ viewer, and the editor. (A quick `Alt`+digit does the same thing.)
 | `F4` | Edit file |
 | `F5` | Copy |
 | `F6` | Rename / move |
+| `Shift-F6` / `Ctrl-F6` | Multi rename (selected files) |
 | `F7` | Make directory |
 | `F8` | Delete |
 | `F9` | Pulldown menu (Left/Right follows the active panel) |

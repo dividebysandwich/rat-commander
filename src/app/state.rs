@@ -16,8 +16,8 @@ use crate::ui::cmdline::CommandLine;
 use crate::ui::dialog::{
     BusyDialog, CompareDialog, CompareMode, ConfirmDialog, Dialog, DialogResult, DriveDialog,
     FileBrowserDialog, FindDialog, FindParams, FlashTargetDialog, FormDialog, GotoDialog,
-    ImageSaveDialog, InputDialog, InputPurpose, MessageDialog, OverwriteDialog, ProgressDialog,
-    SearchReplaceDialog, SearchReplaceParams, SelectDialog, Submit, UserMenuDialog,
+    ImageSaveDialog, InputDialog, InputPurpose, MessageDialog, MultiRenameDialog, OverwriteDialog,
+    ProgressDialog, SearchReplaceDialog, SearchReplaceParams, SelectDialog, Submit, UserMenuDialog,
 };
 use crate::usermenu::{self, UserMenuEntry};
 use crate::ui::layout::SplitDir;
@@ -1014,6 +1014,7 @@ impl AppState {
             MenuAction::Edit => return self.open_edit().await,
             MenuAction::Copy => self.open_transfer_dialog(OpKind::Copy),
             MenuAction::Move => self.open_transfer_dialog(OpKind::Move),
+            MenuAction::MultiRename => self.open_multi_rename(),
             MenuAction::Mkdir => self.open_mkdir(),
             MenuAction::Delete => self.open_delete_dialog(),
             MenuAction::Chmod => self.open_chmod(),
@@ -1131,6 +1132,7 @@ impl AppState {
             }
             Submit::Copy(sources, dest) => self.begin_transfer(OpKind::Copy, sources, &dest).await,
             Submit::Move(sources, dest) => self.begin_transfer(OpKind::Move, sources, &dest).await,
+            Submit::MultiRename(plan) => self.do_multi_rename(plan).await,
             Submit::Delete(targets) => {
                 if targets.iter().any(|t| t.is_archive()) {
                     self.start_archive_remove(targets);
@@ -1455,6 +1457,10 @@ impl AppState {
             KeyCode::F(3) => return self.open_view().await,
             KeyCode::F(4) => return self.open_edit().await,
             KeyCode::F(5) => self.open_transfer_dialog(OpKind::Copy),
+            // Shift-F6 / Ctrl-F6 open the multi-rename tool; plain F6 is move.
+            KeyCode::F(6) if ctrl || key.modifiers.contains(KeyModifiers::SHIFT) => {
+                self.open_multi_rename()
+            }
             KeyCode::F(6) => self.open_transfer_dialog(OpKind::Move),
             KeyCode::F(7) => self.open_mkdir(),
             KeyCode::F(8) => self.open_delete_dialog(),
@@ -2142,6 +2148,114 @@ impl AppState {
         };
         let prompt = format!("{title} to:");
         self.dialog = Some(Dialog::Input(InputDialog::new(title, prompt, dest, purpose)));
+    }
+
+    /// Open the multi-rename dialog for the currently *selected* files. Requires
+    /// an explicit selection (unlike most ops, it does not fall back to the file
+    /// under the cursor).
+    fn open_multi_rename(&mut self) {
+        let p = &self.panels[self.active];
+        if p.is_panelized() {
+            return self.show_error("Multi rename is not available on search results");
+        }
+        if p.selection.is_empty() {
+            return self.show_error("No files selected. Select files first (Insert, or + to select a group).");
+        }
+        let sources = p.operation_targets();
+        if sources.is_empty() {
+            return self.show_error("No files selected.");
+        }
+        let (date, time) = crate::rename::date_time_now();
+        self.dialog = Some(Dialog::MultiRename(MultiRenameDialog::new(sources, date, time)));
+    }
+
+    /// Apply a batch rename. Renames are done in two phases (each source to a
+    /// unique temporary name, then to its final name) so intra-batch
+    /// permutations — swaps, rotations, counter renumberings — can't clobber a
+    /// not-yet-renamed sibling. Existing files outside the batch are never
+    /// overwritten.
+    async fn do_multi_rename(&mut self, plan: Vec<(VfsPath, String)>) {
+        // Drop no-ops (unchanged names).
+        let jobs: Vec<(VfsPath, String)> = plan
+            .into_iter()
+            .filter(|(src, name)| *name != src.file_name())
+            .collect();
+        if jobs.is_empty() {
+            return;
+        }
+
+        // Validate target names.
+        for (_, name) in &jobs {
+            if name.is_empty() || name.contains('/') || name.contains('\\') {
+                return self.show_error(format!("Invalid target name: \"{name}\""));
+            }
+        }
+        // Reject duplicate target names within the batch.
+        let mut seen = HashSet::new();
+        for (_, name) in &jobs {
+            if !seen.insert(name.as_str()) {
+                return self.show_error(format!("Two files would be renamed to \"{name}\""));
+            }
+        }
+
+        let dir = self.panels[self.active].cwd.clone();
+        let backend = self.panels[self.active].backend.clone();
+        let targets: Vec<VfsPath> = jobs.iter().map(|(_, name)| dir.join(name)).collect();
+        let temps: Vec<VfsPath> = (0..jobs.len()).map(|i| dir.join(format!(".rc-rename-tmp-{i}"))).collect();
+
+        // Refuse to overwrite an existing file that isn't itself being renamed
+        // away (a final name that matches a source is safe — phase 2 handles it).
+        let source_names: HashSet<String> = jobs.iter().map(|(s, _)| s.file_name()).collect();
+        for (i, (_, name)) in jobs.iter().enumerate() {
+            if !source_names.contains(name) && backend.stat(&targets[i]).await.is_ok() {
+                return self.show_error(format!("\"{name}\" already exists"));
+            }
+        }
+        // The temporary names must be free, or phase 1 could clobber them.
+        for t in &temps {
+            if backend.stat(t).await.is_ok() {
+                return self.show_error("Temporary rename name is in use; please retry");
+            }
+        }
+
+        // Phase 1: source → temp. Roll back everything staged on the first error.
+        let mut staged = 0;
+        let mut phase1_err = None;
+        for (i, (src, _)) in jobs.iter().enumerate() {
+            if let Err(e) = backend.rename(src, &temps[i]).await {
+                phase1_err = Some(format!("Rename failed: {e}"));
+                break;
+            }
+            staged = i + 1;
+        }
+        if let Some(e) = phase1_err {
+            for i in 0..staged {
+                let _ = backend.rename(&temps[i], &jobs[i].0).await;
+            }
+            let _ = self.panels[self.active].reload().await;
+            return self.show_error(e);
+        }
+
+        // Phase 2: temp → final. Restore the original name if a final fails.
+        let mut errors = Vec::new();
+        for (i, (src, name)) in jobs.iter().enumerate() {
+            if let Err(e) = backend.rename(&temps[i], &targets[i]).await {
+                let _ = backend.rename(&temps[i], src).await;
+                errors.push(format!("{name}: {e}"));
+            }
+        }
+
+        self.panels[self.active].selection.clear();
+        let _ = self.panels[self.active].reload().await;
+        if !errors.is_empty() {
+            let shown: Vec<String> = errors.iter().take(8).cloned().collect();
+            let more = errors.len().saturating_sub(shown.len());
+            let mut msg = format!("{} rename(s) failed:\n{}", errors.len(), shown.join("\n"));
+            if more > 0 {
+                msg.push_str(&format!("\n… and {more} more"));
+            }
+            self.show_error(msg);
+        }
     }
 
     fn open_delete_dialog(&mut self) {
@@ -3599,6 +3713,117 @@ mod tests {
         })
         .await;
         assert!(st.panels[0].selection.is_marked(&name), "right-click marks the file");
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[tokio::test]
+    async fn multi_rename_swaps_and_renumbers_safely() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("rc_mrename_{}_{nanos}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("a.txt"), b"A").unwrap();
+        std::fs::write(root.join("b.txt"), b"B").unwrap();
+        std::fs::write(root.join("c.txt"), b"C").unwrap();
+
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
+        st.active = 0;
+        st.panels[0].cwd = VfsPath::local(&root);
+        st.panels[0].backend = st.registry.local();
+        st.panels[0].reload().await.unwrap();
+
+        let p = |n: &str| VfsPath::local(&root).join(n);
+        // Swap a <-> b (the hard case: each target is another live source) and
+        // rename c -> d.
+        let plan = vec![
+            (p("a.txt"), "b.txt".to_string()),
+            (p("b.txt"), "a.txt".to_string()),
+            (p("c.txt"), "d.txt".to_string()),
+        ];
+        st.do_multi_rename(plan).await;
+
+        assert!(st.dialog.is_none(), "no error dialog on success");
+        assert_eq!(std::fs::read(root.join("a.txt")).unwrap(), b"B", "a.txt got b's content");
+        assert_eq!(std::fs::read(root.join("b.txt")).unwrap(), b"A", "b.txt got a's content");
+        assert!(!root.join("c.txt").exists(), "c.txt was renamed away");
+        assert_eq!(std::fs::read(root.join("d.txt")).unwrap(), b"C", "d.txt got c's content");
+        let leftover: Vec<String> = std::fs::read_dir(&root)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.starts_with(".rc-rename-tmp"))
+            .collect();
+        assert!(leftover.is_empty(), "temporary names cleaned up: {leftover:?}");
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[tokio::test]
+    async fn shift_f6_opens_multi_rename_for_selection() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("rc_mrshortcut_{}_{nanos}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("a.txt"), b"a").unwrap();
+        std::fs::write(root.join("b.txt"), b"b").unwrap();
+
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
+        st.active = 0;
+        st.panels[0].cwd = VfsPath::local(&root);
+        st.panels[0].backend = st.registry.local();
+        st.panels[0].reload().await.unwrap();
+
+        // With nothing selected, the shortcut shows an error instead of the tool.
+        st.handle_key(KeyEvent::new(KeyCode::F(6), KeyModifiers::SHIFT)).await;
+        assert!(
+            matches!(st.dialog, Some(Dialog::Message(_))),
+            "no selection → error message"
+        );
+        st.dialog = None;
+
+        // Select a file; now Shift-F6 (and Ctrl-F6) open the multi-rename dialog.
+        st.panels[0].selection.mark("a.txt");
+        st.handle_key(KeyEvent::new(KeyCode::F(6), KeyModifiers::SHIFT)).await;
+        assert!(matches!(st.dialog, Some(Dialog::MultiRename(_))), "Shift-F6 opens multi rename");
+        st.dialog = None;
+        st.handle_key(KeyEvent::new(KeyCode::F(6), KeyModifiers::CONTROL)).await;
+        assert!(matches!(st.dialog, Some(Dialog::MultiRename(_))), "Ctrl-F6 opens multi rename");
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[tokio::test]
+    async fn multi_rename_refuses_to_clobber_existing_file() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("rc_mrclobber_{}_{nanos}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("a.txt"), b"A").unwrap();
+        std::fs::write(root.join("keep.txt"), b"KEEP").unwrap();
+
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
+        st.active = 0;
+        st.panels[0].cwd = VfsPath::local(&root);
+        st.panels[0].backend = st.registry.local();
+        st.panels[0].reload().await.unwrap();
+
+        // Renaming a.txt onto the unrelated existing keep.txt must be refused.
+        let plan = vec![(VfsPath::local(&root).join("a.txt"), "keep.txt".to_string())];
+        st.do_multi_rename(plan).await;
+
+        assert!(st.dialog.is_some(), "an error dialog is shown");
+        assert!(root.join("a.txt").exists(), "source left in place");
+        assert_eq!(std::fs::read(root.join("keep.txt")).unwrap(), b"KEEP", "existing target untouched");
 
         std::fs::remove_dir_all(&root).ok();
     }

@@ -358,6 +358,46 @@ mod feature_tests {
     }
 
     #[test]
+    fn multi_rename_dialog_previews_new_names() {
+        use crate::ui::dialog::{Dialog, MultiRenameDialog};
+        use crate::vfs::VfsPath;
+        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        let sources = vec![
+            VfsPath::local("/tmp/photo.jpg"),
+            VfsPath::local("/tmp/note.txt"),
+        ];
+        let mut dlg = Dialog::MultiRename(MultiRenameDialog::new(
+            sources,
+            "20260630".to_string(),
+            "143007".to_string(),
+        ));
+        let theme = crate::ui::theme::Theme::mc();
+        let mut t = Terminal::new(TestBackend::new(100, 24)).unwrap();
+
+        // Default mask "[N].[E]" reproduces the original names.
+        t.draw(|f| dlg.render(f, f.area(), &theme)).unwrap();
+        let text = text_of(&t);
+        for needle in ["Multi rename", "Original name", "New name", "photo.jpg", "note.txt", "Execute"] {
+            assert!(text.contains(needle), "multi-rename dialog should show {needle:?}");
+        }
+
+        // Retype the mask to "[N]_[C]" and confirm the preview column reacts and
+        // the counter advances per file.
+        let mut key = |c: KeyCode| dlg.handle_key(KeyEvent::new(c, KeyModifiers::NONE));
+        for _ in 0..7 {
+            key(KeyCode::Backspace);
+        }
+        for c in ['[', 'N', ']', '_', '[', 'C', ']'] {
+            key(KeyCode::Char(c));
+        }
+        t.draw(|f| dlg.render(f, f.area(), &theme)).unwrap();
+        let text = text_of(&t);
+        assert!(text.contains("photo_1"), "first file gets counter 1");
+        assert!(text.contains("note_2"), "second file gets counter 2");
+    }
+
+    #[test]
     fn animated_gradient_shifts_with_phase() {
         let mut th = crate::ui::theme::Theme::by_name("Dracula", true);
         th.animated = true;

@@ -20,6 +20,8 @@ pub enum MenuAction {
     Edit,
     Copy,
     Move,
+    /// Open the multi-rename dialog for the selected files.
+    MultiRename,
     Mkdir,
     Delete,
     Chmod,
@@ -127,6 +129,7 @@ impl MenuBarState {
                 item("&Edit          F4", MenuAction::Edit),
                 item("&Copy          F5", MenuAction::Copy),
                 item("&Rename/Move   F6", MenuAction::Move),
+                item("M&ulti rename Shift-F6", MenuAction::MultiRename),
                 item("&Make directory F7", MenuAction::Mkdir),
                 item("&Delete        F8", MenuAction::Delete),
                 sep(),
