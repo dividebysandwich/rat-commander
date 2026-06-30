@@ -60,6 +60,9 @@ impl MenuAction {
 
 struct MenuItem {
     label: &'static str,
+    /// Optional keyboard-shortcut hint, drawn right-aligned in the dropdown
+    /// (e.g. `"F3"`, `"Shift-F6"`). Empty for items without a shortcut.
+    shortcut: &'static str,
     action: MenuAction,
 }
 
@@ -125,13 +128,13 @@ impl MenuBarState {
 
         let file = Menu {
             items: vec![
-                item("&View          F3", MenuAction::View),
-                item("&Edit          F4", MenuAction::Edit),
-                item("&Copy          F5", MenuAction::Copy),
-                item("&Rename/Move   F6", MenuAction::Move),
-                item("M&ulti rename Shift-F6", MenuAction::MultiRename),
-                item("&Make directory F7", MenuAction::Mkdir),
-                item("&Delete        F8", MenuAction::Delete),
+                item_key("&View", "F3", MenuAction::View),
+                item_key("&Edit", "F4", MenuAction::Edit),
+                item_key("&Copy", "F5", MenuAction::Copy),
+                item_key("&Rename/Move", "F6", MenuAction::Move),
+                item_key("M&ulti rename", "Shift-F6", MenuAction::MultiRename),
+                item_key("&Make directory", "F7", MenuAction::Mkdir),
+                item_key("&Delete", "F8", MenuAction::Delete),
                 sep(),
                 item("C&hmod", MenuAction::Chmod),
                 item("Cho&wn", MenuAction::Chown),
@@ -139,11 +142,11 @@ impl MenuBarState {
                 sep(),
                 item("Com&press...", MenuAction::Compress),
                 sep(),
-                item("Select &group   +", MenuAction::SelectGroup),
-                item("U&nselect group -", MenuAction::UnselectGroup),
-                item("&Invert selection *", MenuAction::Invert),
+                item_key("Select &group", "+", MenuAction::SelectGroup),
+                item_key("U&nselect group", "-", MenuAction::UnselectGroup),
+                item_key("&Invert selection", "*", MenuAction::Invert),
                 sep(),
-                item("&Quit          F10", MenuAction::Quit),
+                item_key("&Quit", "F10", MenuAction::Quit),
             ],
         };
 
@@ -343,7 +346,15 @@ impl MenuBarState {
         let width = menu
             .items
             .iter()
-            .map(|it| it.label.chars().filter(|&c| c != '&').count())
+            .map(|it| {
+                let disp = it.label.chars().filter(|&c| c != '&').count();
+                if it.shortcut.is_empty() {
+                    disp
+                } else {
+                    // label + a 2-space gap + the right-aligned shortcut
+                    disp + 2 + it.shortcut.chars().count()
+                }
+            })
             .max()
             .unwrap_or(8) as u16
             + 4;
@@ -384,9 +395,18 @@ impl MenuBarState {
                 Style::default().fg(theme.menu_fg).bg(theme.menu_bg)
             };
             let (display, hk) = split_hotkey(it.label);
+            let iw = inner.width as usize;
             let mut text = format!(" {display}");
-            let target = inner.width as usize;
-            while text.chars().count() < target {
+            // Right-align the shortcut hint (one trailing space from the edge),
+            // then pad the row out to the full interior width.
+            if !it.shortcut.is_empty() {
+                let sc_start = iw.saturating_sub(it.shortcut.chars().count() + 1);
+                while text.chars().count() < sc_start {
+                    text.push(' ');
+                }
+                text.push_str(it.shortcut);
+            }
+            while text.chars().count() < iw {
                 text.push(' ');
             }
             // The hotkey sits one column right of its index (the leading space).
@@ -403,12 +423,18 @@ impl Default for MenuBarState {
 }
 
 fn item(label: &'static str, action: MenuAction) -> MenuItem {
-    MenuItem { label, action }
+    MenuItem { label, shortcut: "", action }
+}
+
+/// A menu item with a right-aligned keyboard-shortcut hint.
+fn item_key(label: &'static str, shortcut: &'static str, action: MenuAction) -> MenuItem {
+    MenuItem { label, shortcut, action }
 }
 
 fn sep() -> MenuItem {
     MenuItem {
         label: "",
+        shortcut: "",
         action: MenuAction::Separator,
     }
 }
