@@ -127,7 +127,9 @@ The installed executable is named **`rc`** for quick typing.
   **Append**, or apply a rule to all remaining files (**All**, **Older**,
   **None**, **Smaller**, **Size differs**) with an optional "don't overwrite with
   a zero-length file" guard
-- `chmod`, `chown`, symlink creation, and make-directory dialogs
+- `chmod`, `chown`, symlink creation, and make-directory dialogs. `chmod`/`chown`
+  act on the selected files and offer a **Recurse into directories** checkbox to
+  apply the change through any directories in the selection
 - **Confirmations** dialog (F9 → Options → *Confirmations…*) toggles whether to
   confirm **delete** (on), **overwrite** (on), **execute / open with default app**
   (off), **unmount** (on) and **exit** (on)

@@ -102,16 +102,10 @@ impl AppState {
             } => self.apply_select(select, &pattern, files_only, case_sensitive, shell),
             Submit::SearchReplace(p) => self.apply_search_replace(p),
             Submit::Find(p) => self.start_find(p),
-            Submit::Chmod(path, mode) => {
-                let backend = self.panels[self.active].backend.clone();
-                match backend.set_permissions(&path, mode).await {
-                    Ok(()) => {
-                        let _ = self.panels[self.active].reload().await;
-                    }
-                    Err(e) => self.show_error(format!("chmod failed: {e}")),
-                }
+            Submit::Chmod(paths, mode, recursive) => self.apply_chmod(paths, mode, recursive).await,
+            Submit::Chown(paths, owner, group, recursive) => {
+                self.apply_chown(paths, &owner, &group, recursive).await
             }
-            Submit::Chown(path, owner, group) => self.apply_chown(path, &owner, &group).await,
             Submit::Symlink { dir, target, name } => {
                 // The symlink is created in `dir` (the destination panel), so use
                 // that location's backend.
@@ -264,7 +258,23 @@ impl AppState {
         }
     }
 
-    async fn apply_chown(&mut self, path: VfsPath, owner: &str, group: &str) {
+    /// Apply `mode` to every target, recursing into directories when asked.
+    async fn apply_chmod(&mut self, paths: Vec<VfsPath>, mode: u32, recursive: bool) {
+        let backend = self.panels[self.active].backend.clone();
+        let mut errors = Vec::new();
+        for root in &paths {
+            for t in collect_tree(&backend, root, recursive).await {
+                if let Err(e) = backend.set_permissions(&t, mode).await {
+                    errors.push(format!("{}: {e}", t.file_name()));
+                }
+            }
+        }
+        let _ = self.panels[self.active].reload().await;
+        self.report_op_errors("chmod", errors);
+    }
+
+    /// Apply ownership to every target, recursing into directories when asked.
+    async fn apply_chown(&mut self, paths: Vec<VfsPath>, owner: &str, group: &str, recursive: bool) {
         let uid = match resolve_uid(owner) {
             Ok(u) => u,
             Err(e) => return self.show_error(e),
@@ -274,12 +284,31 @@ impl AppState {
             Err(e) => return self.show_error(e),
         };
         let backend = self.panels[self.active].backend.clone();
-        match backend.set_owner(&path, uid, gid).await {
-            Ok(()) => {
-                let _ = self.panels[self.active].reload().await;
+        let mut errors = Vec::new();
+        for root in &paths {
+            for t in collect_tree(&backend, root, recursive).await {
+                if let Err(e) = backend.set_owner(&t, uid, gid).await {
+                    errors.push(format!("{}: {e}", t.file_name()));
+                }
             }
-            Err(e) => self.show_error(format!("chown failed: {e}")),
         }
+        let _ = self.panels[self.active].reload().await;
+        self.report_op_errors("chown", errors);
+    }
+
+    /// Show a summary error dialog when an op failed on some files (no-op on
+    /// full success).
+    fn report_op_errors(&mut self, op: &str, errors: Vec<String>) {
+        if errors.is_empty() {
+            return;
+        }
+        let shown: Vec<String> = errors.iter().take(8).cloned().collect();
+        let more = errors.len().saturating_sub(shown.len());
+        let mut msg = format!("{op} failed for {} item(s):\n{}", errors.len(), shown.join("\n"));
+        if more > 0 {
+            msg.push_str(&format!("\n… and {more} more"));
+        }
+        self.show_error(msg);
     }
 
     pub(in crate::app::state) fn open_transfer_dialog(&mut self, kind: OpKind) {
@@ -373,15 +402,18 @@ impl AppState {
         if !p.backend.capabilities().permissions {
             return self.show_error("This filesystem does not support permissions");
         }
-        let Some(e) = p.current_entry() else {
-            return self.show_error("No file under cursor");
-        };
-        if e.name == ".." {
-            return self.show_error("No file under cursor");
+        let targets = p.operation_targets();
+        if targets.is_empty() {
+            return self.show_error("No files selected");
         }
-        let path = p.cwd.join(&e.name);
-        let mode = e.mode.unwrap_or(0o644) & 0o777;
-        self.dialog = Some(Dialog::Form(FormDialog::chmod(path, mode)));
+        // Prefill the bits from the file under the cursor (a representative).
+        let mode = p
+            .current_entry()
+            .filter(|e| e.name != "..")
+            .and_then(|e| e.mode)
+            .unwrap_or(0o644)
+            & 0o777;
+        self.dialog = Some(Dialog::Form(FormDialog::chmod(targets, mode)));
     }
 
     pub(in crate::app::state) fn open_chown(&mut self) {
@@ -389,22 +421,21 @@ impl AppState {
         if !p.backend.capabilities().ownership {
             return self.show_error("This filesystem does not support ownership");
         }
-        let Some(e) = p.current_entry() else {
-            return self.show_error("No file under cursor");
-        };
-        if e.name == ".." {
-            return self.show_error("No file under cursor");
+        let targets = p.operation_targets();
+        if targets.is_empty() {
+            return self.show_error("No files selected");
         }
-        let path = p.cwd.join(&e.name);
-        let owner = e
-            .uid
-            .and_then(uid_name)
-            .unwrap_or_else(|| e.uid.map(|u| u.to_string()).unwrap_or_default());
-        let group = e
-            .gid
-            .and_then(gid_name)
-            .unwrap_or_else(|| e.gid.map(|g| g.to_string()).unwrap_or_default());
-        self.dialog = Some(Dialog::Form(FormDialog::chown(path, owner, group)));
+        // Prefill owner/group from the file under the cursor (a representative).
+        let cur = p.current_entry().filter(|e| e.name != "..");
+        let owner = cur
+            .and_then(|e| e.uid)
+            .map(|u| uid_name(u).unwrap_or_else(|| u.to_string()))
+            .unwrap_or_default();
+        let group = cur
+            .and_then(|e| e.gid)
+            .map(|g| gid_name(g).unwrap_or_else(|| g.to_string()))
+            .unwrap_or_default();
+        self.dialog = Some(Dialog::Form(FormDialog::chown(targets, owner, group)));
     }
 
     pub(in crate::app::state) fn open_symlink(&mut self) {
@@ -452,4 +483,45 @@ impl AppState {
         }
     }
 
+}
+
+/// Every path an op should touch: `root`, plus — when `recursive` — all
+/// descendants if `root` is a real directory. Symlinks are never followed, so
+/// the walk can't loop or escape the selected tree. Directories are listed
+/// before the op mutates anything, so a permission change that removes search
+/// access can't cut the traversal short.
+async fn collect_tree(
+    backend: &std::sync::Arc<dyn Vfs>,
+    root: &VfsPath,
+    recursive: bool,
+) -> Vec<VfsPath> {
+    let mut out = vec![root.clone()];
+    if !recursive {
+        return out;
+    }
+    let descend = backend
+        .stat(root)
+        .await
+        .map(|e| e.kind.is_dir() && e.symlink_target.is_none())
+        .unwrap_or(false);
+    if !descend {
+        return out;
+    }
+    let mut stack = vec![root.clone()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = backend.read_dir(&dir).await else {
+            continue;
+        };
+        for e in entries {
+            if e.name == ".." || e.name == "." || e.symlink_target.is_some() {
+                continue;
+            }
+            let child = dir.join(&e.name);
+            if e.kind.is_dir() {
+                stack.push(child.clone());
+            }
+            out.push(child);
+        }
+    }
+    out
 }

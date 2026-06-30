@@ -133,8 +133,12 @@ pub enum Submit {
     SearchReplace(SearchReplaceParams),
     /// Find-file request.
     Find(FindParams),
-    Chmod(VfsPath, u32),
-    Chown(VfsPath, String, String),
+    /// Set permissions on these targets to `mode`; recurse into directories when
+    /// the flag is set.
+    Chmod(Vec<VfsPath>, u32, bool),
+    /// Set ownership of these targets; recurse into directories when the flag is
+    /// set.
+    Chown(Vec<VfsPath>, String, String, bool),
     Symlink {
         dir: VfsPath,
         target: String,

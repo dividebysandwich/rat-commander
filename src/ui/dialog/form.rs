@@ -143,12 +143,23 @@ impl Form {
     }
 }
 
+/// A dialog title like `"Chmod: file.txt"` for one target or `"Chmod: 3 items"`
+/// for several.
+fn form_target_title(verb: &str, targets: &[VfsPath]) -> String {
+    match targets {
+        [one] => format!("{verb}: {}", one.file_name()),
+        many => format!("{verb}: {} items", many.len()),
+    }
+}
+
 /// What a form's values should become on submit.
 pub enum FormPurpose {
     Settings,
     Confirmations,
-    Chmod(VfsPath),
-    Chown(VfsPath),
+    /// Change permissions of these targets (recursing into dirs if requested).
+    Chmod(Vec<VfsPath>),
+    /// Change ownership of these targets (recursing into dirs if requested).
+    Chown(Vec<VfsPath>),
     /// Create a symlink inside this directory.
     Symlink(VfsPath),
     /// Open a remote connection of this protocol on the given panel side.
@@ -231,8 +242,10 @@ impl FormDialog {
         }
     }
 
-    /// Build a chmod form from the current mode bits.
-    pub fn chmod(path: VfsPath, mode: u32) -> Self {
+    /// Build a chmod form for `targets` from the current mode bits. The trailing
+    /// "Recurse into directories" checkbox makes the change apply into any
+    /// directories in the selection.
+    pub fn chmod(targets: Vec<VfsPath>, mode: u32) -> Self {
         let bit = |m: u32| mode & m != 0;
         let form = Form::new(vec![
             Field::check("Owner read    (400)", bit(0o400)),
@@ -244,24 +257,26 @@ impl FormDialog {
             Field::check("Other read    (004)", bit(0o004)),
             Field::check("Other write   (002)", bit(0o002)),
             Field::check("Other exec    (001)", bit(0o001)),
+            Field::check("Recurse into directories", false),
         ]);
         FormDialog {
-            title: format!("Chmod: {}", path.file_name()),
+            title: form_target_title("Chmod", &targets),
             form,
-            purpose: FormPurpose::Chmod(path),
+            purpose: FormPurpose::Chmod(targets),
             connect: None,
         }
     }
 
-    pub fn chown(path: VfsPath, owner: String, group: String) -> Self {
+    pub fn chown(targets: Vec<VfsPath>, owner: String, group: String) -> Self {
         let form = Form::new(vec![
             Field::text("Owner (name or uid)", owner),
             Field::text("Group (name or gid)", group),
+            Field::check("Recurse into directories", false),
         ]);
         FormDialog {
-            title: format!("Chown: {}", path.file_name()),
+            title: form_target_title("Chown", &targets),
             form,
-            purpose: FormPurpose::Chown(path),
+            purpose: FormPurpose::Chown(targets),
             connect: None,
         }
     }
@@ -369,13 +384,21 @@ impl FormDialog {
         const BITS: [u32; 9] = [
             0o400, 0o200, 0o100, 0o040, 0o020, 0o010, 0o004, 0o002, 0o001,
         ];
+        // `zip` stops at the 9 permission bits, so the trailing "Recurse"
+        // checkbox is ignored here.
         let mut mode = 0;
-        for (i, f) in self.form.fields.iter().enumerate() {
+        for (f, bit) in self.form.fields.iter().zip(BITS) {
             if f.as_bool() {
-                mode |= BITS[i];
+                mode |= bit;
             }
         }
         mode
+    }
+
+    /// Whether the chmod/chown "Recurse into directories" checkbox (always the
+    /// last field of those forms) is ticked.
+    fn recursive(&self) -> bool {
+        self.form.fields.last().map(|f| f.as_bool()).unwrap_or(false)
     }
 
     pub(crate) fn handle_key(&mut self, key: KeyEvent) -> DialogResult {
@@ -450,11 +473,14 @@ impl FormDialog {
                     inode_bytes: fields[3].as_text().trim().to_string(),
                 })
             }
-            FormPurpose::Chmod(p) => Submit::Chmod(p.clone(), self.chmod_mode()),
-            FormPurpose::Chown(p) => Submit::Chown(
-                p.clone(),
+            FormPurpose::Chmod(paths) => {
+                Submit::Chmod(paths.clone(), self.chmod_mode(), self.recursive())
+            }
+            FormPurpose::Chown(paths) => Submit::Chown(
+                paths.clone(),
                 fields[0].as_text().trim().to_string(),
                 fields[1].as_text().trim().to_string(),
+                self.recursive(),
             ),
             FormPurpose::Symlink(dir) => {
                 let target = fields[0].as_text().trim().to_string();

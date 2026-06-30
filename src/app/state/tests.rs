@@ -352,6 +352,53 @@ async fn mouse_clicks_move_cursor_and_mark_in_panel() {
     std::fs::remove_dir_all(&root).ok();
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn chmod_recursive_applies_into_directories() {
+    use std::os::unix::fs::PermissionsExt;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("rc_chmodrec_{}_{nanos}", std::process::id()));
+    std::fs::create_dir_all(root.join("sub")).unwrap();
+    std::fs::write(root.join("top.txt"), b"a").unwrap();
+    std::fs::write(root.join("sub/deep.txt"), b"b").unwrap();
+    let all = [
+        root.clone(),
+        root.join("top.txt"),
+        root.join("sub"),
+        root.join("sub/deep.txt"),
+    ];
+    // Dirs keep the execute bit so the recursive walk can traverse them; files
+    // start at 0o644. Everything differs from the 0o700 we'll apply.
+    for p in &all {
+        let m = if p.is_dir() { 0o755 } else { 0o644 };
+        std::fs::set_permissions(p, std::fs::Permissions::from_mode(m)).unwrap();
+    }
+    let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+
+    // Recursive: every file and directory in the tree gets the new mode.
+    st.handle_submit(Submit::Chmod(vec![VfsPath::local(&root)], 0o700, true)).await;
+    for p in &all {
+        assert_eq!(mode(p), 0o700, "recursive chmod reached {}", p.display());
+    }
+
+    // Non-recursive: only the named target changes; descendants are untouched.
+    st.handle_submit(Submit::Chmod(vec![VfsPath::local(&root)], 0o755, false)).await;
+    assert_eq!(mode(&root), 0o755, "root changed");
+    assert_eq!(mode(&root.join("sub/deep.txt")), 0o700, "descendant untouched");
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
 #[tokio::test]
 async fn multi_rename_swaps_and_renumbers_safely() {
     let nanos = std::time::SystemTime::now()
