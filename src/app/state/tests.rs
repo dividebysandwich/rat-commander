@@ -352,6 +352,61 @@ async fn mouse_clicks_move_cursor_and_mark_in_panel() {
     std::fs::remove_dir_all(&root).ok();
 }
 
+#[tokio::test]
+async fn double_click_enters_directory() {
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("rc_dblclick_{}_{nanos}", std::process::id()));
+    std::fs::create_dir_all(root.join("sub")).unwrap();
+    std::fs::write(root.join("sub/inside.txt"), b"x").unwrap();
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+
+    // Render once so the panel records its click geometry.
+    let mut term = Terminal::new(TestBackend::new(120, 30)).unwrap();
+    term.draw(|f| crate::ui::draw(f, &mut st)).unwrap();
+
+    // Find the screen row of the "sub" directory entry.
+    let sub_idx = st.panels[0].entries.iter().position(|e| e.name == "sub").unwrap();
+    let hit = st.panels[0].hit.expect("panel hit recorded");
+    let col = hit.body.x + 1;
+    let len = st.panels[0].entries.len();
+    let row = (hit.body.y..hit.body.y + hit.body.height)
+        .find(|&r| hit.index_at(col, r, len) == Some(sub_idx))
+        .expect("a visible row maps to the subdirectory");
+    let click = || MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: col,
+        row,
+        modifiers: KeyModifiers::NONE,
+    };
+
+    // First click just moves the cursor — it does not navigate.
+    st.handle_mouse(click()).await;
+    assert_eq!(st.panels[0].cursor, sub_idx, "single click moves the cursor");
+    assert_eq!(st.panels[0].cwd.path, root, "single click does not navigate");
+
+    // A second click on the same entry (within the window) enters the directory.
+    st.handle_mouse(click()).await;
+    assert_eq!(st.panels[0].cwd.path, root.join("sub"), "double click enters the directory");
+    assert!(
+        st.panels[0].entries.iter().any(|e| e.name == "inside.txt"),
+        "now listing the subdirectory's contents"
+    );
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn chmod_recursive_applies_into_directories() {

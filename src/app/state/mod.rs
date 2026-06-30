@@ -141,6 +141,9 @@ pub struct AppState {
     /// The (panel, entry) last toggled by a right-drag paint, so each entry is
     /// inverted only once as the drag passes over it.
     paint_last: Option<(usize, usize)>,
+    /// The last left click (panel, entry, when), for double-click detection: a
+    /// second click on the same entry within [`DOUBLE_CLICK`] opens it like Enter.
+    last_click: Option<(usize, usize, Instant)>,
     /// After a delete completes, place the active panel's cursor on this entry
     /// (the surviving file just above the deleted one) instead of the top.
     pending_focus: Option<String>,

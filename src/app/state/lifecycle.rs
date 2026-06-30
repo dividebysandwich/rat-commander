@@ -49,6 +49,7 @@ impl AppState {
             stashed_progress: None,
             last_area: Rect::new(0, 0, 0, 0),
             paint_last: None,
+            last_click: None,
             pending_focus: None,
         }
     }

@@ -2,6 +2,9 @@
 
 use super::*;
 
+/// Two left clicks on the same entry within this window count as a double-click.
+const DOUBLE_CLICK: Duration = Duration::from_millis(500);
+
 impl AppState {
     /// Handle a mouse event. Left clicks/drags move the cursor and drive the
     /// menus and dialogs; right clicks/drags mark files.
@@ -85,15 +88,26 @@ impl AppState {
                 // A click on the menu bar (top row) opens that menu.
                 if let Some(i) = MenuBarState::title_index_at(area, col, row) {
                     self.menu = Some(MenuBarState::new(i));
-                } else {
-                    self.panel_point(col, row, PointAction::Cursor);
+                } else if let Some((pi, idx)) = self.panel_point(col, row, PointAction::Cursor) {
+                    // A second click on the same entry within the window opens it,
+                    // exactly like pressing Enter (descend a dir, open a file).
+                    let now = Instant::now();
+                    let double = self.last_click.is_some_and(|(p, i, t)| {
+                        p == pi && i == idx && now.duration_since(t) < DOUBLE_CLICK
+                    });
+                    if double {
+                        self.last_click = None; // don't let a third click re-fire
+                        self.enter_dir().await;
+                        return Flow::Continue;
+                    }
+                    self.last_click = Some((pi, idx, now));
                 }
             }
             MouseEventKind::Drag(MouseButton::Left) => {
-                self.panel_point(col, row, PointAction::Cursor)
+                self.panel_point(col, row, PointAction::Cursor);
             }
             MouseEventKind::Down(MouseButton::Right) | MouseEventKind::Drag(MouseButton::Right) => {
-                self.panel_point(col, row, PointAction::InvertPaint)
+                self.panel_point(col, row, PointAction::InvertPaint);
             }
             _ => {}
         }
@@ -102,29 +116,28 @@ impl AppState {
 
     /// Map a screen point to a panel entry: activate that panel, move the cursor
     /// onto the entry (every action), and optionally toggle/paint its mark.
-    fn panel_point(&mut self, col: u16, row: u16, action: PointAction) {
+    /// Returns the `(panel, entry)` that was hit, or `None` when the point misses
+    /// the panels or any entry.
+    fn panel_point(&mut self, col: u16, row: u16, action: PointAction) -> Option<(usize, usize)> {
         let pi = if self.panels[0].hit.is_some_and(|h| h.in_panel(col, row)) {
             0
         } else if self.panels[1].hit.is_some_and(|h| h.in_panel(col, row)) {
             1
         } else {
-            return;
+            return None;
         };
         self.active = pi;
         let p = &mut self.panels[pi];
-        let Some(hit) = p.hit else { return };
-        let Some(idx) = hit.index_at(col, row, p.entries.len()) else {
-            return;
-        };
+        let idx = p.hit?.index_at(col, row, p.entries.len())?;
         // The cursor follows the pointer for every action (incl. drags).
         p.cursor = idx;
         if matches!(action, PointAction::Cursor) {
-            return;
+            return Some((pi, idx));
         }
         // Invert the mark, but only once per entry as the drag enters it, so a
         // run of drag events over the same file doesn't flip it repeatedly.
         if self.paint_last == Some((pi, idx)) {
-            return;
+            return Some((pi, idx));
         }
         self.paint_last = Some((pi, idx));
         let p = &mut self.panels[pi];
@@ -135,6 +148,7 @@ impl AppState {
             let name = e.name.clone();
             p.selection.toggle(&name);
         }
+        Some((pi, idx))
     }
 
     /// If `(col, row)` falls on the bottom F-key bar, run the corresponding
