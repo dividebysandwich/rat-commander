@@ -532,18 +532,23 @@ directory, **Esc** closes. Symlinks are never followed or counted.
 
 *Command menu → Process explorer…*
 
-**What it does.** A full-screen system monitor with a process table and live
-graphs.
+**What it does.** A full-screen, btop-style system monitor with a process table
+and live graphs. It works on **Linux, Windows and macOS**.
 
 **Useful for** seeing what's running and what's using the CPU, memory, disk and
 network — and killing a runaway process.
 
 **Operation.** The table lists processes with CPU%, memory, thread count and a
 per-process CPU sparkline; sort by **name, CPU, memory, threads or PID** (the
-sort hotkey is shown in each column header). On Linux a btop-style layout adds a
-CPU-load line graph and per-core meters, with memory, disk-I/O and network
-sparklines. **`+`/`-`** adjust the refresh interval. **`k`** kills the selected
-process (SIGTERM), **`K`** force-kills it (SIGKILL); both ask to confirm.
+sort hotkey is shown in each column header). The layout adds a CPU-load line
+graph and per-core meters, with memory, disk-I/O and network sparklines.
+**`+`/`-`** adjust the refresh interval. **`k`** kills the selected process,
+**`K`** force-kills it; both ask to confirm.
+
+A couple of details are platform-specific: on **Unix**, `k`/`K` send SIGTERM
+/SIGKILL (graceful vs. forced), while on **Windows** both terminate the process
+outright; the **battery** readout and per-process **thread counts** are shown on
+Linux and read as unavailable on other platforms.
 
 
 ## Disk manager (Linux)

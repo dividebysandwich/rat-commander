@@ -331,6 +331,7 @@ impl AppState {
     pub(in crate::app::state) fn kill_process(&mut self, pid: i32, force: bool) {
         #[cfg(unix)]
         {
+            // On Unix we keep the SIGTERM/SIGKILL distinction (graceful vs force).
             use nix::sys::signal::{Signal, kill};
             use nix::unistd::Pid;
             let sig = if force { Signal::SIGKILL } else { Signal::SIGTERM };
@@ -338,7 +339,16 @@ impl AppState {
         }
         #[cfg(not(unix))]
         {
-            let _ = (pid, force);
+            // Elsewhere (Windows) sysinfo's kill() maps to TerminateProcess, which
+            // has no graceful/force distinction, so `force` is ignored.
+            let _ = force;
+            if pid >= 0 {
+                let mut s = sysinfo::System::new();
+                s.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+                if let Some(p) = s.process(sysinfo::Pid::from_u32(pid as u32)) {
+                    p.kill();
+                }
+            }
         }
         if let Some(pv) = self.procview.as_mut() {
             pv.refresh();

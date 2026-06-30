@@ -70,6 +70,11 @@ unrar = { version = "0.5.8", optional = true }
 walkdir = "2.5.0"
 xz2 = "0.1.7"
 zip = "8.6.0"
+# Cross-platform process/CPU/memory/disk/network sampling for the process
+# explorer (Linux, Windows, macOS). Pure Rust, no external C deps. Only the
+# `system` + `network` features are needed (drops temperature/components, the
+# user database, and the mounted-disk listing we don't use).
+sysinfo = { version = "0.39.5", default-features = false, features = ["system", "network"] }
 
 # nix (chmod/chown/uid lookups, process signals) is Unix-only.
 [target.'cfg(unix)'.dependencies]

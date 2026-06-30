@@ -1,12 +1,14 @@
 //! Process explorer: a full-screen view listing running processes with their
 //! CPU/memory usage (sortable, killable), plus an animated CPU-load line graph,
-//! per-core load bars, and a memory display. Sampling is self-contained, reading
-//! Linux `/proc`; on other platforms the list is simply empty.
+//! per-core load bars, and a memory display. Sampling is cross-platform via the
+//! [`sysinfo`] crate (Linux, Windows and macOS). The battery readout is the one
+//! platform-specific bit: it is read from Linux `/sys` and left unset elsewhere.
 
 pub mod render;
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
+use sysinfo::{Networks, ProcessesToUpdate, System};
 
 /// Number of CPU-load samples kept for the line graph.
 pub const CPU_HISTORY: usize = 160;
@@ -89,32 +91,40 @@ pub struct ProcView {
     /// Visible table rows, set by the renderer for paging math.
     pub view_rows: usize,
 
-    // --- sampling state ---
+    // --- sampling state (cross-platform, via the `sysinfo` crate) ---
     /// 100 ms ticks accumulated since the last refresh.
     tick_accum: u64,
     refresh_count: u64,
-    prev_pid: HashMap<i32, u64>,
-    prev_total: u64,
-    prev_idle: u64,
-    prev_cores: Vec<(u64, u64)>, // (idle_all, total) per core
-    last_total_delta: u64,
-    prev_disk_bytes: u64,
-    prev_net_rx: u64,
-    prev_net_tx: u64,
+    /// Wall-clock of the previous sample, used to convert sysinfo's
+    /// bytes-since-last-refresh counters into per-second disk/network rates.
     last_instant: Option<std::time::Instant>,
+    /// Live system handle; sysinfo computes per-refresh deltas internally.
+    sys: System,
+    /// Network interface byte counters (received/transmitted since last refresh).
+    networks: Networks,
 }
 
 impl ProcView {
     pub fn new() -> Self {
+        // Build the sysinfo handle and take a CPU baseline so the model name and
+        // core count are known up front (and the first delta has a reference).
+        let mut sys = System::new();
+        sys.refresh_cpu_all();
+        let cpu_name = sys
+            .cpus()
+            .first()
+            .map(|c| c.brand().trim().to_string())
+            .unwrap_or_default();
+        let ncores = sys.cpus().len().max(1);
+        let networks = Networks::new_with_refreshed_list();
+
         let mut v = ProcView {
             procs: Vec::new(),
             cursor: 0,
             offset: 0,
             sort: ProcSort::Cpu,
             reverse: true, // CPU descending by default
-            ncores: std::thread::available_parallelism()
-                .map(|n| n.get())
-                .unwrap_or(1),
+            ncores,
             cpu_now: 0.0,
             cpu_history: VecDeque::with_capacity(CPU_HISTORY),
             cores: Vec::new(),
@@ -129,21 +139,15 @@ impl ProcView {
             net_down_history: VecDeque::with_capacity(SYS_HISTORY),
             net_up_history: VecDeque::with_capacity(SYS_HISTORY),
             proc_cpu_history: HashMap::new(),
-            cpu_name: read_cpu_name(),
+            cpu_name,
             battery: None,
             interval_ms: 300,
             view_rows: 1,
             tick_accum: 0,
             refresh_count: 0,
-            prev_pid: HashMap::new(),
-            prev_total: 0,
-            prev_idle: 0,
-            prev_cores: Vec::new(),
-            last_total_delta: 0,
-            prev_disk_bytes: 0,
-            prev_net_rx: 0,
-            prev_net_tx: 0,
             last_instant: None,
+            sys,
+            networks,
         };
         // Baseline sample so the next refresh can compute deltas.
         v.refresh();
@@ -343,17 +347,19 @@ fn push_sys(hist: &mut VecDeque<f64>, v: f64) {
 }
 
 // ---------------------------------------------------------------------------
-// Sampling (Linux /proc)
+// Sampling (cross-platform, via `sysinfo`)
 // ---------------------------------------------------------------------------
 
-#[cfg(target_os = "linux")]
 impl ProcView {
-    /// Re-read CPU, memory and per-process stats and recompute usage deltas.
+    /// Re-read CPU, memory, per-process and disk/network stats. `sysinfo` keeps
+    /// the previous sample internally, so its byte counters are already deltas
+    /// since the last `refresh()`.
     pub fn refresh(&mut self) {
         // Remember which process the cursor is on so it stays put across the
         // re-sort (and only moves if that process is gone).
         let anchor = self.procs.get(self.cursor).map(|p| p.pid);
-        // Seconds since the last sample, for rate (disk/net) computation.
+        // Seconds since the last sample, to turn sysinfo's bytes-since-refresh
+        // disk/network counters into per-second rates.
         let now = std::time::Instant::now();
         let dt = self
             .last_instant
@@ -361,12 +367,76 @@ impl ProcView {
             .unwrap_or(0.0);
         self.last_instant = Some(now);
 
-        self.sample_cpu();
-        self.sample_mem();
-        self.sample_disk(dt);
-        self.sample_net(dt);
+        self.sys.refresh_cpu_all();
+        self.sys.refresh_memory();
+        self.sys.refresh_processes(ProcessesToUpdate::All, true);
+
+        // -- CPU (overall + per-core busy %). --
+        self.cpu_now = self.sys.global_cpu_usage().clamp(0.0, 100.0);
+        let cpus = self.sys.cpus();
+        if !cpus.is_empty() {
+            self.ncores = cpus.len();
+            self.cores = cpus.iter().map(|c| c.cpu_usage().clamp(0.0, 100.0)).collect();
+        }
+
+        // -- Memory (bytes). --
+        self.mem_total = self.sys.total_memory();
+        self.mem_used = self.sys.used_memory();
+
+        // -- Processes, plus the system-wide disk throughput summed from each
+        //    process's read+written bytes since the last refresh. --
+        let max_cpu = 100.0 * self.ncores as f32;
+        let mut procs = Vec::with_capacity(self.sys.processes().len());
+        let mut disk_bytes = 0u64;
+        for (pid, p) in self.sys.processes() {
+            let pid = pid.as_u32() as i32;
+            let name = p.name().to_string_lossy().into_owned();
+            let cpu = p.cpu_usage().clamp(0.0, max_cpu);
+            let rss = p.memory();
+            let mem_pct = if self.mem_total > 0 {
+                100.0 * rss as f32 / self.mem_total as f32
+            } else {
+                0.0
+            };
+            // Thread count is only exposed by sysinfo where process "tasks" are
+            // available (Linux); it reads 0 elsewhere (e.g. Windows/macOS).
+            let threads = p.tasks().map(|t| t.len() as u32).unwrap_or(0);
+            let du = p.disk_usage();
+            disk_bytes = disk_bytes
+                .saturating_add(du.read_bytes)
+                .saturating_add(du.written_bytes);
+
+            // Append to this process's CPU sparkline history.
+            let h = self.proc_cpu_history.entry(pid).or_default();
+            if h.len() >= PROC_CPU_HISTORY {
+                h.pop_front();
+            }
+            h.push_back(cpu);
+
+            procs.push(ProcInfo { pid, name, cpu, rss, mem_pct, threads });
+        }
+        // Drop sparkline history for processes that have exited.
+        let live: HashSet<i32> = procs.iter().map(|p| p.pid).collect();
+        self.proc_cpu_history.retain(|pid, _| live.contains(pid));
+        self.procs = procs;
+        self.disk_rate = if dt > 0.0 { disk_bytes as f64 / dt } else { 0.0 };
+
+        // -- Network throughput (sum of non-loopback interfaces). --
+        self.networks.refresh(true);
+        let (mut rx, mut tx) = (0u64, 0u64);
+        for (name, data) in &self.networks {
+            if is_loopback(name) {
+                continue;
+            }
+            rx = rx.saturating_add(data.received());
+            tx = tx.saturating_add(data.transmitted());
+        }
+        self.net_down = if dt > 0.0 { rx as f64 / dt } else { 0.0 };
+        self.net_up = if dt > 0.0 { tx as f64 / dt } else { 0.0 };
+
+        // -- Battery (platform-specific; sysinfo doesn't sample it). --
         self.sample_battery();
-        self.sample_procs();
+
         self.sort_procs();
         self.restore_cursor(anchor);
 
@@ -393,110 +463,8 @@ impl ProcView {
         }
     }
 
-    fn sample_cpu(&mut self) {
-        let Ok(stat) = std::fs::read_to_string("/proc/stat") else {
-            return;
-        };
-        let mut core_idx = 0usize;
-        for line in stat.lines() {
-            let Some(rest) = line.strip_prefix("cpu") else {
-                break; // cpu lines are first; stop at the first non-cpu line
-            };
-            let (idle_all, total) = match parse_cpu_fields(rest) {
-                Some(v) => v,
-                None => continue,
-            };
-            if rest.starts_with(' ') || rest.starts_with('\t') {
-                // Aggregate "cpu" line.
-                let dt = total.saturating_sub(self.prev_total);
-                let di = idle_all.saturating_sub(self.prev_idle);
-                self.last_total_delta = dt;
-                if self.prev_total != 0 && dt > 0 {
-                    self.cpu_now = (100.0 * (1.0 - di as f32 / dt as f32)).clamp(0.0, 100.0);
-                }
-                self.prev_total = total;
-                self.prev_idle = idle_all;
-            } else {
-                // Per-core "cpuN" line.
-                if self.prev_cores.len() <= core_idx {
-                    self.prev_cores.resize(core_idx + 1, (0, 0));
-                    self.cores.resize(core_idx + 1, 0.0);
-                }
-                let (pi, pt) = self.prev_cores[core_idx];
-                let dt = total.saturating_sub(pt);
-                let di = idle_all.saturating_sub(pi);
-                if pt != 0 && dt > 0 {
-                    self.cores[core_idx] = (100.0 * (1.0 - di as f32 / dt as f32)).clamp(0.0, 100.0);
-                }
-                self.prev_cores[core_idx] = (idle_all, total);
-                core_idx += 1;
-            }
-        }
-        if core_idx > 0 {
-            self.ncores = core_idx;
-        }
-    }
-
-    fn sample_mem(&mut self) {
-        let Ok(info) = std::fs::read_to_string("/proc/meminfo") else {
-            return;
-        };
-        let mut total = 0u64;
-        let mut available = 0u64;
-        for line in info.lines() {
-            if let Some(v) = line.strip_prefix("MemTotal:") {
-                total = parse_kb(v) * 1024;
-            } else if let Some(v) = line.strip_prefix("MemAvailable:") {
-                available = parse_kb(v) * 1024;
-            }
-        }
-        if total > 0 {
-            self.mem_total = total;
-            self.mem_used = total.saturating_sub(available);
-        }
-    }
-
-    /// Combined read+write throughput across whole disks (bytes/s).
-    fn sample_disk(&mut self, dt: f64) {
-        // Only count whole-block devices (those listed in /sys/block), skipping
-        // partitions, loop/ram/zram and device-mapper to avoid double counting.
-        let whole: std::collections::HashSet<String> = std::fs::read_dir("/sys/block")
-            .map(|rd| {
-                rd.flatten()
-                    .map(|e| e.file_name().to_string_lossy().into_owned())
-                    .filter(|n| {
-                        !(n.starts_with("loop")
-                            || n.starts_with("ram")
-                            || n.starts_with("zram")
-                            || n.starts_with("dm-")
-                            || n.starts_with("sr"))
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        let mut bytes = 0u64;
-        if let Ok(stats) = std::fs::read_to_string("/proc/diskstats") {
-            for line in stats.lines() {
-                let f: Vec<&str> = line.split_whitespace().collect();
-                if f.len() < 10 {
-                    continue;
-                }
-                if !whole.contains(f[2]) {
-                    continue;
-                }
-                let read_sectors: u64 = f[5].parse().unwrap_or(0);
-                let write_sectors: u64 = f[9].parse().unwrap_or(0);
-                bytes = bytes.saturating_add((read_sectors + write_sectors) * 512);
-            }
-        }
-        if self.prev_disk_bytes != 0 && dt > 0.0 {
-            self.disk_rate = bytes.saturating_sub(self.prev_disk_bytes) as f64 / dt;
-        }
-        self.prev_disk_bytes = bytes;
-    }
-
     /// Read the first battery's charge percentage and charging state, if any.
+    #[cfg(target_os = "linux")]
     fn sample_battery(&mut self) {
         let Ok(rd) = std::fs::read_dir("/sys/class/power_supply") else {
             self.battery = None;
@@ -523,195 +491,25 @@ impl ProcView {
         self.battery = None;
     }
 
-    /// Aggregate receive/transmit throughput across interfaces (bytes/s),
-    /// excluding loopback.
-    fn sample_net(&mut self, dt: f64) {
-        let (mut rx, mut tx) = (0u64, 0u64);
-        if let Ok(s) = std::fs::read_to_string("/proc/net/dev") {
-            for line in s.lines() {
-                let Some((iface, rest)) = line.split_once(':') else {
-                    continue;
-                };
-                if iface.trim() == "lo" {
-                    continue;
-                }
-                let f: Vec<&str> = rest.split_whitespace().collect();
-                if f.len() < 9 {
-                    continue;
-                }
-                rx = rx.saturating_add(f[0].parse::<u64>().unwrap_or(0));
-                tx = tx.saturating_add(f[8].parse::<u64>().unwrap_or(0));
-            }
-        }
-        if self.prev_net_rx != 0 && dt > 0.0 {
-            self.net_down = rx.saturating_sub(self.prev_net_rx) as f64 / dt;
-        }
-        if self.prev_net_tx != 0 && dt > 0.0 {
-            self.net_up = tx.saturating_sub(self.prev_net_tx) as f64 / dt;
-        }
-        self.prev_net_rx = rx;
-        self.prev_net_tx = tx;
-    }
-
-    fn sample_procs(&mut self) {
-        let Ok(rd) = std::fs::read_dir("/proc") else {
-            return;
-        };
-        let total_delta = self.last_total_delta;
-        let mut procs = Vec::with_capacity(self.procs.len().max(64));
-        let mut next_prev = HashMap::with_capacity(self.prev_pid.len().max(64));
-
-        for de in rd.flatten() {
-            let fname = de.file_name();
-            let name_str = fname.to_string_lossy();
-            let Ok(pid) = name_str.parse::<i32>() else {
-                continue;
-            };
-            let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else {
-                continue;
-            };
-            let Some((name, jiffies, threads)) = parse_proc_stat(&stat) else {
-                continue;
-            };
-            let prev = self.prev_pid.get(&pid).copied().unwrap_or(jiffies);
-            let delta = jiffies.saturating_sub(prev);
-            let cpu = if total_delta > 0 {
-                100.0 * self.ncores as f32 * delta as f32 / total_delta as f32
-            } else {
-                0.0
-            };
-            let rss = read_rss(pid);
-            let mem_pct = if self.mem_total > 0 {
-                100.0 * rss as f32 / self.mem_total as f32
-            } else {
-                0.0
-            };
-            next_prev.insert(pid, jiffies);
-            let cpu = cpu.clamp(0.0, 100.0 * self.ncores as f32);
-            // Append to this process's CPU sparkline history.
-            let h = self.proc_cpu_history.entry(pid).or_default();
-            if h.len() >= PROC_CPU_HISTORY {
-                h.pop_front();
-            }
-            h.push_back(cpu);
-            procs.push(ProcInfo {
-                pid,
-                name,
-                cpu,
-                rss,
-                mem_pct,
-                threads,
-            });
-        }
-        // Drop history for processes that have exited.
-        self.proc_cpu_history.retain(|pid, _| next_prev.contains_key(pid));
-        self.prev_pid = next_prev;
-        self.procs = procs;
+    /// Battery state isn't sampled via sysinfo, so it's left unset off Linux.
+    #[cfg(not(target_os = "linux"))]
+    fn sample_battery(&mut self) {
+        self.battery = None;
     }
 }
 
-#[cfg(not(target_os = "linux"))]
-impl ProcView {
-    pub fn refresh(&mut self) {
-        // No /proc on this platform; nothing to sample.
-    }
-}
-
-/// The CPU model name from `/proc/cpuinfo` (empty if unavailable).
-#[cfg(target_os = "linux")]
-fn read_cpu_name() -> String {
-    std::fs::read_to_string("/proc/cpuinfo")
-        .ok()
-        .and_then(|s| {
-            s.lines().find_map(|l| {
-                l.strip_prefix("model name")
-                    .map(|r| r.trim_start_matches([' ', '\t', ':']).trim().to_string())
-            })
-        })
-        .unwrap_or_default()
-}
-
-#[cfg(not(target_os = "linux"))]
-fn read_cpu_name() -> String {
-    String::new()
-}
-
-/// Parse the numeric fields following the `cpu`/`cpuN` label. Returns
-/// `(idle_all, total)` in jiffies.
-#[cfg(target_os = "linux")]
-fn parse_cpu_fields(rest: &str) -> Option<(u64, u64)> {
-    let mut nums = rest.split_whitespace().filter_map(|t| t.parse::<u64>().ok());
-    let user = nums.next()?;
-    let nice = nums.next()?;
-    let system = nums.next()?;
-    let idle = nums.next()?;
-    let iowait = nums.next().unwrap_or(0);
-    let irq = nums.next().unwrap_or(0);
-    let softirq = nums.next().unwrap_or(0);
-    let steal = nums.next().unwrap_or(0);
-    let idle_all = idle + iowait;
-    let total = user + nice + system + idle_all + irq + softirq + steal;
-    Some((idle_all, total))
-}
-
-/// Parse a `/proc/<pid>/stat` line into `(comm, utime+stime, num_threads)`. The
-/// command name can contain spaces and parentheses, so we split on the last `)`.
-#[cfg(target_os = "linux")]
-fn parse_proc_stat(stat: &str) -> Option<(String, u64, u32)> {
-    let open = stat.find('(')?;
-    let close = stat.rfind(')')?;
-    let comm = stat.get(open + 1..close)?.to_string();
-    let rest = stat.get(close + 1..)?;
-    let fields: Vec<&str> = rest.split_whitespace().collect();
-    // After the ')' the tokens start at field 3 (state); utime is field 14,
-    // stime field 15, num_threads field 20 → indices 11, 12 and 17 here.
-    let utime = fields.get(11)?.parse::<u64>().ok()?;
-    let stime = fields.get(12)?.parse::<u64>().ok()?;
-    let threads = fields.get(17).and_then(|t| t.parse::<u32>().ok()).unwrap_or(1);
-    Some((comm, utime + stime, threads))
-}
-
-/// Resident set size in bytes from `/proc/<pid>/statm` (resident pages).
-#[cfg(target_os = "linux")]
-fn read_rss(pid: i32) -> u64 {
-    const PAGE: u64 = 4096;
-    std::fs::read_to_string(format!("/proc/{pid}/statm"))
-        .ok()
-        .and_then(|s| s.split_whitespace().nth(1).and_then(|t| t.parse::<u64>().ok()))
-        .map(|pages| pages * PAGE)
-        .unwrap_or(0)
-}
-
-#[cfg(target_os = "linux")]
-fn parse_kb(s: &str) -> u64 {
-    s.split_whitespace().next().and_then(|t| t.parse().ok()).unwrap_or(0)
+/// Whether a network interface name is a loopback device (excluded from the
+/// throughput totals): `lo` on Linux, `lo0` on macOS, "Loopback…" on Windows.
+fn is_loopback(name: &str) -> bool {
+    name == "lo" || name == "lo0" || name.to_ascii_lowercase().contains("loopback")
 }
 
 #[cfg(test)]
 mod tests {
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn parses_proc_stat_with_tricky_comm() {
-        // comm contains spaces and parentheses; it is wrapped in one outer pair.
-        let line = "1234 (weird (name) x) S 1 1234 1234 0 -1 0 0 0 0 0 \
-                    111 222 0 0 20 0 1 0 999 0 0";
-        let (name, jiffies, threads) = super::parse_proc_stat(line).unwrap();
-        assert_eq!(name, "weird (name) x");
-        assert_eq!(jiffies, 111 + 222);
-        assert_eq!(threads, 1);
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn parses_cpu_fields() {
-        let (idle_all, total) = super::parse_cpu_fields("  100 0 50 800 20 0 0 0").unwrap();
-        assert_eq!(idle_all, 820); // idle + iowait
-        assert_eq!(total, 970);
-    }
-
-    #[cfg(target_os = "linux")]
     #[test]
     fn lists_running_processes() {
+        // sysinfo enumerates processes/CPU/memory on every supported platform,
+        // so this runs cross-platform (Linux, Windows, macOS).
         let pv = super::ProcView::new();
         assert!(!pv.procs.is_empty(), "should see at least this test process");
         assert!(pv.ncores >= 1);
