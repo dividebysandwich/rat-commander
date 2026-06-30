@@ -215,6 +215,7 @@ impl AppState {
             MenuAction::Drive(side) => self.open_drive_dialog(side),
             MenuAction::Settings => self.open_settings(),
             MenuAction::Confirmations => self.open_confirmations(),
+            MenuAction::EditThemes => self.open_edit_themes(),
             MenuAction::Quit => return self.request_quit(),
         }
         Flow::Continue

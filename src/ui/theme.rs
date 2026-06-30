@@ -7,6 +7,9 @@
 //! appending palette literals.
 
 use ratatui::style::{Color, Modifier, Style};
+use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, RwLock};
 
 const fn rgb(h: u32) -> Color {
     Color::Rgb((h >> 16) as u8, (h >> 8) as u8, h as u8)
@@ -44,6 +47,160 @@ pub struct Palette {
     pub bright_magenta: Color,
     pub bright_cyan: Color,
     pub bright_white: Color,
+}
+
+// ---------------------------------------------------------------------------
+// User-editable palettes (themes.toml)
+// ---------------------------------------------------------------------------
+
+/// An owned, serializable palette — the form stored in `themes.toml` and used at
+/// runtime. Colors are written/read as `#rrggbb` hex. The built-in [`PALETTES`]
+/// seed the file (and are the fallback if it's missing or invalid).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaletteSpec {
+    pub name: String,
+    #[serde(with = "hex_color")] pub bg: Color,
+    #[serde(with = "hex_color")] pub fg: Color,
+    #[serde(with = "hex_color")] pub black: Color,
+    #[serde(with = "hex_color")] pub red: Color,
+    #[serde(with = "hex_color")] pub green: Color,
+    #[serde(with = "hex_color")] pub yellow: Color,
+    #[serde(with = "hex_color")] pub blue: Color,
+    #[serde(with = "hex_color")] pub magenta: Color,
+    #[serde(with = "hex_color")] pub cyan: Color,
+    #[serde(with = "hex_color")] pub white: Color,
+    #[serde(with = "hex_color")] pub bright_black: Color,
+    #[serde(with = "hex_color")] pub bright_red: Color,
+    #[serde(with = "hex_color")] pub bright_green: Color,
+    #[serde(with = "hex_color")] pub bright_yellow: Color,
+    #[serde(with = "hex_color")] pub bright_blue: Color,
+    #[serde(with = "hex_color")] pub bright_magenta: Color,
+    #[serde(with = "hex_color")] pub bright_cyan: Color,
+    #[serde(with = "hex_color")] pub bright_white: Color,
+}
+
+impl From<&Palette> for PaletteSpec {
+    fn from(p: &Palette) -> Self {
+        PaletteSpec {
+            name: p.name.to_string(),
+            bg: p.bg, fg: p.fg,
+            black: p.black, red: p.red, green: p.green, yellow: p.yellow,
+            blue: p.blue, magenta: p.magenta, cyan: p.cyan, white: p.white,
+            bright_black: p.bright_black, bright_red: p.bright_red,
+            bright_green: p.bright_green, bright_yellow: p.bright_yellow,
+            bright_blue: p.bright_blue, bright_magenta: p.bright_magenta,
+            bright_cyan: p.bright_cyan, bright_white: p.bright_white,
+        }
+    }
+}
+
+/// TOML wrapper: `[[theme]]` array-of-tables.
+#[derive(Default, Serialize, Deserialize)]
+struct ThemesFile {
+    #[serde(default, rename = "theme")]
+    theme: Vec<PaletteSpec>,
+}
+
+/// (De)serialize a [`Color`] as a `#rrggbb` hex string.
+mod hex_color {
+    use ratatui::style::Color;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(c: &Color, s: S) -> Result<S::Ok, S::Error> {
+        let (r, g, b) = super::to_rgb(*c);
+        s.serialize_str(&format!("#{r:02x}{g:02x}{b:02x}"))
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Color, D::Error> {
+        let s = String::deserialize(d)?;
+        super::parse_hex(&s)
+            .ok_or_else(|| serde::de::Error::custom(format!("expected #rrggbb color, got {s:?}")))
+    }
+}
+
+/// Parse `#rrggbb` / `rrggbb` / `0xrrggbb` into an RGB [`Color`].
+fn parse_hex(s: &str) -> Option<Color> {
+    let s = s.trim();
+    let s = s.strip_prefix('#').or_else(|| s.strip_prefix("0x")).unwrap_or(s);
+    if s.len() != 6 || !s.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    let n = u32::from_str_radix(s, 16).ok()?;
+    Some(rgb(n))
+}
+
+const THEMES_HEADER: &str = "\
+# rat-commander themes. Each [[theme]] is a 16-color ANSI palette (plus bg/fg)
+# from which the UI styles are derived. Colors are #rrggbb hex. Edit any preset,
+# add your own [[theme]] blocks, then pick one in Options → Settings (the Theme
+# field). Delete this file to regenerate the presets.\n\n";
+
+/// The built-in presets as owned specs (seeds `themes.toml`; the fallback set).
+fn builtin_specs() -> Vec<PaletteSpec> {
+    PALETTES.iter().map(PaletteSpec::from).collect()
+}
+
+static BUILTIN: LazyLock<Vec<PaletteSpec>> = LazyLock::new(builtin_specs);
+/// The palettes currently in effect (built-ins until `themes.toml` is loaded).
+static ACTIVE: LazyLock<RwLock<Vec<PaletteSpec>>> = LazyLock::new(|| RwLock::new(builtin_specs()));
+
+/// Replace the active palette set (ignored if empty).
+fn set_palettes(specs: Vec<PaletteSpec>) {
+    if !specs.is_empty() {
+        *ACTIVE.write().unwrap() = specs;
+    }
+}
+
+/// Load `themes.toml` (generating it from the presets if absent) and make those
+/// palettes active. Call once at startup, before deriving the initial theme.
+pub fn load_user_themes() {
+    let Some(path) = crate::config::paths::themes_file() else {
+        return;
+    };
+    if path.exists() {
+        // Keep the built-ins on a read/parse error rather than clobbering the
+        // user's file.
+        match std::fs::read_to_string(&path).ok().and_then(|s| toml::from_str::<ThemesFile>(&s).ok()) {
+            Some(tf) if !tf.theme.is_empty() => set_palettes(tf.theme),
+            _ => {}
+        }
+    } else {
+        let _ = write_themes(&path, &builtin_specs());
+        // built-ins are already active by default — nothing more to do
+    }
+}
+
+/// Re-read `themes.toml` and make it active (after the user edits it). Returns
+/// the number of themes, or an error message for a malformed file.
+pub fn reload_user_themes() -> Result<usize, String> {
+    let path = crate::config::paths::themes_file().ok_or("no config directory available")?;
+    let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let tf: ThemesFile = toml::from_str(&text).map_err(|e| e.to_string())?;
+    if tf.theme.is_empty() {
+        return Err("themes.toml has no [[theme]] entries".to_string());
+    }
+    let n = tf.theme.len();
+    set_palettes(tf.theme);
+    Ok(n)
+}
+
+/// Ensure `themes.toml` exists (writing the presets if absent); returns its path.
+pub fn ensure_themes_file() -> Option<PathBuf> {
+    let path = crate::config::paths::themes_file()?;
+    if !path.exists() {
+        let _ = write_themes(&path, &builtin_specs());
+    }
+    Some(path)
+}
+
+fn write_themes(path: &Path, specs: &[PaletteSpec]) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let tf = ThemesFile { theme: specs.to_vec() };
+    let body = toml::to_string_pretty(&tf)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    std::fs::write(path, format!("{THEMES_HEADER}{body}"))
 }
 
 /// Centralized styles for every UI element, derived from a palette.
@@ -108,11 +265,11 @@ pub struct Theme {
 impl Theme {
     /// The default theme (classic Midnight Commander blue).
     pub fn mc() -> Self {
-        Theme::from_palette(&PALETTES[0], true)
+        Theme::from_palette(&BUILTIN[0], true)
     }
 
     /// Build a theme from a palette. `truecolor` enables RGB gradients.
-    pub fn from_palette(p: &Palette, truecolor: bool) -> Self {
+    pub fn from_palette(p: &PaletteSpec, truecolor: bool) -> Self {
         let surface = if truecolor {
             mix(p.bg, p.fg, 0.12)
         } else {
@@ -122,7 +279,7 @@ impl Theme {
         // with black text (like the real program); other themes use the
         // (gradient-friendly) bright-blue cursor.
         let is_mc =
-            p.name == "Midnight Commander" || p.name == "MidnightCommander Classic";
+            p.name.as_str() == "Midnight Commander" || p.name.as_str() == "MidnightCommander Classic";
         let (cursor_bg, cursor_fg) = if is_mc {
             (p.cyan, p.black)
         } else {
@@ -216,7 +373,7 @@ impl Theme {
         // bar, while dialogs are a light "paper" gray with black text, blue
         // titles, and teal selection bars / input fields (like the real
         // program's Configure-options dialog).
-        if p.name == "Midnight Commander" {
+        if p.name.as_str() == "Midnight Commander" {
             let cyan = rgb(0x0dcdcd);
             let paper = rgb(0xc6c6c6);
             let white = rgb(0xffffff);
@@ -249,11 +406,18 @@ impl Theme {
         theme
     }
 
-    /// Look up a theme by palette name (case-insensitive), falling back to mc.
+    /// Look up an active theme by palette name (case-insensitive, ignoring
+    /// spaces/dashes), falling back to the default (mc) palette.
     pub fn by_name(name: &str, truecolor: bool) -> Self {
-        find_palette(name)
-            .map(|p| Theme::from_palette(p, truecolor))
-            .unwrap_or_else(|| Theme::from_palette(&PALETTES[0], truecolor))
+        let key = norm_name(name);
+        let spec = ACTIVE
+            .read()
+            .unwrap()
+            .iter()
+            .find(|p| norm_name(&p.name) == key)
+            .cloned()
+            .unwrap_or_else(|| BUILTIN[0].clone());
+        Theme::from_palette(&spec, truecolor)
     }
 
     /// Base style for panel content (background + default foreground).
@@ -339,17 +503,21 @@ fn contrast_text(fg: Color, bg: Color) -> Color {
     mix(fg, target, 0.3)
 }
 
-/// Find a palette by name (case-insensitive, ignoring spaces).
-pub fn find_palette(name: &str) -> Option<&'static Palette> {
-    let key = name.to_ascii_lowercase().replace([' ', '-', '_'], "");
-    PALETTES
-        .iter()
-        .find(|p| p.name.to_ascii_lowercase().replace([' ', '-', '_'], "") == key)
+/// Normalize a theme name for matching (lower-case, no spaces/dashes).
+fn norm_name(name: &str) -> String {
+    name.to_ascii_lowercase().replace([' ', '-', '_'], "")
 }
 
-/// All theme names, in menu order.
+/// All active theme names, in file order (built-ins until `themes.toml` loads).
 pub fn palette_names() -> Vec<String> {
-    PALETTES.iter().map(|p| p.name.to_string()).collect()
+    ACTIVE.read().unwrap().iter().map(|p| p.name.clone()).collect()
+}
+
+/// Whether an active palette matches `name` (fuzzy, like [`Theme::by_name`]).
+#[cfg(test)]
+fn has_palette(name: &str) -> bool {
+    let key = norm_name(name);
+    ACTIVE.read().unwrap().iter().any(|p| norm_name(&p.name) == key)
 }
 
 /// Curated terminal color schemes (a subset of terminalcolors.com). Each is a
@@ -624,11 +792,49 @@ mod tests {
     use super::*;
 
     #[test]
+    fn builtin_themes_serialize_and_reparse() {
+        let specs = builtin_specs();
+        assert!(specs.len() >= 10, "expected the full preset set");
+        let body = toml::to_string_pretty(&ThemesFile { theme: specs.clone() }).unwrap();
+        let back: ThemesFile = toml::from_str(&body).unwrap();
+        assert_eq!(back.theme.len(), specs.len());
+        for (a, b) in specs.iter().zip(&back.theme) {
+            assert_eq!(a.name, b.name);
+            assert_eq!(a.bg, b.bg, "{} bg", a.name);
+            assert_eq!(a.cyan, b.cyan, "{} cyan", a.name);
+            assert_eq!(a.bright_white, b.bright_white, "{} bright_white", a.name);
+        }
+    }
+
+    #[test]
+    fn generated_file_has_header_and_reparses() {
+        let path = std::env::temp_dir().join(format!("rc_themes_test_{}.toml", std::process::id()));
+        write_themes(&path, &builtin_specs()).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.starts_with("# rat-commander themes"), "has a header comment");
+        assert!(text.contains("[[theme]]") && text.contains("cyan = \"#"));
+        let tf: ThemesFile = toml::from_str(&text).unwrap();
+        assert_eq!(tf.theme.len(), builtin_specs().len());
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn hex_parsing_accepts_common_forms() {
+        assert_eq!(parse_hex("#00a3a3"), Some(rgb(0x00a3a3)));
+        assert_eq!(parse_hex("00a3a3"), Some(rgb(0x00a3a3)));
+        assert_eq!(parse_hex("0x00A3A3"), Some(rgb(0x00a3a3)));
+        assert_eq!(parse_hex("  #ffffff "), Some(rgb(0xffffff)));
+        assert_eq!(parse_hex("#fff"), None, "3-digit not supported");
+        assert_eq!(parse_hex("#gggggg"), None);
+        assert_eq!(parse_hex(""), None);
+    }
+
+    #[test]
     fn palette_lookup_is_fuzzy() {
-        assert!(find_palette("Dracula").is_some());
-        assert!(find_palette("tokyo night").is_some());
-        assert!(find_palette("rose-pine").is_some());
-        assert!(find_palette("nonsense").is_none());
+        assert!(has_palette("Dracula"));
+        assert!(has_palette("tokyo night"));
+        assert!(has_palette("rose-pine"));
+        assert!(!has_palette("nonsense"));
     }
 
     #[test]
@@ -719,7 +925,7 @@ mod tests {
     #[test]
     fn new_themes_are_registered_and_build() {
         for name in ["Rainbow", "Candy", "Neon", "Forest", "Freedom", "Movienight"] {
-            assert!(find_palette(name).is_some(), "{name} palette missing");
+            assert!(has_palette(name), "{name} palette missing");
             let t = Theme::by_name(name, true);
             assert_eq!(t.name, name);
             // Sanity: distinct bg/fg and a non-trivial gradient.
@@ -730,7 +936,7 @@ mod tests {
 
     #[test]
     fn classic_theme_uses_bright_classic_colors() {
-        assert!(find_palette("MidnightCommander Classic").is_some());
+        assert!(has_palette("MidnightCommander Classic"));
         let t = Theme::by_name("MidnightCommander Classic", true);
         assert_eq!(t.name, "MidnightCommander Classic");
         // Signature teal selection bar with black text (classic MC).

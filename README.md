@@ -444,6 +444,15 @@ the bars and cursor render as animated gradients; otherwise solid colors are
 used. Truecolor, animations, and the system-status widget can each be toggled in
 Settings.
 
+**Custom themes** live in **`themes.toml`** in the config directory, generated
+with all the built-in presets on first run. Each theme is a 16-color ANSI
+palette (plus background/foreground) written as `#rrggbb` hex; the UI styles are
+derived from it. Edit any preset's colors, or add your own `[[theme]]` blocks —
+they appear in the Settings theme chooser. Open the file straight from
+**Options → Edit themes…** (it opens in the built-in editor with TOML
+highlighting); saving applies the changes immediately. Delete the file to
+regenerate the presets.
+
 ### Remote connections
 
 Open `F9 → Left`/`Right → SFTP/FTP/SCP connection…`, enter host / port / user /

@@ -12,3 +12,8 @@ pub fn config_file() -> Option<PathBuf> {
 pub fn menu_file() -> Option<PathBuf> {
     ProjectDirs::from("", "", "rat-commander").map(|d| d.config_dir().join("menu"))
 }
+
+/// Path to the user themes file (`themes.toml`), or `None` if undetermined.
+pub fn themes_file() -> Option<PathBuf> {
+    ProjectDirs::from("", "", "rat-commander").map(|d| d.config_dir().join("themes.toml"))
+}

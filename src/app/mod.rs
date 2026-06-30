@@ -24,6 +24,9 @@ type Term = Terminal<CrosstermBackend<Stdout>>;
 
 /// Set up, run, and tear down the application.
 pub async fn run() -> Result<()> {
+    // Load user themes (generating themes.toml from the presets on first run)
+    // before the initial theme is derived from the config.
+    crate::ui::theme::load_user_themes();
     let (tx, mut rx) = async_bridge::channel();
     let mut state = AppState::new(tx);
     state.init().await;

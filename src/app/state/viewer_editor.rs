@@ -230,8 +230,40 @@ impl AppState {
                 } else if let Some(ed) = self.editor.as_mut() {
                     ed.mark_saved();
                 }
+                // Editing themes.toml applies immediately on save.
+                self.reload_themes_if_edited(&path);
             }
             Err(e) => self.show_error(format!("save failed: {e}")),
+        }
+    }
+
+    /// Open `themes.toml` in the internal editor (Options → Edit themes),
+    /// generating it from the presets first if it doesn't exist yet.
+    pub(in crate::app::state) fn open_edit_themes(&mut self) {
+        let Some(path) = crate::ui::theme::ensure_themes_file() else {
+            return self.show_error("No config directory available");
+        };
+        match std::fs::read_to_string(&path) {
+            Ok(text) => {
+                let mut ed = EditorState::new("themes.toml".to_string(), VfsPath::local(&path), &text);
+                ed.enable_syntax(self.dark_ui());
+                self.editor = Some(ed);
+            }
+            Err(e) => self.show_error(format!("cannot open themes.toml: {e}")),
+        }
+    }
+
+    /// If the file just saved is `themes.toml`, re-read the palettes and
+    /// re-derive the current theme so the change takes effect at once.
+    fn reload_themes_if_edited(&mut self, path: &VfsPath) {
+        let is_themes = path.scheme == "file"
+            && crate::config::paths::themes_file().is_some_and(|p| p == path.path);
+        if !is_themes {
+            return;
+        }
+        match crate::ui::theme::reload_user_themes() {
+            Ok(_) => self.theme = Theme::by_name(&self.config.theme, self.truecolor),
+            Err(e) => self.show_error(format!("themes.toml: {e}")),
         }
     }
     /// Compare the two panels' files and mark the differing ones (selection).

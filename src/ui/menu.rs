@@ -51,6 +51,8 @@ pub enum MenuAction {
     Drive(usize),
     Settings,
     Confirmations,
+    /// Open `themes.toml` in the internal editor.
+    EditThemes,
     Quit,
 }
 
@@ -177,6 +179,7 @@ impl MenuBarState {
             items: vec![
                 item("&Settings...", MenuAction::Settings),
                 item("&Confirmations...", MenuAction::Confirmations),
+                item("&Edit themes...", MenuAction::EditThemes),
             ],
         };
 
