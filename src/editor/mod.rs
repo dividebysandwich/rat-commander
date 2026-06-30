@@ -943,10 +943,29 @@ impl EditorState {
         }
     }
 
+    /// F5: insert a copy of the marked block at the cursor (mc-editor "Copy
+    /// block"). The original block stays marked.
     fn copy_block(&mut self) {
+        let Some((s, e)) = self.block_range() else {
+            self.status = "No block is marked".to_string();
+            return;
+        };
+        let text = self.buf.slice(s, e);
+        let len = text.chars().count();
+        // Finalize a live selection so it tracks the insertion that follows.
+        self.finalize_marks();
+        let pos = self.cursor;
+        self.cursor = self.buf.insert(pos, &text);
+        self.adjust_block_insert(pos, len);
+        self.dirty = true;
+        self.status = format!("Copied {len} chars to the cursor");
+    }
+
+    /// Ctrl-C: copy the marked block to the internal clipboard (paste with Ctrl-V).
+    fn copy_to_clipboard(&mut self) {
         if let Some((s, e)) = self.block_range() {
             self.clipboard = self.buf.slice(s, e);
-            self.status = format!("Copied {} chars (Ctrl-V to paste)", e - s);
+            self.status = format!("Copied {} chars to clipboard", e - s);
         } else {
             self.status = "No block is marked".to_string();
         }
