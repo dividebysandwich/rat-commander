@@ -1,0 +1,685 @@
+//! Form dialog (settings, chmod, chown, symlink, connect, formatter).
+
+use super::widgets::*;
+use super::{ConfirmValues, DialogResult, SettingsValues, Submit};
+use crate::vfs::remote::{Protocol, RemoteCreds};
+
+// ---------------------------------------------------------------------------
+// Form dialog (settings, chmod, chown, symlink)
+// ---------------------------------------------------------------------------
+
+/// A single editable field in a [`Form`].
+pub enum Field {
+    Text {
+        label: String,
+        value: String,
+        cursor: usize,
+    },
+    Password {
+        label: String,
+        value: String,
+        cursor: usize,
+    },
+    Check {
+        label: String,
+        value: bool,
+    },
+    /// A cycle-through choice (Space / ←→ to change).
+    Choice {
+        label: String,
+        options: Vec<String>,
+        idx: usize,
+    },
+}
+
+impl Field {
+    pub fn text(label: &str, value: impl Into<String>) -> Self {
+        let value = value.into();
+        let cursor = value.chars().count();
+        Field::Text {
+            label: label.to_string(),
+            value,
+            cursor,
+        }
+    }
+
+    pub fn password(label: &str) -> Self {
+        Field::Password {
+            label: label.to_string(),
+            value: String::new(),
+            cursor: 0,
+        }
+    }
+
+    pub fn check(label: &str, value: bool) -> Self {
+        Field::Check {
+            label: label.to_string(),
+            value,
+        }
+    }
+
+    pub fn choice(label: &str, options: Vec<String>, selected: &str) -> Self {
+        let idx = options.iter().position(|o| o == selected).unwrap_or(0);
+        Field::Choice {
+            label: label.to_string(),
+            options,
+            idx,
+        }
+    }
+
+    fn as_text(&self) -> &str {
+        match self {
+            Field::Text { value, .. } | Field::Password { value, .. } => value,
+            Field::Choice { options, idx, .. } => options.get(*idx).map(|s| s.as_str()).unwrap_or(""),
+            Field::Check { .. } => "",
+        }
+    }
+
+    fn as_bool(&self) -> bool {
+        matches!(self, Field::Check { value: true, .. })
+    }
+}
+
+/// A vertical list of editable fields with a single focused row.
+pub struct Form {
+    fields: Vec<Field>,
+    pub(crate) focus: usize,
+}
+
+impl Form {
+    pub fn new(fields: Vec<Field>) -> Self {
+        Form { fields, focus: 0 }
+    }
+
+    /// Number of fields (used to compute the dialog height for click geometry).
+    pub fn field_count(&self) -> usize {
+        self.fields.len()
+    }
+
+    fn focus_next(&mut self) {
+        if !self.fields.is_empty() {
+            self.focus = (self.focus + 1) % self.fields.len();
+        }
+    }
+
+    fn focus_prev(&mut self) {
+        if !self.fields.is_empty() {
+            self.focus = (self.focus + self.fields.len() - 1) % self.fields.len();
+        }
+    }
+
+    /// Handle a key for the focused field. Returns true if Enter (submit) was
+    /// pressed.
+    pub(crate) fn handle_key(&mut self, key: KeyEvent) -> bool {
+        match key.code {
+            KeyCode::Enter => return true,
+            KeyCode::Tab | KeyCode::Down => self.focus_next(),
+            KeyCode::BackTab | KeyCode::Up => self.focus_prev(),
+            KeyCode::Char(' ') if matches!(self.fields.get(self.focus), Some(Field::Check { .. })) => {
+                if let Some(Field::Check { value, .. }) = self.fields.get_mut(self.focus) {
+                    *value = !*value;
+                }
+            }
+            KeyCode::Char(' ') | KeyCode::Right | KeyCode::Left
+                if matches!(self.fields.get(self.focus), Some(Field::Choice { .. })) =>
+            {
+                let back = key.code == KeyCode::Left;
+                if let Some(Field::Choice { options, idx, .. }) = self.fields.get_mut(self.focus) {
+                    let n = options.len().max(1);
+                    *idx = if back {
+                        (*idx + n - 1) % n
+                    } else {
+                        (*idx + 1) % n
+                    };
+                }
+            }
+            _ => match self.fields.get_mut(self.focus) {
+                Some(Field::Text { value, cursor, .. })
+                | Some(Field::Password { value, cursor, .. }) => edit_text(value, cursor, key),
+                _ => {}
+            },
+        }
+        false
+    }
+}
+
+/// What a form's values should become on submit.
+pub enum FormPurpose {
+    Settings,
+    Confirmations,
+    Chmod(VfsPath),
+    Chown(VfsPath),
+    /// Create a symlink inside this directory.
+    Symlink(VfsPath),
+    /// Open a remote connection of this protocol on the given panel side.
+    Connect(Protocol, usize),
+    /// Format this device node (disk manager).
+    Format(String),
+}
+
+/// Connect-form history dropdown state (recent servers).
+pub(crate) struct ConnectDropdown {
+    history: Vec<crate::config::RemoteHistoryEntry>,
+    pub(crate) open: bool,
+    sel: usize,
+    /// Click geometry recorded at render time: chevron, plus (rect, index) per
+    /// visible dropdown entry.
+    chevron: Option<Rect>,
+    entries: Vec<(Rect, usize)>,
+}
+
+pub struct FormDialog {
+    pub title: String,
+    pub form: Form,
+    pub purpose: FormPurpose,
+    /// Present only for connect forms (drives the recent-servers dropdown).
+    pub(crate) connect: Option<ConnectDropdown>,
+}
+
+impl FormDialog {
+    pub fn settings(cfg: &crate::config::Config, truecolor: bool) -> Self {
+        let form = Form::new(vec![
+            Field::choice("Theme", crate::ui::theme::palette_names(), &cfg.theme),
+            Field::check("Truecolor (gradients)", truecolor),
+            Field::check("Animations", cfg.animation),
+            Field::check("System status widget", cfg.system_status),
+            Field::text("External editor", cfg.editor.clone()),
+            Field::text("External viewer", cfg.viewer.clone()),
+            Field::check("Use internal viewer", cfg.use_internal_viewer),
+            Field::check("Use internal editor", cfg.use_internal_editor),
+        ]);
+        FormDialog {
+            title: "Settings".to_string(),
+            form,
+            purpose: FormPurpose::Settings,
+            connect: None,
+        }
+    }
+
+    /// Build the Confirmations form (which actions require a confirmation).
+    pub fn confirmations(cfg: &crate::config::Config) -> Self {
+        let form = Form::new(vec![
+            Field::check("Confirm delete", cfg.confirm_delete),
+            Field::check("Confirm overwrite", cfg.confirm_overwrite),
+            Field::check("Confirm execute", cfg.confirm_execute),
+            Field::check("Confirm unmount", cfg.confirm_unmount),
+            Field::check("Confirm exit", cfg.confirm_exit),
+        ]);
+        FormDialog {
+            title: "Confirmations".to_string(),
+            form,
+            purpose: FormPurpose::Confirmations,
+            connect: None,
+        }
+    }
+
+    /// Build the disk formatter form for `dev`.
+    pub fn format(dev: String) -> Self {
+        let fs_options: Vec<String> =
+            crate::mount::FsType::ALL.iter().map(|f| f.label().to_string()).collect();
+        let form = Form::new(vec![
+            Field::choice("Filesystem", fs_options, "FAT32"),
+            Field::text("Volume label", ""),
+            Field::check("Quick format (NTFS)", false),
+            Field::text("Bytes/inode (ext, blank=auto)", ""),
+        ]);
+        FormDialog {
+            title: format!("Format {dev}"),
+            form,
+            purpose: FormPurpose::Format(dev),
+            connect: None,
+        }
+    }
+
+    /// Build a chmod form from the current mode bits.
+    pub fn chmod(path: VfsPath, mode: u32) -> Self {
+        let bit = |m: u32| mode & m != 0;
+        let form = Form::new(vec![
+            Field::check("Owner read    (400)", bit(0o400)),
+            Field::check("Owner write   (200)", bit(0o200)),
+            Field::check("Owner exec    (100)", bit(0o100)),
+            Field::check("Group read    (040)", bit(0o040)),
+            Field::check("Group write   (020)", bit(0o020)),
+            Field::check("Group exec    (010)", bit(0o010)),
+            Field::check("Other read    (004)", bit(0o004)),
+            Field::check("Other write   (002)", bit(0o002)),
+            Field::check("Other exec    (001)", bit(0o001)),
+        ]);
+        FormDialog {
+            title: format!("Chmod: {}", path.file_name()),
+            form,
+            purpose: FormPurpose::Chmod(path),
+            connect: None,
+        }
+    }
+
+    pub fn chown(path: VfsPath, owner: String, group: String) -> Self {
+        let form = Form::new(vec![
+            Field::text("Owner (name or uid)", owner),
+            Field::text("Group (name or gid)", group),
+        ]);
+        FormDialog {
+            title: format!("Chown: {}", path.file_name()),
+            form,
+            purpose: FormPurpose::Chown(path),
+            connect: None,
+        }
+    }
+
+    pub fn symlink(dir: VfsPath, target: String, name: String) -> Self {
+        let form = Form::new(vec![
+            Field::text("Points to (target)", target),
+            Field::text("Link name", name),
+        ]);
+        FormDialog {
+            title: "Create symlink".to_string(),
+            form,
+            purpose: FormPurpose::Symlink(dir),
+            connect: None,
+        }
+    }
+
+    /// The currently-selected theme name in the settings form (for live
+    /// preview), or `None` if this isn't the settings form.
+    pub fn theme_choice(&self) -> Option<&str> {
+        if !matches!(self.purpose, FormPurpose::Settings) {
+            return None;
+        }
+        self.form.fields.iter().find_map(|f| match f {
+            Field::Choice { label, options, idx } if label == "Theme" => {
+                options.get(*idx).map(|s| s.as_str())
+            }
+            _ => None,
+        })
+    }
+
+    pub fn connect(
+        protocol: Protocol,
+        side: usize,
+        history: Vec<crate::config::RemoteHistoryEntry>,
+    ) -> Self {
+        let form = Form::new(vec![
+            Field::text("Host", ""),
+            Field::text("Port", protocol.default_port().to_string()),
+            Field::text("Username", ""),
+            Field::password("Password"),
+            Field::text("Remote path (blank = home)", ""),
+        ]);
+        // Only this protocol's recent connections.
+        let history: Vec<_> = history
+            .into_iter()
+            .filter(|e| e.protocol == protocol.scheme_prefix())
+            .collect();
+        FormDialog {
+            title: format!("{} connection", protocol.scheme_prefix().to_uppercase()),
+            form,
+            purpose: FormPurpose::Connect(protocol, side),
+            connect: Some(ConnectDropdown {
+                history,
+                open: false,
+                sel: 0,
+                chevron: None,
+                entries: Vec::new(),
+            }),
+        }
+    }
+
+    /// Fill the host/port/user/path fields from history entry `idx` and move the
+    /// focus to the password field.
+    fn apply_history(&mut self, idx: usize) {
+        let entry = match self.connect.as_ref().and_then(|c| c.history.get(idx).cloned()) {
+            Some(e) => e,
+            None => return,
+        };
+        if let Some(c) = self.connect.as_mut() {
+            c.open = false;
+        }
+        set_text_field(&mut self.form.fields[0], &entry.host);
+        set_text_field(&mut self.form.fields[1], &entry.port.to_string());
+        set_text_field(&mut self.form.fields[2], &entry.user);
+        if let Some(field) = self.form.fields.get_mut(4) {
+            set_text_field(field, &entry.path);
+        }
+        self.form.focus = 3; // password
+    }
+
+    /// Route a click for the connect dropdown. Returns `Some` if the click hit
+    /// the chevron or a dropdown entry (or dismissed an open dropdown).
+    pub(crate) fn click_dropdown(&mut self, col: u16, row: u16) -> Option<DialogResult> {
+        let hit = |r: &Rect| col >= r.x && col < r.x + r.width && row >= r.y && row < r.y + r.height;
+        let cd = self.connect.as_ref()?;
+        if cd.chevron.is_some_and(|r| hit(&r)) {
+            let cd = self.connect.as_mut().unwrap();
+            cd.open = !cd.open;
+            cd.sel = 0;
+            return Some(DialogResult::None);
+        }
+        if !cd.open {
+            return None;
+        }
+        let hidx = cd.entries.iter().find(|(r, _)| hit(r)).map(|&(_, i)| i);
+        match hidx {
+            Some(i) => self.apply_history(i),
+            None => self.connect.as_mut().unwrap().open = false,
+        }
+        Some(DialogResult::None)
+    }
+
+    fn chmod_mode(&self) -> u32 {
+        const BITS: [u32; 9] = [
+            0o400, 0o200, 0o100, 0o040, 0o020, 0o010, 0o004, 0o002, 0o001,
+        ];
+        let mut mode = 0;
+        for (i, f) in self.form.fields.iter().enumerate() {
+            if f.as_bool() {
+                mode |= BITS[i];
+            }
+        }
+        mode
+    }
+
+    pub(crate) fn handle_key(&mut self, key: KeyEvent) -> DialogResult {
+        // Connect-form history dropdown: while open it captures navigation keys;
+        // closed, pressing ↓ on the Host field opens it.
+        let drop_open = self.connect.as_ref().is_some_and(|c| c.open);
+        if drop_open {
+            match key.code {
+                KeyCode::Esc => self.connect.as_mut().unwrap().open = false,
+                KeyCode::Up => {
+                    let c = self.connect.as_mut().unwrap();
+                    c.sel = c.sel.saturating_sub(1);
+                }
+                KeyCode::Down => {
+                    let c = self.connect.as_mut().unwrap();
+                    if c.sel + 1 < c.history.len() {
+                        c.sel += 1;
+                    }
+                }
+                KeyCode::Enter => {
+                    let i = self.connect.as_ref().unwrap().sel;
+                    self.apply_history(i);
+                }
+                _ => {}
+            }
+            return DialogResult::None;
+        }
+        if matches!(key.code, KeyCode::Down)
+            && self.form.focus == 0
+            && self.connect.as_ref().is_some_and(|c| !c.history.is_empty())
+        {
+            let c = self.connect.as_mut().unwrap();
+            c.open = true;
+            c.sel = 0;
+            return DialogResult::None;
+        }
+
+        if let KeyCode::Esc = key.code {
+            return DialogResult::Cancel;
+        }
+        if !self.form.handle_key(key) {
+            return DialogResult::None;
+        }
+        // Enter pressed → build the submit payload.
+        let fields = &self.form.fields;
+        let submit = match &self.purpose {
+            FormPurpose::Settings => Submit::Settings(SettingsValues {
+                theme: fields[0].as_text().to_string(),
+                truecolor: fields[1].as_bool(),
+                animation: fields[2].as_bool(),
+                system_status: fields[3].as_bool(),
+                editor: fields[4].as_text().trim().to_string(),
+                viewer: fields[5].as_text().trim().to_string(),
+                use_internal_viewer: fields[6].as_bool(),
+                use_internal_editor: fields[7].as_bool(),
+            }),
+            FormPurpose::Confirmations => Submit::Confirmations(ConfirmValues {
+                delete: fields[0].as_bool(),
+                overwrite: fields[1].as_bool(),
+                execute: fields[2].as_bool(),
+                unmount: fields[3].as_bool(),
+                exit: fields[4].as_bool(),
+            }),
+            FormPurpose::Format(dev) => {
+                let fs = crate::mount::FsType::from_label(fields[0].as_text())
+                    .unwrap_or(crate::mount::FsType::Fat32);
+                Submit::Format(crate::mount::FormatSpec {
+                    dev: dev.clone(),
+                    fs,
+                    label: fields[1].as_text().trim().to_string(),
+                    quick: fields[2].as_bool(),
+                    inode_bytes: fields[3].as_text().trim().to_string(),
+                })
+            }
+            FormPurpose::Chmod(p) => Submit::Chmod(p.clone(), self.chmod_mode()),
+            FormPurpose::Chown(p) => Submit::Chown(
+                p.clone(),
+                fields[0].as_text().trim().to_string(),
+                fields[1].as_text().trim().to_string(),
+            ),
+            FormPurpose::Symlink(dir) => {
+                let target = fields[0].as_text().trim().to_string();
+                let name = fields[1].as_text().trim().to_string();
+                if target.is_empty() || name.is_empty() {
+                    return DialogResult::Cancel;
+                }
+                Submit::Symlink {
+                    dir: dir.clone(),
+                    target,
+                    name,
+                }
+            }
+            FormPurpose::Connect(protocol, side) => {
+                let host = fields[0].as_text().trim().to_string();
+                if host.is_empty() {
+                    return DialogResult::Cancel;
+                }
+                let port = fields[1]
+                    .as_text()
+                    .trim()
+                    .parse::<u16>()
+                    .unwrap_or(protocol.default_port());
+                Submit::Connect(
+                    *side,
+                    RemoteCreds {
+                        protocol: *protocol,
+                        host,
+                        port,
+                        user: fields[2].as_text().trim().to_string(),
+                        password: fields[3].as_text().to_string(),
+                        path: fields[4].as_text().trim().to_string(),
+                    },
+                )
+            }
+        };
+        DialogResult::Submit(submit)
+    }
+
+    pub(crate) fn render(&mut self, f: &mut Frame, area: Rect, theme: &Theme) {
+        let n = self.form.fields.len() as u16;
+        let height = n + 4;
+        let w = 60u16.min(area.width.saturating_sub(4));
+        let rect = centered(area, w, height);
+        draw_shadow(f, rect, theme);
+        f.render_widget(Clear, rect);
+        let block = dialog_block(&self.title, theme);
+        let inner = block.inner(rect);
+        f.render_widget(block, rect);
+
+        let base = Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg);
+        let focus_style = theme.dialog_selection;
+
+        // The Host field of a connect form gets a ▼ chevron to open the history.
+        let connect_host = self.connect.as_ref().is_some_and(|c| !c.history.is_empty());
+        let mut host_chevron: Option<Rect> = None;
+
+        let mut caret: Option<Position> = None;
+        for (i, field) in self.form.fields.iter().enumerate() {
+            let y = inner.y + i as u16;
+            if y >= inner.y + inner.height.saturating_sub(1) {
+                break;
+            }
+            let row = Rect {
+                y,
+                height: 1,
+                ..inner
+            };
+            let focused = i == self.form.focus;
+            match field {
+                Field::Text {
+                    label,
+                    value,
+                    cursor,
+                }
+                | Field::Password {
+                    label,
+                    value,
+                    cursor,
+                } => {
+                    let masked = matches!(field, Field::Password { .. });
+                    let label_str = format!("{label}: ");
+                    let lw = (label_str.chars().count() as u16).min(row.width);
+                    let style = if focused { focus_style } else { base };
+                    f.render_widget(
+                        Paragraph::new(Span::styled(label_str, style)),
+                        Rect { width: lw, ..row },
+                    );
+                    let mut field_area = Rect {
+                        x: row.x + lw,
+                        width: row.width.saturating_sub(lw),
+                        ..row
+                    };
+                    // Reserve room for the chevron on the Host field.
+                    if i == 0 && connect_host && field_area.width > 4 {
+                        let cx = field_area.x + field_area.width - 2;
+                        host_chevron = Some(Rect { x: cx, y, width: 2, height: 1 });
+                        field_area.width -= 2;
+                    }
+                    if let Some(pos) =
+                        draw_input_field(f, field_area, value, *cursor, focused, masked, theme)
+                    {
+                        caret = Some(pos);
+                    }
+                }
+                Field::Check { label, value } => {
+                    let mark = if *value { "[x]" } else { "[ ]" };
+                    let style = if focused { focus_style } else { base };
+                    f.render_widget(
+                        Paragraph::new(Line::from(Span::styled(format!("{mark} {label}"), style))),
+                        row,
+                    );
+                }
+                Field::Choice { label, options, idx } => {
+                    let style = if focused { focus_style } else { base };
+                    let val = options.get(*idx).map(|s| s.as_str()).unwrap_or("");
+                    f.render_widget(
+                        Paragraph::new(Line::from(Span::styled(
+                            format!("{label}: ◂ {val} ▸"),
+                            style,
+                        ))),
+                        row,
+                    );
+                }
+            }
+        }
+
+        // Draw the chevron and (when open) the recent-servers dropdown.
+        if let Some(chev) = host_chevron {
+            let style = base.add_modifier(Modifier::BOLD);
+            f.buffer_mut().set_string(chev.x, chev.y, "▼", style);
+        }
+        let dropdown_open = self.connect.as_ref().is_some_and(|c| c.open);
+        if let Some(c) = self.connect.as_mut() {
+            c.chevron = host_chevron;
+            c.entries.clear();
+        }
+        if dropdown_open {
+            self.render_dropdown(f, inner, theme);
+        }
+
+        let hint = Rect {
+            y: inner.y + inner.height.saturating_sub(1),
+            height: 1,
+            ..inner
+        };
+        let extra = match &self.purpose {
+            FormPurpose::Chmod(_) => format!("  octal {:03o}", self.chmod_mode()),
+            _ => String::new(),
+        };
+        f.render_widget(
+            Paragraph::new(Line::from(format!(
+                "[ OK ]  Tab/↑↓ Space toggle  [ Cancel ]{extra}"
+            )))
+            .style(base),
+            hint,
+        );
+
+        if let Some(pos) = caret
+            && !dropdown_open
+        {
+            f.set_cursor_position(pos);
+        }
+    }
+
+    /// Render the recent-servers list under the Host field and record per-entry
+    /// click rects. Scrolls so the selection stays visible.
+    fn render_dropdown(&mut self, f: &mut Frame, inner: Rect, theme: &Theme) {
+        let Some(c) = self.connect.as_mut() else {
+            return;
+        };
+        if c.history.is_empty() {
+            return;
+        }
+        // The list opens just below the Host row, capped to the dialog interior.
+        let top = inner.y + 1;
+        let avail = (inner.y + inner.height).saturating_sub(top) as usize;
+        let visible = c.history.len().min(avail.saturating_sub(2).max(1));
+        let rect = Rect {
+            x: inner.x,
+            y: top,
+            width: inner.width,
+            height: (visible + 2) as u16,
+        };
+        f.render_widget(Clear, rect);
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(theme.dialog_title).bg(theme.dialog_bg))
+            .title(Span::styled(
+                " Recent ",
+                Style::default().fg(theme.dialog_title).bg(theme.dialog_bg),
+            ))
+            .style(Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg));
+        let list = block.inner(rect);
+        f.render_widget(block, rect);
+
+        // Scroll so the selection is on screen.
+        let offset = if c.sel >= visible {
+            c.sel + 1 - visible
+        } else {
+            0
+        };
+        let normal = Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg);
+        let sel_style = theme.dialog_selection;
+        for vi in 0..visible {
+            let idx = offset + vi;
+            let Some(entry) = c.history.get(idx) else {
+                break;
+            };
+            let row = Rect {
+                x: list.x,
+                y: list.y + vi as u16,
+                width: list.width,
+                height: 1,
+            };
+            let style = if idx == c.sel { sel_style } else { normal };
+            let text = crate::util::text::ellipsize(&entry.label(), list.width as usize);
+            let text = crate::util::text::pad_right(&text, list.width as usize);
+            f.render_widget(
+                Paragraph::new(Line::from(Span::styled(text, style))),
+                row,
+            );
+            c.entries.push((row, idx));
+        }
+    }
+}
+
