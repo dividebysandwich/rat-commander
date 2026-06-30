@@ -43,6 +43,8 @@ pub enum MenuAction {
     CompareFiles,
     Connect(usize, Protocol),
     Disconnect(usize),
+    /// Open the drive-letter picker for a panel (Windows).
+    Drive(usize),
     Settings,
     Confirmations,
     Quit,
@@ -84,8 +86,10 @@ impl MenuBarState {
     /// Build the standard menu set (Left, File, Command, Options, Right).
     /// `active` selects which top menu is initially open (0 = Left, 4 = Right).
     pub fn new(active: usize) -> Self {
-        let panel_menu = |side: usize| Menu {
-            items: vec![
+        let panel_menu = |side: usize| {
+            // `mut` is used only on Windows (the Drive item is inserted there).
+            #[allow(unused_mut)]
+            let mut items = vec![
                 item("&Full view", MenuAction::SetFormat(side, ViewFormat::Full)),
                 item("&Brief view", MenuAction::SetFormat(side, ViewFormat::Brief)),
                 sep(),
@@ -100,8 +104,21 @@ impl MenuBarState {
                 item("SFT&P connection...", MenuAction::Connect(side, Protocol::Sftp)),
                 item("F&TP connection...", MenuAction::Connect(side, Protocol::Ftp)),
                 item("S&CP connection...", MenuAction::Connect(side, Protocol::Scp)),
-                item("&Disconnect (local)", MenuAction::Disconnect(side)),
-            ],
+                item("Disconnect (&local)", MenuAction::Disconnect(side)),
+            ];
+            // Drive-letter switching is a Windows concept; Alt-F1 (left) / Alt-F2
+            // (right) are the matching shortcuts.
+            #[cfg(windows)]
+            {
+                let label = if side == 0 {
+                    "&Drive...      Alt-F1"
+                } else {
+                    "&Drive...      Alt-F2"
+                };
+                items.insert(0, sep());
+                items.insert(0, item(label, MenuAction::Drive(side)));
+            }
+            Menu { items }
         };
 
         let file = Menu {

@@ -136,6 +136,12 @@ The installed executable is named **`rc`** for quick typing.
 
 **Remote filesystems** (each connection mounts into a panel)
 - **SFTP** and **SCP** over SSH, and **FTP/FTPS**
+- **Drive / connection picker** — **Alt-F1** (left panel) / **Alt-F2** (right panel)
+  open a Norton-style button dialog: **SFTP / FTP / SCP** connection buttons (and a
+  **Disconnect** button when the panel is on a remote). On **Windows** it also shows
+  the available **drive letters** on the first row, with the current drive
+  highlighted; arrow keys or the drive-letter key jump to a drive (also reachable
+  via the panel menu's **Drive…** entry)
 - Copy/move/delete works transparently between local, remote and archive panels
 - When the destination panel is remote, the copy/move dialog prefills a
   `scheme://path` target (e.g. `scp-0:///home/user`). **Delete the `scheme://`

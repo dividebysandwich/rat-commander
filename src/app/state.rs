@@ -14,10 +14,10 @@ use crate::panel::Panel;
 use crate::proc::{ProcSignal, ProcView};
 use crate::ui::cmdline::CommandLine;
 use crate::ui::dialog::{
-    BusyDialog, CompareDialog, CompareMode, ConfirmDialog, Dialog, DialogResult, FileBrowserDialog,
-    FindDialog, FindParams, FlashTargetDialog, FormDialog, GotoDialog, ImageSaveDialog, InputDialog,
-    InputPurpose, MessageDialog, OverwriteDialog, ProgressDialog, SearchReplaceDialog,
-    SearchReplaceParams, SelectDialog, Submit, UserMenuDialog,
+    BusyDialog, CompareDialog, CompareMode, ConfirmDialog, Dialog, DialogResult, DriveDialog,
+    FileBrowserDialog, FindDialog, FindParams, FlashTargetDialog, FormDialog, GotoDialog,
+    ImageSaveDialog, InputDialog, InputPurpose, MessageDialog, OverwriteDialog, ProgressDialog,
+    SearchReplaceDialog, SearchReplaceParams, SelectDialog, Submit, UserMenuDialog,
 };
 use crate::usermenu::{self, UserMenuEntry};
 use crate::ui::layout::SplitDir;
@@ -1049,6 +1049,7 @@ impl AppState {
                 )))
             }
             MenuAction::Disconnect(side) => self.disconnect(side).await,
+            MenuAction::Drive(side) => self.open_drive_dialog(side),
             MenuAction::Settings => self.open_settings(),
             MenuAction::Confirmations => self.open_confirmations(),
             MenuAction::Quit => return self.request_quit(),
@@ -1292,6 +1293,16 @@ impl AppState {
                     self.begin_image(spec, crate::flash::FlashAuth::SudoPassword(pw));
                 }
             }
+            // -- Drive / connection picker --
+            Submit::SetDrive(side, letter) => self.set_drive(side, letter).await,
+            Submit::OpenConnect(side, proto) => {
+                self.dialog = Some(Dialog::Form(FormDialog::connect(
+                    proto,
+                    side,
+                    self.config.recent_remotes.clone(),
+                )));
+            }
+            Submit::DisconnectPanel(side) => self.disconnect(side).await,
         }
     }
 
@@ -1419,6 +1430,21 @@ impl AppState {
 
     async fn handle_panel_key(&mut self, key: KeyEvent) -> Flow {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+
+        // Alt-F1 / Alt-F2 open the drive/connection picker for the left/right panel.
+        if key.modifiers.contains(KeyModifiers::ALT) {
+            match key.code {
+                KeyCode::F(1) => {
+                    self.open_drive_dialog(0);
+                    return Flow::Continue;
+                }
+                KeyCode::F(2) => {
+                    self.open_drive_dialog(1);
+                    return Flow::Continue;
+                }
+                _ => {}
+            }
+        }
 
         match key.code {
             // -- Quit / function keys --
@@ -2353,6 +2379,26 @@ impl AppState {
         p.backend = local;
         p.selection.clear();
         let _ = p.reload().await;
+    }
+
+    /// Open the drive/connection picker for `side` (Alt-F1 left, Alt-F2 right):
+    /// drive letters (Windows) plus SFTP/FTP/SCP, and Disconnect when on a remote.
+    fn open_drive_dialog(&mut self, side: usize) {
+        let drives = crate::drive::available_drives();
+        let current = crate::drive::drive_of(&self.panels[side].cwd.path);
+        // A remote panel uses a `sftp-…/ftp-…/scp-…` scheme (not file/archive).
+        let connected = !matches!(self.panels[side].cwd.scheme.as_str(), "file" | "archive");
+        self.dialog = Some(Dialog::Drive(DriveDialog::new(side, drives, current, connected)));
+    }
+
+    /// Switch panel `side` to the root of a drive letter.
+    async fn set_drive(&mut self, side: usize, letter: char) {
+        let root = VfsPath::local(crate::drive::drive_root(letter));
+        let backend = self.registry.local();
+        let ok = self.panels[side].try_enter(root, backend, None).await;
+        if !ok {
+            self.show_error(format!("Drive {letter}: is not ready"));
+        }
     }
 
     fn open_menu(&mut self) {
@@ -3974,6 +4020,24 @@ mod tests {
         // The next ordinary key clears the hint.
         st.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)).await;
         assert!(!st.alt_hint, "a non-Alt key disarms the hint");
+    }
+
+    #[tokio::test]
+    async fn alt_fkeys_open_the_drive_connection_picker() {
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
+        st.init().await;
+
+        // Alt-F1 / Alt-F2 open the picker for the left / right panel.
+        st.handle_key(KeyEvent::new(KeyCode::F(1), KeyModifiers::ALT)).await;
+        assert!(matches!(st.dialog, Some(Dialog::Drive(_))), "Alt-F1 opens the picker");
+        st.dialog = None;
+        st.handle_key(KeyEvent::new(KeyCode::F(2), KeyModifiers::ALT)).await;
+        assert!(matches!(st.dialog, Some(Dialog::Drive(_))), "Alt-F2 opens the picker");
+
+        // Choosing a connection opens the connect form for that side/protocol.
+        st.handle_submit(Submit::OpenConnect(1, crate::vfs::remote::Protocol::Sftp)).await;
+        assert!(matches!(st.dialog, Some(Dialog::Form(_))), "SFTP button opens the connect form");
     }
 
     #[tokio::test]

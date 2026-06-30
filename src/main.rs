@@ -7,6 +7,7 @@ mod app;
 mod config;
 mod diff;
 mod disk;
+mod drive;
 mod editor;
 mod flash;
 mod mount;
