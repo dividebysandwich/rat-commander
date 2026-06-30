@@ -1,0 +1,771 @@
+//! Application state and the key/event dispatch that drives it.
+
+use crate::app::event::{AppEvent, FetchKind};
+use crate::config::Config;
+use crate::editor::{EditorSignal, EditorState};
+use crate::ops::progress::{ProgressUpdate, TaskOutcome};
+use crate::ops::CancelToken;
+use crate::ops::{OpKind, OpRequest, TaskHandle, TaskId, spawn_op};
+use crate::diff::{DiffSignal, DiffView};
+use crate::disk::{DiskSignal, DiskView};
+use crate::mount::{MountSignal, MountView};
+use crate::panel::sort::SortKey;
+use crate::panel::Panel;
+use crate::proc::{ProcSignal, ProcView};
+use crate::ui::cmdline::CommandLine;
+use crate::ui::dialog::{
+    BusyDialog, CompareDialog, CompareMode, ConfirmDialog, Dialog, DialogResult, DriveDialog,
+    FileBrowserDialog, FindDialog, FindParams, FlashTargetDialog, FormDialog, GotoDialog,
+    ImageSaveDialog, InputDialog, InputPurpose, MessageDialog, MultiRenameDialog, OverwriteDialog,
+    ProgressDialog, SearchReplaceDialog, SearchReplaceParams, SelectDialog, Submit, UserMenuDialog,
+};
+use crate::usermenu::{self, UserMenuEntry};
+use crate::ui::layout::SplitDir;
+use crate::ui::menu::{MenuAction, MenuBarState, MenuSignal};
+use crate::ui::theme::Theme;
+use crate::util::async_bridge::AppSender;
+use crate::viewer::{MAX_VIEW_BYTES, ViewerSignal, ViewerState};
+use crate::vfs::Vfs;
+use crate::vfs::archive::{self, formats::ArchiveFormat};
+use crate::vfs::remote::RemoteCreds;
+use crate::vfs::{VfsEntry, VfsKind};
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
+use crate::vfs::registry::Registry;
+use crate::vfs::VfsPath;
+use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+use ratatui::layout::Rect;
+use std::collections::HashMap;
+
+/// What the run loop should do after handling input.
+pub enum Flow {
+    Continue,
+    Quit,
+    /// Suspend the TUI and run this shell command in the active panel's cwd.
+    RunCommand(String),
+    /// Suspend the TUI and run an external program against a file.
+    RunExternal { program: String, path: std::path::PathBuf },
+    /// Ctrl-O: drop to an interactive subshell, full screen.
+    SubShell,
+}
+
+/// What a mouse point/drag on a panel should do to the entry under it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PointAction {
+    /// Move the cursor only (left click / left drag).
+    Cursor,
+    /// Invert the entry's mark, once per entry entered during the gesture
+    /// (right click / right drag — paint inverting).
+    InvertPaint,
+}
+
+/// A privileged disk-manager command awaiting a sudo password, plus the message
+/// to show on success and the "busy" label to display while it runs.
+struct PendingPriv {
+    cmd: String,
+    ok_msg: String,
+    busy: String,
+}
+
+/// How to execute a privileged command on the background task.
+enum PrivExec {
+    /// Already root: run the command directly.
+    Root(String),
+    /// Escalate via `sudo` without a password (cached/`NOPASSWD`).
+    SudoNonInteractive(String),
+    /// Escalate via `sudo -S`, feeding the given password on stdin.
+    SudoPassword(String, String),
+}
+
+pub struct AppState {
+    pub panels: [Panel; 2],
+    /// Index of the active panel (0 = left/top, 1 = right/bottom).
+    pub active: usize,
+    pub split: SplitDir,
+    pub cmd: CommandLine,
+    pub dialog: Option<Dialog>,
+    pub viewer: Option<ViewerState>,
+    pub editor: Option<EditorState>,
+    pub menu: Option<MenuBarState>,
+    /// The full-screen process explorer, when open.
+    pub procview: Option<ProcView>,
+    /// The full-screen disk-usage explorer, when open.
+    pub diskview: Option<DiskView>,
+    /// The full-screen side-by-side file comparison view, when open.
+    pub diffview: Option<DiffView>,
+    /// The full-screen disk-mounter tool, when open.
+    pub mountview: Option<MountView>,
+    /// A privileged command queued while prompting for a sudo password.
+    pending_sudo: Option<PendingPriv>,
+    /// A flash queued while prompting for a sudo password.
+    pending_flash: Option<crate::flash::FlashSpec>,
+    /// A device-imaging queued while prompting for a sudo password.
+    pending_image: Option<crate::flash::ImageSpec>,
+    /// Cancel tokens for in-flight flash / imaging tasks, keyed by task id.
+    flash_tasks: HashMap<TaskId, crate::ops::CancelToken>,
+    pub theme: Theme,
+    pub config: Config,
+    pub registry: Registry,
+    tasks: HashMap<TaskId, TaskHandle>,
+    next_task_id: TaskId,
+    next_session_id: usize,
+    tx: AppSender,
+    /// Whether the terminal supports 24-bit color (for gradients).
+    pub truecolor: bool,
+    /// Animation frame counter (drives the gradient motion).
+    pub anim_phase: usize,
+    tick_count: usize,
+    /// CPU/memory sampler for the status widget.
+    pub sampler: crate::util::sysinfo::SysSampler,
+    /// Theme name to restore if the settings dialog is cancelled (live preview).
+    theme_backup: Option<String>,
+    /// F2 user-menu entries (loaded from the config `menu` file).
+    user_menu: Vec<UserMenuEntry>,
+    /// A user-menu command to run after the dialog closes (expanded).
+    pending_run: Option<String>,
+    /// Set when a confirmed quit should propagate out as `Flow::Quit`.
+    pending_quit: bool,
+    /// When a lone Esc has been pressed and we're waiting to see whether the
+    /// next key is a digit (Esc-prefix function-key alias, MC style).
+    pending_esc: Option<Instant>,
+    /// Set while Alt arms the menu accelerators (so the closed menu bar shows its
+    /// highlighted hotkey letters as a hint). Cleared by the next non-Alt key.
+    pub alt_hint: bool,
+    /// The progress dialog set aside while an overwrite prompt is shown; restored
+    /// once the user answers so the operation's progress keeps displaying.
+    stashed_progress: Option<ProgressDialog>,
+    /// The full terminal area from the last render, used to hit-test mouse clicks
+    /// against menus and centered dialogs.
+    pub last_area: Rect,
+    /// The (panel, entry) last toggled by a right-drag paint, so each entry is
+    /// inverted only once as the drag passes over it.
+    paint_last: Option<(usize, usize)>,
+    /// After a delete completes, place the active panel's cursor on this entry
+    /// (the surviving file just above the deleted one) instead of the top.
+    pending_focus: Option<String>,
+}
+
+/// How long a lone Esc is held, waiting for a digit, before it is delivered as
+/// a plain Esc. Matches Midnight Commander's Esc-as-function-key behavior.
+const ESC_PREFIX_TIMEOUT: Duration = Duration::from_millis(400);
+
+/// Map a key code to a function-key number for the Esc-prefix aliases:
+/// `1`..`9` => F1..F9, `0` => F10.
+fn fkey_for_code(code: KeyCode) -> Option<u8> {
+    match code {
+        KeyCode::Char(c @ '1'..='9') => Some(c as u8 - b'0'),
+        KeyCode::Char('0') => Some(10),
+        _ => None,
+    }
+}
+
+fn synth_fkey(n: u8) -> KeyEvent {
+    KeyEvent::new(KeyCode::F(n), KeyModifiers::NONE)
+}
+
+fn esc_key() -> KeyEvent {
+    KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)
+}
+
+/// Parse a command-line `cd` built-in. Returns the (possibly empty) argument
+/// when `cmd` is exactly the `cd` command, or `None` for anything else.
+fn parse_cd(cmd: &str) -> Option<&str> {
+    let t = cmd.trim();
+    if t == "cd" {
+        return Some("");
+    }
+    t.strip_prefix("cd ").map(str::trim)
+}
+
+/// The top-menu index whose title starts with `c` (case-insensitive): L→0 Left,
+/// F→1 File, C→2 Command, O→3 Options, R→4 Right. Used for Alt+letter shortcuts.
+fn menu_title_index(c: char) -> Option<usize> {
+    let lc = c.to_ascii_lowercase();
+    crate::ui::menubar::TITLES
+        .iter()
+        .position(|t| t.chars().next().map(|x| x.to_ascii_lowercase()) == Some(lc))
+}
+
+/// A human label for a viewer goto mode (used in the "invalid value" message).
+fn goto_mode_label(mode: crate::viewer::GotoMode) -> &'static str {
+    use crate::viewer::GotoMode::*;
+    match mode {
+        Line => "line",
+        Percent => "percent",
+        DecimalOffset => "decimal offset",
+        HexOffset => "hex offset",
+    }
+}
+
+/// Split a `scheme://rest` prefix into `(scheme, rest)`. Only a plausible scheme
+/// token (alphanumerics, `-`, `+`, `.`) is accepted, so ordinary local paths
+/// (which never contain `://` on Unix) are left alone.
+fn split_scheme(s: &str) -> Option<(&str, &str)> {
+    let idx = s.find("://")?;
+    let scheme = &s[..idx];
+    if scheme.is_empty()
+        || !scheme
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '+' | '.'))
+    {
+        return None;
+    }
+    Some((scheme, &s[idx + 3..]))
+}
+
+/// Decide the destination [`VfsPath`] for a typed copy/move target.
+///
+/// - `scheme://path` resolves onto that backend — the path is absolute, or
+///   relative to a panel already on that scheme.
+/// - A bare path drops onto the destination panel's backend as before — *unless*
+///   that panel is remote, in which case a bare path is taken as **local** (a
+///   relative one joins the source panel's directory when it is local, else the
+///   process cwd). This lets the user override a remote destination to a local
+///   one simply by deleting the `scheme://` prefix from the prefilled field.
+fn dest_vfspath(dest: &str, other_cwd: &VfsPath, active_cwd: &VfsPath) -> VfsPath {
+    if let Some((scheme, rest)) = split_scheme(dest) {
+        let base_path = [other_cwd, active_cwd]
+            .into_iter()
+            .find(|c| c.scheme == scheme && c.container.is_none())
+            .map(|c| c.path.clone())
+            .unwrap_or_else(|| PathBuf::from("/"));
+        return resolve_dest_on(
+            rest,
+            &VfsPath { scheme: scheme.to_string(), path: base_path, container: None },
+        );
+    }
+    let other_is_remote = other_cwd.container.is_none() && other_cwd.scheme != "file";
+    if other_is_remote {
+        // The scheme was stripped → treat as a local destination.
+        let base = if active_cwd.scheme == "file" {
+            VfsPath::local(active_cwd.path.clone())
+        } else {
+            VfsPath::local_cwd()
+        };
+        resolve_dest_on(dest, &base)
+    } else {
+        resolve_dest_on(dest, other_cwd)
+    }
+}
+
+/// Resolve a typed destination string onto the destination panel's backend
+/// (`base`). Absolute paths replace the path; relative ones are joined to the
+/// panel's current directory. The scheme/container of `base` are preserved, so a
+/// remote destination stays on its remote backend instead of becoming local.
+fn resolve_dest_on(dest: &str, base: &VfsPath) -> VfsPath {
+    let p = Path::new(dest);
+    let path = if p.is_absolute() {
+        p.to_path_buf()
+    } else {
+        base.path.join(dest)
+    };
+    if base.scheme == "file" {
+        VfsPath::local(path)
+    } else {
+        VfsPath {
+            scheme: base.scheme.clone(),
+            path,
+            container: base.container.clone(),
+        }
+    }
+}
+
+/// Whether two files differ in content, streaming both (early-exit on the first
+/// mismatch). Unreadable files are treated as differing. Callers should compare
+/// sizes first so this only runs for same-size files.
+async fn files_differ(
+    ba: &std::sync::Arc<dyn Vfs>,
+    pa: &VfsPath,
+    bb: &std::sync::Arc<dyn Vfs>,
+    pb: &VfsPath,
+) -> bool {
+    let (mut ra, mut rb) = match (ba.open_read(pa).await, bb.open_read(pb).await) {
+        (Ok(a), Ok(b)) => (a, b),
+        _ => return true,
+    };
+    let mut bufa = vec![0u8; 64 * 1024];
+    let mut bufb = vec![0u8; 64 * 1024];
+    loop {
+        let na = read_filled(&mut ra, &mut bufa).await;
+        let nb = read_filled(&mut rb, &mut bufb).await;
+        if na != nb || bufa[..na] != bufb[..nb] {
+            return true;
+        }
+        if na == 0 {
+            return false; // both reached EOF in lockstep
+        }
+    }
+}
+
+/// Read until `buf` is full or EOF/error; returns how many bytes were read.
+async fn read_filled<R: tokio::io::AsyncRead + Unpin>(r: &mut R, buf: &mut [u8]) -> usize {
+    use tokio::io::AsyncReadExt;
+    let mut filled = 0;
+    while filled < buf.len() {
+        match r.read(&mut buf[filled..]).await {
+            Ok(0) | Err(_) => break,
+            Ok(n) => filled += n,
+        }
+    }
+    filled
+}
+
+/// The user's home directory (`$HOME` / `%USERPROFILE%`), or `/` as a fallback.
+fn home_dir() -> PathBuf {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/"))
+}
+
+/// Lexically resolve `.` and `..` components (no filesystem access), so a
+/// `cd ../foo` produces a clean absolute path rather than one littered with `..`.
+fn normalize_path(p: &Path) -> PathBuf {
+    use std::path::Component;
+    let mut out = PathBuf::new();
+    for comp in p.components() {
+        match comp {
+            Component::ParentDir => {
+                out.pop();
+            }
+            Component::CurDir => {}
+            other => out.push(other.as_os_str()),
+        }
+    }
+    if out.as_os_str().is_empty() {
+        out.push("/");
+    }
+    out
+}
+
+/// Detect 24-bit color support from the environment.
+fn detect_truecolor() -> bool {
+    std::env::var("COLORTERM")
+        .map(|v| v.contains("truecolor") || v.contains("24bit"))
+        .unwrap_or(false)
+}
+
+mod lifecycle;
+mod keys;
+mod mouse;
+mod dialogs;
+mod fileops;
+mod disk;
+mod remote;
+mod find;
+mod viewer_editor;
+
+/// Read a file fully into memory (capped just above the viewer limit).
+async fn load_file(backend: &std::sync::Arc<dyn Vfs>, path: &VfsPath) -> crate::util::Result<Vec<u8>> {
+    use tokio::io::AsyncReadExt;
+    let reader = backend.open_read(path).await?;
+    let mut buf = Vec::new();
+    reader
+        .take((MAX_VIEW_BYTES + 1) as u64)
+        .read_to_end(&mut buf)
+        .await?;
+    Ok(buf)
+}
+
+/// Stream `path` from `backend` to the local `temp` file, emitting throttled
+/// progress and honoring `cancel`. Returns `Ok(true)` when complete, `Ok(false)`
+/// when cancelled, or `Err` on I/O failure. The caller cleans up `temp`.
+#[allow(clippy::too_many_arguments)]
+async fn fetch_to_temp(
+    backend: &std::sync::Arc<dyn Vfs>,
+    path: &VfsPath,
+    temp: &Path,
+    total: u64,
+    cancel: &crate::ops::CancelToken,
+    id: TaskId,
+    name: &str,
+    tx: &AppSender,
+) -> Result<bool, String> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut reader = backend.open_read(path).await.map_err(|e| e.to_string())?;
+    let mut file = tokio::fs::File::create(temp).await.map_err(|e| e.to_string())?;
+    let mut buf = vec![0u8; 256 * 1024];
+    let mut done = 0u64;
+    let mut since_report = 0u64;
+    loop {
+        if cancel.is_cancelled() {
+            return Ok(false);
+        }
+        let n = reader.read(&mut buf).await.map_err(|e| e.to_string())?;
+        if n == 0 {
+            break;
+        }
+        file.write_all(&buf[..n]).await.map_err(|e| e.to_string())?;
+        done += n as u64;
+        since_report += n as u64;
+        // Report at most ~every 1 MB so the bar advances without flooding.
+        if since_report >= 1024 * 1024 {
+            since_report = 0;
+            let _ = tx.try_send(AppEvent::Progress(ProgressUpdate {
+                id,
+                verb: "Reading",
+                current_name: name.to_string(),
+                file_done: done,
+                file_total: total,
+                total_done: done,
+                total_total: total,
+                files_done: 0,
+                files_total: 1,
+            }));
+        }
+    }
+    file.flush().await.map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+/// Write all bytes to a file, truncating/creating it.
+async fn write_file(
+    backend: &std::sync::Arc<dyn Vfs>,
+    path: &VfsPath,
+    data: &[u8],
+) -> crate::util::Result<()> {
+    use tokio::io::AsyncWriteExt;
+    let mut w = backend
+        .open_write(path, crate::vfs::WriteMeta::default())
+        .await?;
+    w.write_all(data).await?;
+    w.flush().await?;
+    Ok(())
+}
+
+/// If the cursor is on a local archive file, the path to enter it at its root.
+fn archive_target_under_cursor(p: &Panel) -> Option<(VfsPath, Option<String>)> {
+    if p.cwd.scheme != "file" {
+        return None;
+    }
+    let e = p.current_entry()?;
+    if e.kind != VfsKind::File {
+        return None;
+    }
+    ArchiveFormat::from_name(&e.name)?;
+    let file_path = p.cwd.path.join(&e.name);
+    Some((VfsPath::archive(file_path, "/"), None))
+}
+
+/// Recursively find files under `start`, reporting progress and honouring
+/// cancellation. Returns whatever was collected (partial on abort).
+fn find_files(
+    start: &Path,
+    p: &FindParams,
+    matcher: &crate::panel::selection::NameMatcher,
+    cancel: &crate::ops::CancelToken,
+    mut progress: impl FnMut(String, usize),
+) -> Vec<PathBuf> {
+    const MAX_RESULTS: usize = 50_000;
+
+    let content_needle = if p.content.is_empty() {
+        None
+    } else if p.case_sensitive {
+        Some(p.content.clone())
+    } else {
+        Some(p.content.to_lowercase())
+    };
+
+    let mut walker = walkdir::WalkDir::new(start);
+    if !p.recursive {
+        walker = walker.max_depth(1);
+    }
+    let mut out = Vec::new();
+    let mut scanned = 0usize;
+    for entry in walker.into_iter().filter_entry(|e| {
+        // Skip hidden files/dirs (but never the start dir itself).
+        !(p.skip_hidden && e.depth() > 0 && e.file_name().to_string_lossy().starts_with('.'))
+    }) {
+        if cancel.is_cancelled() {
+            break;
+        }
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        // Throttle progress reporting (every 64 entries scanned).
+        scanned += 1;
+        if scanned.is_multiple_of(64) {
+            progress(entry.path().to_string_lossy().into_owned(), out.len());
+        }
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy();
+        if !matcher.is_match(&name) {
+            continue;
+        }
+        if let Some(needle) = &content_needle {
+            match std::fs::read(entry.path()) {
+                Ok(bytes) => {
+                    let hay = String::from_utf8_lossy(&bytes);
+                    let hay = if p.case_sensitive {
+                        hay.into_owned()
+                    } else {
+                        hay.to_lowercase()
+                    };
+                    if !hay.contains(needle.as_str()) {
+                        continue;
+                    }
+                }
+                Err(_) => continue,
+            }
+        }
+        out.push(entry.path().to_path_buf());
+        progress(entry.path().to_string_lossy().into_owned(), out.len());
+        if out.len() >= MAX_RESULTS {
+            break;
+        }
+    }
+    out
+}
+
+/// Recursively search a VFS backend (remote/archive) for files whose names match
+/// `matcher`, returning `(path, size)` pairs. Name-only — there is no content
+/// search over the network. Symlinked directories are not descended (loop-safe).
+async fn find_files_vfs(
+    backend: &std::sync::Arc<dyn Vfs>,
+    start: VfsPath,
+    matcher: &crate::panel::selection::NameMatcher,
+    recursive: bool,
+    skip_hidden: bool,
+    cancel: &crate::ops::CancelToken,
+    mut progress: impl FnMut(String, usize),
+) -> Vec<(VfsPath, u64)> {
+    const MAX_RESULTS: usize = 50_000;
+    let mut out: Vec<(VfsPath, u64)> = Vec::new();
+    let mut stack = vec![start];
+    let mut scanned = 0usize;
+    while let Some(dir) = stack.pop() {
+        if cancel.is_cancelled() {
+            break;
+        }
+        let entries = match backend.read_dir(&dir).await {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        for e in entries {
+            if cancel.is_cancelled() {
+                break;
+            }
+            if e.name == ".." || (skip_hidden && e.name.starts_with('.')) {
+                continue;
+            }
+            let child = dir.join(&e.name);
+            scanned += 1;
+            if scanned.is_multiple_of(64) {
+                progress(child.path.to_string_lossy().into_owned(), out.len());
+            }
+            if e.kind == VfsKind::Dir {
+                // Don't follow symlinked dirs — avoids cycles on remote trees.
+                if recursive && e.symlink_target.is_none() {
+                    stack.push(child);
+                }
+                continue;
+            }
+            if matcher.is_match(&e.name) {
+                progress(child.path.to_string_lossy().into_owned(), out.len() + 1);
+                out.push((child, e.size));
+                if out.len() >= MAX_RESULTS {
+                    return out;
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Open `path` with the system default application (detached), if one exists.
+#[cfg(target_os = "linux")]
+async fn launch_default(path: PathBuf) {
+    // Only launch when a MIME handler is actually defined for the file.
+    if has_mime_handler(&path).await {
+        let _ = tokio::process::Command::new("xdg-open")
+            .arg(&path)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+    }
+}
+
+#[cfg(target_os = "macos")]
+async fn launch_default(path: PathBuf) {
+    let _ = tokio::process::Command::new("open").arg(&path).spawn();
+}
+
+#[cfg(windows)]
+async fn launch_default(path: PathBuf) {
+    // `cmd /C start "" "<path>"` opens the file with its registered handler.
+    let _ = tokio::process::Command::new("cmd")
+        .args(["/C", "start", ""])
+        .arg(&path)
+        .spawn();
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+async fn launch_default(_path: PathBuf) {}
+
+/// Whether the system has a default MIME handler for `path`.
+#[cfg(target_os = "linux")]
+async fn has_mime_handler(path: &Path) -> bool {
+    let Ok(ft) = tokio::process::Command::new("xdg-mime")
+        .args(["query", "filetype"])
+        .arg(path)
+        .output()
+        .await
+    else {
+        return false;
+    };
+    let mime = String::from_utf8_lossy(&ft.stdout).trim().to_string();
+    if mime.is_empty() {
+        return false;
+    }
+    let Ok(def) = tokio::process::Command::new("xdg-mime")
+        .args(["query", "default", &mime])
+        .output()
+        .await
+    else {
+        return false;
+    };
+    !String::from_utf8_lossy(&def.stdout).trim().is_empty()
+}
+
+/// Remove a local file or directory tree (used after a move-into-archive).
+fn remove_local(p: &Path) -> std::io::Result<()> {
+    if std::fs::symlink_metadata(p)?.is_dir() {
+        std::fs::remove_dir_all(p)
+    } else {
+        std::fs::remove_file(p)
+    }
+}
+
+/// Resolve a user name or numeric uid string into a uid (or `None` if empty).
+#[cfg(unix)]
+fn resolve_uid(s: &str) -> Result<Option<u32>, String> {
+    if s.is_empty() {
+        return Ok(None);
+    }
+    if let Ok(n) = s.parse::<u32>() {
+        return Ok(Some(n));
+    }
+    match nix::unistd::User::from_name(s) {
+        Ok(Some(u)) => Ok(Some(u.uid.as_raw())),
+        Ok(None) => Err(format!("no such user: {s}")),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Resolve a group name or numeric gid string into a gid (or `None` if empty).
+#[cfg(unix)]
+fn resolve_gid(s: &str) -> Result<Option<u32>, String> {
+    if s.is_empty() {
+        return Ok(None);
+    }
+    if let Ok(n) = s.parse::<u32>() {
+        return Ok(Some(n));
+    }
+    match nix::unistd::Group::from_name(s) {
+        Ok(Some(g)) => Ok(Some(g.gid.as_raw())),
+        Ok(None) => Err(format!("no such group: {s}")),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[cfg(not(unix))]
+fn resolve_uid(_s: &str) -> Result<Option<u32>, String> {
+    Err("ownership is not supported on this platform".to_string())
+}
+
+#[cfg(not(unix))]
+fn resolve_gid(_s: &str) -> Result<Option<u32>, String> {
+    Err("ownership is not supported on this platform".to_string())
+}
+
+#[cfg(unix)]
+fn uid_name(uid: u32) -> Option<String> {
+    nix::unistd::User::from_uid(nix::unistd::Uid::from_raw(uid))
+        .ok()
+        .flatten()
+        .map(|u| u.name)
+}
+
+#[cfg(unix)]
+fn gid_name(gid: u32) -> Option<String> {
+    nix::unistd::Group::from_gid(nix::unistd::Gid::from_raw(gid))
+        .ok()
+        .flatten()
+        .map(|g| g.name)
+}
+
+#[cfg(not(unix))]
+fn uid_name(_uid: u32) -> Option<String> {
+    None
+}
+
+#[cfg(not(unix))]
+fn gid_name(_gid: u32) -> Option<String> {
+    None
+}
+
+const HELP_TEXT: &str = "\
+rat-commander — Help
+====================
+
+PANEL NAVIGATION
+  Up/Down/PgUp/PgDn/Home/End   move the cursor
+  Enter                        open directory / enter archive / run command line
+  Tab                          switch active panel
+  Insert                       mark file and advance
+  + / - / *                    select group / unselect group / invert selection
+  Ctrl-R                       re-read the active panel
+  Ctrl-S / Ctrl-E              cycle sort key / toggle reverse
+  Ctrl-W                       toggle brief / full listing
+  Ctrl-T                       toggle vertical / horizontal split
+
+FUNCTION KEYS
+  F1  Help (this screen)       F2  User menu (config 'menu' file)
+  F3  View file                F4  Edit file
+  F5  Copy                     F6  Rename / move
+  F7  Make directory           F8  Delete
+  F9  Pulldown menu            F10 Quit
+  Esc then 1..9 / 0            alias for F1..F9 / F10 (works in editor & viewer)
+  Ctrl-O                       toggle the persistent subshell (Ctrl-O to return)
+  Ctrl-Q                       quit immediately
+
+VIEWER (F3)
+  F2 wrap   F4 hex/text   F7 search   n next   Esc/F10 quit
+
+EDITOR (F4)
+  F2 save   F3 mark block   F5 copy   F6 move   F8 delete block
+  F4 search & replace   F7 search   Ctrl-Z/Ctrl-Y undo/redo
+  Ctrl-V paste   Esc/F10 quit (prompts if modified)
+  F9 toggle hex editor (in-place; Tab switches hex/ASCII column)
+
+ARCHIVES
+  Enter an archive file (.zip .tar.gz .tar.bz2 .tar.xz .7z .rar) to browse it.
+  Copy files into/out of an archive panel; Delete removes from the archive.
+  F9 -> File -> Compress... builds a new archive from the selection.
+  RAR is read-only (no tool can create RAR archives).
+
+REMOTE (F9 -> Command)
+  SFTP / FTP / SCP connection... opens a login dialog and mounts the server in
+  the active panel. Disconnect returns the panel to the local filesystem.
+  Copy/move/delete work between local, remote and archive panels.
+
+FIND FILE (F9 -> Command)
+  Searches recursively with a progress dialog (Esc/Enter aborts; results so
+  far are kept). Results open in the panel; the .. entry returns to browsing.
+
+OTHER (F9 -> File / Options)
+  Chmod, Chown, Symlink, Compress, and Settings (theme, external editor/
+  viewer, confirm-delete). Many color themes are available; with a truecolor
+  terminal the bars and cursor use a gradient.
+
+Press Esc or F10 to close this help.";
+
+const HELP_NAME: &str = "Help (F1)";
+
+#[cfg(test)]
+mod tests;

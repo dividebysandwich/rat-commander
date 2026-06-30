@@ -1,0 +1,268 @@
+//! File operations: transfers, deletes, multi-rename, and archive ops.
+
+use super::*;
+
+impl AppState {
+    pub(in crate::app::state) async fn begin_transfer(&mut self, kind: OpKind, sources: Vec<VfsPath>, dest: &str) {
+        // The destination defaults to the *other* panel's backend, but a typed
+        // `scheme://` prefix (or its absence on a remote panel) can redirect it
+        // to any registered backend — letting a local path override a remote one.
+        let other = self.other_index();
+        let active = self.active;
+        let dst_dir = dest_vfspath(dest, &self.panels[other].cwd, &self.panels[active].cwd);
+        let dst_fs = match self.registry.resolve(&dst_dir) {
+            Ok(b) => b,
+            Err(e) => {
+                self.show_error(format!("cannot resolve destination: {e}"));
+                return;
+            }
+        };
+        // Only the local backend needs (and supports) creating the directory up
+        // front; remote/other backends copy into an existing directory.
+        if dst_dir.scheme == "file"
+            && let Err(e) = tokio::fs::create_dir_all(dst_dir.as_path()).await
+        {
+            self.show_error(format!("cannot create destination: {e}"));
+            return;
+        }
+        self.start_op(kind, sources, Some(dst_fs), Some(dst_dir));
+    }
+
+    /// The name of the first surviving entry above the cursor (skipping `..` and
+    /// any entry being deleted), used to reposition the cursor after a delete.
+    pub(in crate::app::state) fn delete_anchor(&self, targets: &[VfsPath]) -> Option<String> {
+        let doomed: HashSet<String> = targets.iter().map(|t| t.file_name()).collect();
+        let p = &self.panels[self.active];
+        (0..p.cursor).rev().find_map(|i| {
+            let name = &p.entries[i].name;
+            (name != ".." && !doomed.contains(name)).then(|| name.clone())
+        })
+    }
+
+    pub(in crate::app::state) fn start_op(
+        &mut self,
+        kind: OpKind,
+        sources: Vec<VfsPath>,
+        dst_fs: Option<std::sync::Arc<dyn crate::vfs::Vfs>>,
+        dst_dir: Option<VfsPath>,
+    ) {
+        if sources.is_empty() {
+            return;
+        }
+        // For a delete, remember the surviving entry just above the deleted one
+        // so the cursor lands there (not at the top) once the listing reloads.
+        if kind == OpKind::Delete {
+            self.pending_focus = self.delete_anchor(&sources);
+        }
+        let id = self.next_task_id;
+        self.next_task_id += 1;
+        let verb = match kind {
+            OpKind::Copy => "Copying",
+            OpKind::Move => "Moving",
+            OpKind::Delete => "Deleting",
+        };
+        let req = OpRequest {
+            kind,
+            src_fs: self.panels[self.active].backend.clone(),
+            sources,
+            dst_fs,
+            dst_dir,
+            overwrite_all: !self.config.confirm_overwrite,
+        };
+        let handle = spawn_op(id, req, self.tx.clone());
+        self.tasks.insert(id, handle);
+        self.dialog = Some(Dialog::Progress(ProgressDialog::new(id, verb)));
+    }
+
+    /// Open the multi-rename dialog for the currently *selected* files. Requires
+    /// an explicit selection (unlike most ops, it does not fall back to the file
+    /// under the cursor).
+    pub(in crate::app::state) fn open_multi_rename(&mut self) {
+        let p = &self.panels[self.active];
+        if p.is_panelized() {
+            return self.show_error("Multi rename is not available on search results");
+        }
+        if p.selection.is_empty() {
+            return self.show_error("No files selected. Select files first (Insert, or + to select a group).");
+        }
+        let sources = p.operation_targets();
+        if sources.is_empty() {
+            return self.show_error("No files selected.");
+        }
+        let (date, time) = crate::rename::date_time_now();
+        self.dialog = Some(Dialog::MultiRename(MultiRenameDialog::new(sources, date, time)));
+    }
+
+    /// Apply a batch rename. Renames are done in two phases (each source to a
+    /// unique temporary name, then to its final name) so intra-batch
+    /// permutations — swaps, rotations, counter renumberings — can't clobber a
+    /// not-yet-renamed sibling. Existing files outside the batch are never
+    /// overwritten.
+    pub(in crate::app::state) async fn do_multi_rename(&mut self, plan: Vec<(VfsPath, String)>) {
+        // Drop no-ops (unchanged names).
+        let jobs: Vec<(VfsPath, String)> = plan
+            .into_iter()
+            .filter(|(src, name)| *name != src.file_name())
+            .collect();
+        if jobs.is_empty() {
+            return;
+        }
+
+        // Validate target names.
+        for (_, name) in &jobs {
+            if name.is_empty() || name.contains('/') || name.contains('\\') {
+                return self.show_error(format!("Invalid target name: \"{name}\""));
+            }
+        }
+        // Reject duplicate target names within the batch.
+        let mut seen = HashSet::new();
+        for (_, name) in &jobs {
+            if !seen.insert(name.as_str()) {
+                return self.show_error(format!("Two files would be renamed to \"{name}\""));
+            }
+        }
+
+        let dir = self.panels[self.active].cwd.clone();
+        let backend = self.panels[self.active].backend.clone();
+        let targets: Vec<VfsPath> = jobs.iter().map(|(_, name)| dir.join(name)).collect();
+        let temps: Vec<VfsPath> = (0..jobs.len()).map(|i| dir.join(format!(".rc-rename-tmp-{i}"))).collect();
+
+        // Refuse to overwrite an existing file that isn't itself being renamed
+        // away (a final name that matches a source is safe — phase 2 handles it).
+        let source_names: HashSet<String> = jobs.iter().map(|(s, _)| s.file_name()).collect();
+        for (i, (_, name)) in jobs.iter().enumerate() {
+            if !source_names.contains(name) && backend.stat(&targets[i]).await.is_ok() {
+                return self.show_error(format!("\"{name}\" already exists"));
+            }
+        }
+        // The temporary names must be free, or phase 1 could clobber them.
+        for t in &temps {
+            if backend.stat(t).await.is_ok() {
+                return self.show_error("Temporary rename name is in use; please retry");
+            }
+        }
+
+        // Phase 1: source → temp. Roll back everything staged on the first error.
+        let mut staged = 0;
+        let mut phase1_err = None;
+        for (i, (src, _)) in jobs.iter().enumerate() {
+            if let Err(e) = backend.rename(src, &temps[i]).await {
+                phase1_err = Some(format!("Rename failed: {e}"));
+                break;
+            }
+            staged = i + 1;
+        }
+        if let Some(e) = phase1_err {
+            for i in 0..staged {
+                let _ = backend.rename(&temps[i], &jobs[i].0).await;
+            }
+            let _ = self.panels[self.active].reload().await;
+            return self.show_error(e);
+        }
+
+        // Phase 2: temp → final. Restore the original name if a final fails.
+        let mut errors = Vec::new();
+        for (i, (src, name)) in jobs.iter().enumerate() {
+            if let Err(e) = backend.rename(&temps[i], &targets[i]).await {
+                let _ = backend.rename(&temps[i], src).await;
+                errors.push(format!("{name}: {e}"));
+            }
+        }
+
+        self.panels[self.active].selection.clear();
+        let _ = self.panels[self.active].reload().await;
+        if !errors.is_empty() {
+            let shown: Vec<String> = errors.iter().take(8).cloned().collect();
+            let more = errors.len().saturating_sub(shown.len());
+            let mut msg = format!("{} rename(s) failed:\n{}", errors.len(), shown.join("\n"));
+            if more > 0 {
+                msg.push_str(&format!("\n… and {more} more"));
+            }
+            self.show_error(msg);
+        }
+    }
+
+    pub(in crate::app::state) fn open_compress(&mut self) {
+        let p = &self.panels[self.active];
+        if p.cwd.is_archive() {
+            return self.show_error("Compress from a local directory");
+        }
+        let sources = p.operation_targets();
+        if sources.is_empty() {
+            return;
+        }
+        self.dialog = Some(Dialog::Input(InputDialog::new(
+            "Compress",
+            "Archive name (.zip .7z .tar.gz .tar.bz2 .tar.xz):",
+            "archive.tar.gz",
+            InputPurpose::Compress(sources),
+        )));
+    }
+
+    pub(in crate::app::state) fn start_compress(&mut self, sources: Vec<VfsPath>, name: String) {
+        let format = match ArchiveFormat::from_name(&name) {
+            Some(ArchiveFormat::Rar) => return self.show_error("Cannot create RAR archives"),
+            Some(f) => f,
+            None => {
+                return self
+                    .show_error("Unknown type (use .zip .7z .tar.gz .tar.bz2 .tar.xz)");
+            }
+        };
+        let dest = self.panels[self.active].cwd.path.join(&name);
+        let local: Vec<PathBuf> = sources.iter().map(|s| s.path.clone()).collect();
+        self.spawn_archive_op("Compressing", move || {
+            archive::create_archive(format, &dest, &local)
+        });
+    }
+
+    pub(in crate::app::state) fn start_archive_add(&mut self, kind: OpKind, sources: Vec<VfsPath>, dest: VfsPath) {
+        let Some(container) = dest.container.clone() else {
+            return self.show_error("destination is not an archive");
+        };
+        let dest_inner = dest.path.to_string_lossy().into_owned();
+        let local: Vec<PathBuf> = sources.iter().map(|s| s.path.clone()).collect();
+        let is_move = matches!(kind, OpKind::Move);
+        self.spawn_archive_op("Updating archive", move || {
+            archive::add_to_archive(&container, &dest_inner, &local)?;
+            if is_move {
+                for s in &local {
+                    let _ = remove_local(s);
+                }
+            }
+            Ok(())
+        });
+    }
+
+    pub(in crate::app::state) fn start_archive_remove(&mut self, targets: Vec<VfsPath>) {
+        let Some(container) = targets.first().and_then(|t| t.container.clone()) else {
+            return;
+        };
+        let set: HashSet<String> = targets
+            .iter()
+            .map(|t| t.path.to_string_lossy().into_owned())
+            .collect();
+        self.spawn_archive_op("Updating archive", move || {
+            archive::remove_from_archive(&container, &set)
+        });
+    }
+
+    /// Spawn a blocking archive mutation; shows a progress dialog and reloads
+    /// panels when it finishes (via the usual `TaskDone` path).
+    fn spawn_archive_op<F>(&mut self, verb: &'static str, f: F)
+    where
+        F: FnOnce() -> crate::util::Result<()> + Send + 'static,
+    {
+        let id = self.next_task_id;
+        self.next_task_id += 1;
+        let tx = self.tx.clone();
+        tokio::spawn(async move {
+            let outcome = match tokio::task::spawn_blocking(f).await {
+                Ok(Ok(())) => TaskOutcome::Done,
+                Ok(Err(e)) => TaskOutcome::Failed(e.to_string()),
+                Err(e) => TaskOutcome::Failed(e.to_string()),
+            };
+            let _ = tx.send(AppEvent::TaskDone { id, outcome }).await;
+        });
+        self.dialog = Some(Dialog::Progress(ProgressDialog::new(id, verb)));
+    }
+}
