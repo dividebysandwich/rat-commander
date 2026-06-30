@@ -59,13 +59,18 @@ pub enum ViewFormat {
     Full,
     /// Just names, in multiple columns.
     Brief,
+    /// No own listing: shows details about the item under the *other* panel's
+    /// cursor (file stats, or a directory/selection size tallied in background).
+    Details,
 }
 
 impl ViewFormat {
+    /// Cycle Full → Brief → Details → Full (Ctrl-W).
     pub fn toggle(self) -> Self {
         match self {
             ViewFormat::Full => ViewFormat::Brief,
-            ViewFormat::Brief => ViewFormat::Full,
+            ViewFormat::Brief => ViewFormat::Details,
+            ViewFormat::Details => ViewFormat::Full,
         }
     }
 }

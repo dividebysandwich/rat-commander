@@ -264,6 +264,95 @@ async fn drain_duplicates(st: &mut AppState, rx: &mut crate::util::async_bridge:
     }
 }
 
+/// Run a details size-scan to completion, applying its tally events to `st`.
+async fn drain_details(st: &mut AppState, rx: &mut crate::util::async_bridge::AppReceiver) {
+    loop {
+        let ev = rx.recv().await.unwrap();
+        let done = matches!(ev, AppEvent::DetailsTally { done: true, .. });
+        st.apply_event(ev).await;
+        if done {
+            break;
+        }
+    }
+}
+
+#[tokio::test]
+async fn details_view_files_dirs_and_selection() {
+    use crate::details::DetailsKind;
+    use crate::panel::ViewFormat;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("rc_details_{}_{nanos}", std::process::id()));
+    std::fs::create_dir_all(root.join("sub/deep")).unwrap();
+    std::fs::write(root.join("a.txt"), vec![0u8; 100]).unwrap();
+    std::fs::write(root.join("b.txt"), vec![0u8; 200]).unwrap();
+    std::fs::write(root.join("sub/c.bin"), vec![0u8; 1000]).unwrap();
+    std::fs::write(root.join("sub/deep/d.bin"), vec![0u8; 4000]).unwrap();
+
+    let (tx, mut rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+    st.panels[1].format = ViewFormat::Details; // right panel shows details of left
+
+    let cursor_on = |st: &mut AppState, name: &str| {
+        let i = st.panels[0].entries.iter().position(|e| e.name == name).unwrap();
+        st.panels[0].cursor = i;
+        st.panels[0].selection.clear();
+    };
+
+    // Cursor on a file → a File overview (no scan).
+    cursor_on(&mut st, "a.txt");
+    st.update_details();
+    match &st.details[1].kind {
+        DetailsKind::File(fi) => {
+            assert_eq!(fi.name, "a.txt");
+            assert_eq!(fi.size, 100);
+        }
+        _ => panic!("expected a file overview"),
+    }
+
+    // Cursor on a directory → recursive tally (2 dirs: sub + deep; 2 files; 5000 bytes).
+    cursor_on(&mut st, "sub");
+    st.update_details();
+    drain_details(&mut st, &mut rx).await;
+    match &st.details[1].kind {
+        DetailsKind::Tally(t) => {
+            assert!(!t.scanning, "scan finished");
+            assert_eq!(t.total, 5000);
+            assert_eq!(t.files, 2);
+            assert_eq!(t.dirs, 2);
+        }
+        _ => panic!("expected a tally"),
+    }
+
+    // Selection of a file + a directory → combined tally.
+    cursor_on(&mut st, "sub");
+    st.panels[0].selection.mark("a.txt");
+    st.panels[0].selection.mark("sub");
+    st.update_details();
+    drain_details(&mut st, &mut rx).await;
+    match &st.details[1].kind {
+        DetailsKind::Tally(t) => {
+            assert_eq!(t.total, 5100, "a.txt (100) + sub tree (5000)");
+            assert_eq!(t.files, 3, "a.txt + c.bin + d.bin");
+            assert_eq!(t.dirs, 2, "sub + deep");
+        }
+        _ => panic!("expected a tally"),
+    }
+
+    // Leaving Details mode cancels and clears the state.
+    st.panels[1].format = ViewFormat::Full;
+    st.update_details();
+    assert!(matches!(st.details[1].kind, DetailsKind::Empty));
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
 #[tokio::test]
 async fn find_duplicates_marks_by_criteria() {
     use crate::ui::dialog::DupCriteria;

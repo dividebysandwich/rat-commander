@@ -37,7 +37,14 @@ fn gradient_line(text: &str, width: usize, fg: Color, theme: &Theme) -> Line<'st
 }
 
 /// Draw a panel (border, header, listing, mini-status) into `area`.
-pub fn render_panel(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, theme: &Theme) {
+pub fn render_panel(
+    f: &mut Frame,
+    area: Rect,
+    panel: &mut Panel,
+    active: bool,
+    details: &crate::details::DetailsData,
+    theme: &Theme,
+) {
     let border_color = if active {
         theme.panel_border_active
     } else {
@@ -78,6 +85,13 @@ pub fn render_panel(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, 
         return;
     }
 
+    // The Details view shows info about the *other* panel (no own listing): the
+    // body fills the whole interior and there's nothing to hit-test.
+    if matches!(panel.format, ViewFormat::Details) {
+        crate::details::render(f, inner, details, theme);
+        return;
+    }
+
     // Reserve the last inner row for the mini-status (selected file name); when
     // there's room, also reserve a separator rule above it dividing the listing
     // from the mini-status, like Midnight Commander.
@@ -91,10 +105,12 @@ pub fn render_panel(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, 
     match panel.format {
         ViewFormat::Full => render_full(f, list_area, panel, active, theme),
         ViewFormat::Brief => render_brief(f, list_area, panel, active, theme),
+        ViewFormat::Details => unreachable!("Details is rendered earlier and returns"),
     }
 
     // Record geometry for mouse hit-testing (offset is now post-render).
     let (body, brief, columns, cell_w) = match panel.format {
+        ViewFormat::Details => unreachable!("Details is rendered earlier and returns"),
         ViewFormat::Full => (
             Rect {
                 y: list_area.y + 1,

@@ -54,6 +54,17 @@ pub enum AppEvent {
         left: Vec<String>,
         right: Vec<String>,
     },
+    /// A "Details" panel's background size scan reported progress (`done` marks
+    /// the final update). `viewer` is the panel displaying the details; a stale
+    /// `generation` is ignored.
+    DetailsTally {
+        viewer: usize,
+        generation: u64,
+        total: u64,
+        files: u64,
+        dirs: u64,
+        done: bool,
+    },
     /// Progress of an in-flight disk-explorer scan: `done` of `total` immediate
     /// subdirectories sized so far. `generation` guards against stale updates.
     DiskScanProgress {

@@ -43,6 +43,20 @@ impl Selection {
         self.marked.is_empty()
     }
 
+    /// An order-independent signature of the marked set: it changes whenever the
+    /// set of marked names changes. Used for cheap "did the selection change?"
+    /// checks (e.g. to refresh the details panel).
+    pub fn signature(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut acc = self.marked.len() as u64;
+        for name in &self.marked {
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            name.hash(&mut h);
+            acc ^= h.finish(); // XOR ⇒ independent of iteration order
+        }
+        acc
+    }
+
     /// Names that are both marked and still present in `entries`.
     pub fn marked_names<'a>(&self, entries: &'a [VfsEntry]) -> Vec<&'a str> {
         entries

@@ -20,7 +20,12 @@ The installed executable is named **`rc`** for quick typing.
 ## Features
 
 **Panels & navigation**
-- Two panels with **full** and **brief** listing formats
+- Two panels with **full**, **brief**, and **details** view formats (cycle with
+  **Ctrl-W**, or pick from the Left/Right menu). The **details** view replaces a
+  panel's listing with an overview of whatever the *other* panel points at: full
+  stats for a file; for a directory the **total recursive size** computed in the
+  background and updated live; for a multi-item selection a tally of the total
+  size and the file/directory counts
 - **Vertical or horizontal** split (Ctrl-T)
 - Configurable sort: Unsorted, Name, Extension, Size, Modify/Access/Change time,
   Inode — plus reverse, case-sensitive and executables-first toggles

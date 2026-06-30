@@ -51,6 +51,10 @@ async fn run_loop(
     let mut subshell: Option<crate::shell::Subshell> = None;
 
     loop {
+        // Refresh the Details panel(s) before drawing: this detects when the
+        // source panel's cursor/selection changed and (re)starts background size
+        // scans. Cheap when nothing changed.
+        state.update_details();
         term.draw(|f| ui::draw(f, state))?;
 
         tokio::select! {

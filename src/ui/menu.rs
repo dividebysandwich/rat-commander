@@ -99,6 +99,7 @@ impl MenuBarState {
             let mut items = vec![
                 item("&Full view", MenuAction::SetFormat(side, ViewFormat::Full)),
                 item("&Brief view", MenuAction::SetFormat(side, ViewFormat::Brief)),
+                item("&Details view", MenuAction::SetFormat(side, ViewFormat::Details)),
                 sep(),
                 item("Sort: &Name", MenuAction::SetSort(side, SortKey::Name)),
                 item("Sort: &Extension", MenuAction::SetSort(side, SortKey::Extension)),

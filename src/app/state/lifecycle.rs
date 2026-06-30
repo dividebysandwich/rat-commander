@@ -50,6 +50,7 @@ impl AppState {
             last_area: Rect::new(0, 0, 0, 0),
             paint_last: None,
             last_click: None,
+            details: Default::default(),
             pending_focus: None,
         }
     }
@@ -245,6 +246,9 @@ impl AppState {
                     self.dialog = None;
                 }
                 self.mark_duplicates(left, right);
+            }
+            AppEvent::DetailsTally { viewer, generation, total, files, dirs, done } => {
+                self.apply_details_tally(viewer, generation, total, files, dirs, done);
             }
             AppEvent::DiskScanProgress { generation, done, total } => {
                 if let Some(dv) = self.diskview.as_mut()

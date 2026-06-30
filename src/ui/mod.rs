@@ -99,8 +99,8 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
 
     let (left_area, right_area) = split_body(rows[1], state.split);
     let active = state.active;
-    render_panel(f, left_area, &mut state.panels[0], active == 0, &theme);
-    render_panel(f, right_area, &mut state.panels[1], active == 1, &theme);
+    render_panel(f, left_area, &mut state.panels[0], active == 0, &state.details[0], &theme);
+    render_panel(f, right_area, &mut state.panels[1], active == 1, &state.details[1], &theme);
 
     let cwd = state.panels[active].cwd.display();
     let caret = cmdline::render(f, rows[2], &state.cmd, &cwd, &theme);
