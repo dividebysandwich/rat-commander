@@ -415,7 +415,7 @@ impl ViewerState {
     /// renderer, which calls this).
     /// Whether the Markdown approximation should be drawn (a Markdown file in
     /// text mode with the render toggle on).
-    fn markdown_active(&self) -> bool {
+    pub(crate) fn markdown_active(&self) -> bool {
         self.is_markdown && self.markdown_render && self.mode == ViewMode::Text
     }
 

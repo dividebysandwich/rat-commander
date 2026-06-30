@@ -454,12 +454,13 @@ impl AppState {
         out
     }
 
-    /// F1: show the help screen (reuses the scrollable text viewer).
+    /// F1: show the help screen — the embedded user manual. The `.md` name makes
+    /// the viewer open in Markdown render mode (markup hidden); F8 toggles to the
+    /// raw source, so enable syntax highlighting for that.
     pub(in crate::app::state) fn open_help(&mut self) {
-        self.viewer = Some(ViewerState::new(
-            HELP_NAME.to_string(),
-            HELP_TEXT.as_bytes().to_vec(),
-        ));
+        let mut v = ViewerState::new(HELP_NAME.to_string(), HELP_TEXT.as_bytes().to_vec());
+        v.enable_syntax(self.dark_ui());
+        self.viewer = Some(v);
     }
 
 }

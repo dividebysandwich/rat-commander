@@ -956,7 +956,11 @@ async fn f1_opens_help_in_viewer() {
     let mut st = AppState::new(tx);
     assert!(st.viewer.is_none());
     st.open_help();
-    assert!(st.viewer.is_some(), "F1 should open the help viewer");
+    let v = st.viewer.as_ref().expect("F1 should open the help viewer");
+    assert!(
+        v.markdown_active(),
+        "help should open in rendered Markdown mode (tags hidden), not raw"
+    );
 }
 
 #[tokio::test]

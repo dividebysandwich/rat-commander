@@ -1,11 +1,12 @@
 # rat-commander (`rc`)
 
-A self-contained and terminal file manager with modern features and built-in tools, 
-while also staying true to the heritage of classic such as Norton Commander and 
+A self-contained terminal file manager with modern features and built-in tools,
+while staying true to the heritage of classics such as Norton Commander and
 [Midnight Commander](https://midnight-commander.org/). Written in Rust with
 [Ratatui](https://ratatui.rs/). It aims to need **no external tools** for its
-core features: the viewer/editor with syntax highlighting, archive handling, remote (FTP/SFTP/SCP)
-clients, disk explorer and process explorer are all built in. 
+core features: the viewer/editor with syntax highlighting, archive handling,
+remote (FTP/SFTP/SCP) clients, disk explorer and process explorer are all built
+in.
 
 The installed executable is named **`rc`** for quick typing.
 
@@ -13,256 +14,110 @@ The installed executable is named **`rc`** for quick typing.
 
 <img width="1004" height="659" alt="image" src="https://github.com/user-attachments/assets/5b13c3c9-e770-4ce6-ac2b-560e7b5c3bad" />
 
+---
 
+## What it can do
+
+- **Two panels** with **full**, **brief** and **details** view formats, vertical
+  or horizontal split, configurable sort, multi-file selection, type markers and
+  file-type colors. Full **mouse** support.
+- **File operations** — copy / move / delete with a progress window and
+  transfer-speed chart, rich overwrite handling, chmod / chown / symlink (with
+  recursion), and make-directory.
+- **Built-in viewer (F3)** — text and hex modes, search, goto, line wrap, syntax
+  highlighting, a **rendered Markdown** mode for `.md` files, and hex-color
+  swatches. Pages huge files straight from disk.
+- **Built-in editor (F4)** — `mcedit`-style block copy/move/delete, clipboard,
+  search & replace (literal or regex), undo/redo, syntax highlighting, and an
+  in-place **hex editor** for arbitrarily large files.
+- **Multi rename** — batch-rename selected files with a masked, live two-column
+  preview, counter, case transform and search-and-replace.
+- **Find file**, **Compare directories**, **Find duplicates**, and a
+  side-by-side **Compare files** diff with in-place merging.
+- **Archives** — browse `.zip`, `.tar(.gz/.bz2/.xz)`, `.7z` and `.rar` like
+  directories; copy in/out, delete, and compress a selection.
+- **Remote filesystems** — SFTP, SCP and FTP/FTPS, each mounted into a panel;
+  copy/move/delete works transparently across local, remote and archive panels.
+- **Disk explorer** (treemap of disk usage), **process explorer** (btop-style
+  system monitor), and a **disk manager** (Linux) to mount/unmount/format/sync
+  drives and **flash or image** raw disk images.
+- **Look & feel** — many color themes (fully customizable via `themes.toml`),
+  truecolor animated gradients, an optional CPU/memory status widget, and a
+  configurable **F2 user menu**.
+
+For a full, feature-by-feature walkthrough see the **[user manual](doc/MANUAL.md)** —
+also available in-program by pressing **F1**.
 
 ---
 
-## Features
+## Keyboard shortcuts
 
-**Panels & navigation**
-- Two panels with **full**, **brief**, and **details** view formats (cycle with
-  **Ctrl-W**, or pick from the Left/Right menu). The **details** view replaces a
-  panel's listing with an overview of whatever the *other* panel points at: full
-  stats for a file; for a directory the **total recursive size** computed in the
-  background and updated live; for a multi-item selection a tally of the total
-  size and the file/directory counts
-- **Vertical or horizontal** split (Ctrl-T)
-- Configurable sort: Unsorted, Name, Extension, Size, Modify/Access/Change time,
-  Inode — plus reverse, case-sensitive and executables-first toggles
-- Multi-file selection (tag) and **select/unselect by wildcard or regex**
-- `ls -F`-style **type markers** before each name (so types read by symbol, not
-  just color): `/` directory, `*` executable, `@` symlink, `!` broken symlink,
-  and a leading space for plain files (keeps names aligned)
-- **File-type colors** by extension (theme-derived): archives purple, documents
-  dark yellow, images cyan, audio/video green
-- Each panel shows the volume's **free / total disk space** on its bottom border,
-  and the selected file on a separated mini-status line
-- Command line at the bottom; type **`cd <dir>`** to change the active panel
-  (supports `~`, `..`, absolute and relative paths); drop to a full-screen shell
-  with **Ctrl-O**
-- **Menu hotkeys**: each top menu and dropdown item has an accelerator letter —
-  **L**eft / **F**ile / **C**ommand / **O**ptions / **R**ight on the bar, and
-  **V**iew / **E**dit / **C**opy / **Q**uit etc. in the File menu. Open the bar
-  with **F9** (or **Alt+letter** to jump straight to a menu), then drive it with
-  plain letter keys; **F10**/Esc closes it. The accelerators are only highlighted
-  while the menu is open or while **Alt** is held to arm them
-- **Mouse support**: left-click a file to move the cursor, right-click to
-  invert its mark, drag to carry the cursor (right-drag inverts the mark of every
-  file it passes over); click the menu bar to open menus and pick items, click the
-  bottom **F-key bar** to run that function, and click **OK/Cancel** (or
-  **Yes/No**) buttons in dialogs
-- **Find File** with a live progress dialog (abortable; partial results kept);
-  results are *panelized* into the active panel (with a `..` entry to return to
-  the normal listing). On **remote** panels the search matches **file names**
-  only (content search is local-only), so you can locate files on a server too
-- **Compare directories** (Command menu): mark the files that differ between the
-  two panels — **Quick** (present in one panel only), **Size only** (also marks
-  the larger of two differently-sized files), or **Content** (marks both files
-  whenever their bytes differ)
-- **Find duplicates** (Command menu): mark files that are identical between the
-  two panel directories. A dialog chooses what "identical" means — file names
-  always, plus optionally **size**, **date/time**, and/or **content** (none
-  ticked ⇒ name only), with a **case-sensitive** name-match toggle (on by
-  default).
-- **Compare files** (Command menu): a side-by-side diff of the files under the
-  cursor in each panel. Changed/added blocks are highlighted and connected by
-  gutter guides; **↑/↓** moves through the document and selects the active change,
-  **Ctrl-↑/↓** jumps to the previous/next change, **Ctrl-←** applies the active
-  change from the right file to the left (or deletes a left-only block), **Ctrl-→**
-  applies it the other way. Edits happen in memory; **F2** asks to save and writes
-  changed files back to disk, **Esc** closes (prompting save/discard/cancel when
-  there are unsaved changes)
-- **Multi rename** (File menu → *Multi rename…*, or **Shift-F6** / **Ctrl-F6**): batch-rename the **selected**
-  files with a live two-column preview (original names on the left, projected
-  names on the right) that scroll in sync. The rename mask supports placeholders
-  — `[N]` name, `[E]` extension, `[C]` counter, `[YMD]` date, `[hms]` time, and
-  slices like `[N1-3]` / `[E1-2]` — plus a **case** transform (unchanged /
-  lowercase / UPPERCASE), an adjustable **counter** (start / step / digits), and a
-  **search-and-replace** (with a case-sensitivity toggle). Renames run in two
-  phases through temporary names, so swaps and renumberings can't clobber a
-  sibling, and an existing file outside the batch is never overwritten
+On terminals where the function keys are awkward to reach, every `Fn` shortcut
+also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1`
+… `Esc 9` for `F1`…`F9`, and `Esc 0` for `F10` (or a quick **Alt**+digit).
 
-**Built-in viewer (F3)**
-- Text and **hex** modes, line wrap toggle, and search
-- **Goto** (F5) jumps to a **line number**, **percentage**, or **decimal/hex byte
-  offset** (in hex mode the line number is a 16-byte row)
-- **Syntax highlighting** (via [`syntect`](https://github.com/trishume/syntect),
-  the engine behind `bat`) for recognized source files, with a bundled theme
-  chosen to suit the active light/dark UI. Highlighting is incremental and
-  size-capped so it stays responsive. Beyond syntect's ~75 default languages,
-  extra formats — **TOML**, **INI/config**, **Dockerfile**, **HCL/Terraform**,
-  **GraphQL**, **Protobuf**, **CMake**, **TypeScript/TSX**, **Kotlin**, **Swift**,
-  **SCSS/Sass**, **Elixir**, **Zig** and **Nix** — are bundled as embedded
-  `.sublime-syntax` files, and more can be dropped in to extend it
-- **Markdown view** — `.md` files open in a rendered approximation: the markup
-  (`#`, `**`, `*`, `` ` ``, `[…](…)`) is **removed**, headings are colored by
-  level, **bold**/*italic*/`code`/links are styled, list bullets become `•`, and
-  blockquotes/rules are drawn. Press **F8** (*Raw*) to switch to the raw source
-  (still syntax-highlighted), and **F8** again (*Render*) to switch back
-- **Hex-color swatches** — any `#rgb` / `#rrggbb` / `#rrggbbaa` token has its
-  `#` painted in the color it names (in both the viewer and editor, regardless of
-  syntax highlighting), so colors in code/configs are visible at a glance
-- **Paged from disk** — local files are read on demand (only a per-line offset
-  index is kept), so arbitrarily large files open instantly without loading into
-  memory; search streams the file in windows too
-- **Mouse**: the wheel scrolls, and clicking the lower half of the page scrolls
-  down (upper half scrolls up); the F-key bar at the bottom works as buttons
-- Opening a **large remote file** (View or Edit) streams it with a **progress
-  dialog you can abort** (Esc); the viewer then pages from the downloaded copy
+### Panels
 
-**Built-in editor (F4)** — `mcedit`-style
-- Block mark / **copy (F5, to the cursor position)** / move (F6) / delete (F8),
-  plus **Ctrl-C** / **Ctrl-V** for clipboard copy/paste, search, **search &
-  replace** (literal or regex), undo/redo, and a status bar showing the byte
-  under the cursor, line/column and totals
-- **Navigation & selection**: **Ctrl-Home/End** jump to the start/end of the
-  document, **Ctrl-←/→** jump by word, and **Shift+arrows** (or Shift+Ctrl-arrows)
-  mark text without first entering F3 mark mode.
-- **Syntax highlighting** (same `syntect` engine) that updates incrementally as
-  you type — only the edited line onward is re-highlighted — and coexists with
-  block selection highlighting
-- **Mouse**: click to place the cursor, click-and-drag to mark a block (as F3
-  would), the wheel scrolls, and the F-key bar works as buttons (in both text and
-  hex modes, where a click also lands the byte cursor on the chosen cell)
+| Key | Action |
+| --- | --- |
+| `F1` | Help (the user manual) |
+| `F2` | User menu (configurable) |
+| `F3` | View file |
+| `F4` | Edit file |
+| `F5` | Copy |
+| `F6` | Rename / move |
+| `Shift-F6` / `Ctrl-F6` | Multi rename (selected files) |
+| `F7` | Make directory |
+| `F8` | Delete |
+| `F9` | Pulldown menu (Left/Right follows the active panel) |
+| `F10` | Quit (confirmation) |
+| `Ctrl-Q` | Quit immediately |
+| `Tab` | Switch active panel |
+| `↑ ↓ / PgUp PgDn / Home End` | Move the cursor |
+| `Enter` | Open dir / enter archive / open file / run command line |
+| `cd <dir>` + `Enter` | Change the active panel's directory |
+| `Insert` | Tag file and advance |
+| `+` / `-` / `*` | Select / unselect group (wildcard) / invert selection |
+| `Ctrl-O` | Toggle the persistent subshell |
+| `Ctrl-R` | Re-read the active panel |
+| `Ctrl-S` / `Ctrl-E` | Cycle sort key / toggle reverse |
+| `Ctrl-W` | Cycle view format (full / brief / details) |
+| `Ctrl-T` | Toggle vertical / horizontal split |
+| `Alt-F1` / `Alt-F2` | Drive / connection picker (left / right panel) |
 
- <img width="1007" height="658" alt="image" src="https://github.com/user-attachments/assets/bda0bce8-bf6d-49f8-8e63-a48fb7ec8b35" />
+### Viewer (F3)
 
-- **Hex editor mode** (F9): an offset / hex / ASCII view that edits **in place** —
-  only the visible window is read and only changed bytes are written back, so
-  arbitrarily large files can be hex-edited (files too big to load as text open
-  straight into hex mode). `Tab` switches between the hex and ASCII columns;
-  editing is overwrite-only (length-preserving), with streaming **search and
-  replace** over hex-byte or text patterns
+| Key | Action |
+| --- | --- |
+| `F2` | Toggle line wrap |
+| `F4` | Toggle hex / text mode |
+| `F5` | Goto (line / percent / byte offset) |
+| `F7` | Search (`n` repeats) |
+| `F8` | (Markdown) toggle Raw / Render |
+| `Esc` / `F10` / `q` | Close |
 
-<img width="1007" height="658" alt="image" src="https://github.com/user-attachments/assets/c2b437e0-33eb-49b2-973d-ebb4cf74450f" />
+### Editor (F4)
 
+| Key | Action |
+| --- | --- |
+| `F2` | Save |
+| `F3` | Start / end block mark |
+| `F4` | Search & replace |
+| `F5` / `F6` / `F8` | Copy / move / delete block |
+| `F7` | Search |
+| `Ctrl-C` / `Ctrl-V` | Copy block to clipboard / paste |
+| `Ctrl-Z` / `Ctrl-Y` | Undo / redo |
+| `F9` | Toggle in-place hex editor |
+| `Esc` / `F10` | Quit (prompts if modified) |
 
+### Dialogs
 
+`Tab`/arrows move between fields, `Space` toggles checkboxes and cycles choices,
+`Enter` confirms, `Esc` cancels (and aborts progress dialogs). The OK/Cancel and
+Yes/No buttons are also clickable.
 
-**File operations**
-- Copy / move / delete with a progress window showing a per-file gauge and a
-  **transfer-speed chart** (speed vs. bytes)
-- **Overwrite confirmation** when a destination exists: overwrite **Yes/No**, or
-  **Append**, or apply a rule to all remaining files (**All**, **Older**,
-  **None**, **Smaller**, **Size differs**) with an optional "don't overwrite with
-  a zero-length file" guard
-- `chmod`, `chown`, symlink creation, and make-directory dialogs. `chmod`/`chown`
-  act on the selected files and offer a **Recurse into directories** checkbox to
-  apply the change through any directories in the selection
-- **Confirmations** dialog (F9 → Options → *Confirmations…*) toggles whether to
-  confirm **delete** (on), **overwrite** (on), **execute / open with default app**
-  (off), **unmount** (on) and **exit** (on)
-
-**Archives — browsed like directories**
-- Open `.zip`, `.tar`, `.tar.gz`, `.tar.bz2`, `.tar.xz`, `.7z` and `.rar`
-  archives and walk into them like folders
-- Copy files in/out, delete from an archive, and **compress** a selection into a
-  new archive (RAR is read-only — no tool can create RAR archives)
-- RAR support is an optional build feature (`rar`, on by default); it is omitted
-  from the Raspberry Pi (arm) packages because the C++ `unrar` library doesn't
-  build with those cross toolchains
-
-
-
-**Remote filesystems** (each connection mounts into a panel)
-- **SFTP** and **SCP** over SSH, and **FTP/FTPS**
-- **Drive / connection picker** — **Alt-F1** (left panel) / **Alt-F2** (right panel)
-  open a Norton-style button dialog: **SFTP / FTP / SCP** connection buttons (and a
-  **Disconnect** button when the panel is on a remote). On **Windows** it also shows
-  the available **drive letters** on the first row, with the current drive
-  highlighted; arrow keys or the drive-letter key jump to a drive (also reachable
-  via the panel menu's **Drive…** entry)
-- Copy/move/delete works transparently between local, remote and archive panels
-- When the destination panel is remote, the copy/move dialog prefills a
-  `scheme://path` target (e.g. `scp-0:///home/user`). **Delete the `scheme://`
-  prefix** to redirect the copy to a **local** path instead (absolute, or
-  relative to the source directory) — handy for pulling a file down to disk while
-  a remote connection stays open
-
-<img width="576" height="217" alt="image" src="https://github.com/user-attachments/assets/792884cc-f9b9-495c-9cbc-9171d802a290" />
-
-
-
-**Look & feel**
-- Many color themes (Dracula, Nord, Gruvbox, Solarized, Tokyo Night, Catppuccin,
-  One Dark, …) plus **MidnightCommander Classic** (bright classic-MC look),
-  **Monochrome**, **Amber CRT** and **Green CRT**, and the playful
-  **Rainbow**, **Candy**, **Neon**, **Forest**, **Freedom** and **Movienight**
-- On truecolor terminals: animated gradient bars/cursor, rounded dialog borders
-  and drop shadows
-- Optional **CPU histogram + memory** widget in the menu bar (wide screens)
-- A configurable **F2 user menu** (Midnight Commander `menu` file format)
-- Open a file with the system default app (`xdg-open`) by pressing Enter on it
-
-<img width="1006" height="657" alt="image" src="https://github.com/user-attachments/assets/579e86aa-f3d8-4f19-9f45-be46e0c36a42" />
-
-
-
-**Process explorer** (Command menu → *Process explorer…*)
-- A full-screen list of processes with **CPU%, memory and thread count** (plus a
-  small **per-process CPU sparkline** column), sortable by **name, CPU, memory,
-  threads or PID** (the sort hotkey is shown in the column header, e.g. `[C]PU%`),
-  and **kill** (SIGTERM, or SIGKILL with `K`)
-- A btop-style layout: an animated **CPU-load line graph** and **per-core meters**
-  (the CPU model name is shown on the core panel's border) on top, with **memory,
-  disk-I/O and network sparklines** stacked down the left (the network panel shows
-  download above, upload below) and the process table on the right — all using
-  truecolor load colors when available (Linux `/proc`)
-- The **update interval** is adjustable with **`+`/`-`** (100 ms steps, min 100 ms)
-  and shown on the top-right border; when a **battery** is present its charge and a
-  mini bar graph are shown centered on the top border
-
-<img width="1007" height="657" alt="image" src="https://github.com/user-attachments/assets/7f62aca4-73a2-4e18-9c09-b32a4fc2eebf" />
-
-
-
-**Disk explorer** (Command menu → *Disk explorer…*)
-- A full-screen **treemap** of the current directory's subdirectories: each box's
-  area is proportional to the subtree's **on-disk size**, labeled with the name
-  and a human-readable size (e.g. `2.1 GB`). Symlinks are never followed or counted
-- Boxes that are **large enough** also list their **biggest files** inside, each
-  with its path relative to that box and its size — so you can spot the space
-  hogs without diving in
-- The **top bar** always shows the selected box's name, size and share of the
-  total — so the selection is legible even when its box is too small for a label
-- **Arrow keys** move the selection between boxes, **Enter** dives into the
-  selected subdirectory, **Backspace** goes up, **`g`** (or **Ctrl-Enter** where
-  the terminal reports it) exits and points the active file panel at the selected
-  directory, **Esc** closes
-
-<img width="1004" height="659" alt="image" src="https://github.com/user-attachments/assets/3673b354-1fb7-4445-8e5e-ebdb356c0b96" />
-
-**Disk manager** (Command menu → *Disk manager…*, Linux only)
-- Two-panel layout: A **disk→partition tree** of block devices
-  on the left — each partition shows its **filesystem type and volume label** and other details — and the **current mounts** on the right. **Tab** switches panes
-- **Enter** (or a **double-click**) on a device opens an action menu —
-  **Mount**/**Format**/**Flash image** when it's free, **Unmount**/**Flash image**
-  when it's mounted. **Enter** (or double-click) on a mount offers **Unmount**/**Sync**.
-  Mounting prompts for a path (offering to create it if missing);
-  unmounting asks for confirmation (toggle in *Confirmations…*, on by default).
-  Unmounting an **essential system mount point** (`/`, `/boot`, `/usr`, …) raises a **warning** dialog.
-- **Format** a device to **FAT32, FAT16, VFAT, NTFS, EXT4/3/2 or BTRFS**, with a
-  volume label and filesystem-specific options (quick format, bytes-per-inode),
-  guarded by a destructive-action confirmation.
-- Privileged operations need root: when not run as root they use **`sudo`** —
-  non-interactively if possible, otherwise prompting for a password.
-
-**Flash a disk image** (Linux)
-- Press **Enter** on a raw image file (`.iso`, `.img`, `.raw`, `.bin`, `.dd`, …)
-  in a panel to open a **target picker** listing every block device + partition
-  with its device/vendor/model name, serial, volume label, filesystem and size.
-- Selecting a target asks for confirmation; a **non-removable** (fixed/system)
-  disk first raises an extra warning.
-- The same flow is reachable from the disk manager's **Flash image** action, which
-  opens a small **file browser** (with an editable extension-glob filter) to pick
-  the image for the device under the cursor.
-
-**Create an image of a device** (Linux)
-- In the disk manager, **Enter** on a block device or partition offers a **Create
-  image** action: a small **save browser** lets you navigate to a directory and
-  type a file name (defaulting to `<device>.img`) for the raw image.
-- The device is streamed out to that file..
-
+See the **[user manual](doc/MANUAL.md)** for the process-explorer,
+disk-explorer and hex-editor key tables, and for what every feature does.
 
 ---
 
@@ -279,10 +134,10 @@ Grab a release from the **Releases** page:
   ```
 - **Windows** — `rc-<ver>-x86_64-pc-windows-msvc.zip`, or the `.msi` installer
   (adds `rc` to your PATH).
-- **macOS** — `rc-<ver>-<arch>.tar.gz`, or the `.pkg` installer
-  (installs `rc` to `/usr/local/bin`). Intel and Apple Silicon builds are
-  provided. The package is unsigned, so the first launch may require
-  *System Settings → Privacy & Security → Open anyway*.
+- **macOS** — `rc-<ver>-<arch>.tar.gz`, or the `.pkg` installer (installs `rc`
+  to `/usr/local/bin`). Intel and Apple Silicon builds are provided. The package
+  is unsigned, so the first launch may require *System Settings → Privacy &
+  Security → Open anyway*.
 
 ### From source
 
@@ -295,187 +150,6 @@ cargo install --path .      # installs `rc` into ~/.cargo/bin
 # or just run it:
 cargo run --release
 ```
-
----
-
-## Usage
-
-Run `rc` in a terminal. The active panel has the highlighted border; **Tab**
-switches panels. Press **Enter** on a directory to enter it, on an archive to
-browse it, or on a file to open it with the system default program. Type a
-command and press **Enter** to run it in the active panel's directory — except
-**`cd <dir>`**, which changes the active panel itself (so the directory change
-sticks, unlike running `cd` in a subshell).
-
-The **mouse** works too: **left-click** a file to move the cursor to it (and
-activate that panel), **right-click** to invert its mark, and **drag** to carry
-the cursor along — dragging with the right button **inverts the selection** of
-every file it sweeps across (each file flips once). Click a menu-bar title to
-open it and click an entry to run it, and click the **OK/Cancel** / **Yes/No**
-buttons in dialogs.
-
-For a built-in cheat sheet, press **F1**.
-
-On terminals where the function keys are awkward to reach, every `Fn` shortcut
-also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1`
-… `Esc 9` for `F1`…`F9`, and `Esc 0` for `F10`. This works in the panels, the
-viewer, and the editor. (A quick `Alt`+digit does the same thing.)
-
-### Keyboard shortcuts — panels
-
-| Key | Action |
-| --- | --- |
-| `F1` | Help |
-| `F2` | User menu (configurable) |
-| `F3` | View file |
-| `F4` | Edit file |
-| `F5` | Copy |
-| `F6` | Rename / move |
-| `Shift-F6` / `Ctrl-F6` | Multi rename (selected files) |
-| `F7` | Make directory |
-| `F8` | Delete |
-| `F9` | Pulldown menu (Left/Right follows the active panel) |
-| `F10` | Quit (confirmation) |
-| `Esc` then `1`…`9` / `0` | Function-key alias for `F1`…`F9` / `F10` (Midnight Commander style) |
-| `Ctrl-Q` | Quit immediately |
-| `Tab` | Switch active panel |
-| `↑ ↓ / PgUp PgDn / Home End` | Move the cursor |
-| `Enter` | Open dir / enter archive / open file / run command line |
-| `cd <dir>` + `Enter` | Change the active panel's directory |
-| `Insert` | Tag file and advance |
-| `+` / `-` / `*` | Select / unselect group (wildcard) / invert selection |
-| `← →` | Move within the command line |
-| `Ctrl-O` | Toggle the persistent subshell (press `Ctrl-O` again to return) |
-| `Ctrl-R` | Re-read the active panel |
-| `Ctrl-S` / `Ctrl-E` | Cycle sort key / toggle reverse |
-| `Ctrl-W` | Toggle brief / full listing |
-| `Ctrl-T` | Toggle vertical / horizontal split |
-
-### Keyboard shortcuts — viewer (F3)
-
-| Key | Action |
-| --- | --- |
-| `F2` | Toggle line wrap |
-| `F4` | Toggle hex / text mode |
-| `F7` | Search |
-| `n` | Repeat search |
-| `↑ ↓ / PgUp PgDn / Home End` | Scroll |
-| `Esc` / `F10` / `q` | Close |
-
-### Keyboard shortcuts — editor (F4)
-
-| Key | Action |
-| --- | --- |
-| `F2` | Save |
-| `F3` | Start / end block mark |
-| `F4` | Search & replace |
-| `F5` / `F6` / `F8` | Copy / move / delete block |
-| `F7` | Search |
-| `Ctrl-V` | Paste |
-| `Ctrl-Z` / `Ctrl-Y` | Undo / redo |
-| `F9` | Toggle hex editor mode (in place) |
-| `Esc` / `F10` | Quit (prompts if modified) |
-
-### Keyboard shortcuts — hex editor (F9 in the editor)
-
-| Key | Action |
-| --- | --- |
-| `0`–`9`, `a`–`f` | Overwrite the current byte's nibble (hex column) |
-| typed character | Overwrite the current byte (ASCII column) |
-| `Tab` | Switch between the hex and ASCII columns |
-| `← ↑ ↓ → / PgUp PgDn` | Move | 
-| `Home` / `End` | Start / end of row |
-| `Ctrl-Home` / `Ctrl-End` | Start / end of file |
-| `F7` | Search (hex bytes like `48 65` or text) |
-| `F4` | Replace all (same-length, overwrite-only) |
-| `F2` | Save changed bytes in place |
-| `F9` | Back to text mode |
-| `Esc` / `F10` | Quit (prompts if modified) |
-
-### Keyboard shortcuts — process explorer
-
-| Key | Action |
-| --- | --- |
-| `↑ ↓ / PgUp PgDn / Home End` | Move the selection |
-| `c` / `m` / `n` / `p` | Sort by CPU / memory / name / PID (press again to reverse) |
-| `r` | Reverse sort order |
-| `k` / `F8` / `F9` / `Del` | Kill the selected process (SIGTERM, with confirmation) |
-| `K` | Force-kill (SIGKILL, with confirmation) |
-| `Esc` / `F10` / `q` | Close |
-
-### Keyboard shortcuts — disk explorer
-
-| Key | Action |
-| --- | --- |
-| `← ↑ ↓ →` | Move the selection between boxes |
-| `Enter` | Dive into the selected subdirectory |
-| `Backspace` | Go up to the parent directory |
-| `g` / `Ctrl-Enter` | Exit and open the selected directory in the active panel |
-| `Esc` / `F10` / `q` | Close |
-
-### Dialogs
-
-`Tab`/arrows move between fields, `Space` toggles checkboxes and cycles choices,
-`Enter` confirms, `Esc` cancels. Progress dialogs can be aborted with `Esc`. You
-can also **click** the OK/Cancel (or Yes/No) buttons with the mouse.
-
----
-
-## Configuration
-
-Files live in your platform config directory
-(`~/.config/rat-commander/` on Linux):
-
-- **`config.toml`** — written from the Settings dialog (F9 → Options →
-  Settings). Holds the active theme, truecolor/animation/status-widget toggles,
-  external editor/viewer commands, and the confirm-before-delete flag.
-- **`menu`** — the **F2 user menu**, created with sensible defaults on first
-  run. It uses the Midnight Commander menu format:
-
-  ```
-  # comment
-  3      Compress the current subdirectory (tar.gz)
-          Pwd=`basename "%d"`
-          tar cf - "$Pwd" | gzip -f9 > "$Pwd.tar.gz"
-  ```
-
-  A line starting in column 0 is a menu entry whose first character is the
-  hotkey; the indented lines below it are the shell commands. Macros: `%f`/`%p`
-  current file, `%d` current directory, `%t` tagged files, `%s` tagged-or-current,
-  `%%` a literal percent. (mc condition lines `+ …` / `= …` are accepted and
-  ignored; entries are always shown.)
-
-### Themes
-
-Pick a theme in the Settings dialog — it previews live as you cycle through it
-(Enter keeps it, Esc reverts). On a 24-bit-color terminal (`COLORTERM=truecolor`)
-the bars and cursor render as animated gradients; otherwise solid colors are
-used. Truecolor, animations, and the system-status widget can each be toggled in
-Settings.
-
-**Custom themes** live in **`themes.toml`** in the config directory, generated
-with all the built-in presets on first run. Each `[[theme]]` sets an explicit
-`#rrggbb` color for **every UI element** — `panel_bg`, `menu_bg`, `dialog_bg`,
-`dialog_border_fg` / `dialog_border_bg`, `input_bg` / `input_fg`, `cursor_bg` /
-`cursor_fg`, `menu_selection_bg` / `menu_selection_fg`, the file-type colors, the
-gradient endpoints, and so on — so you have full control (e.g. a completely
-different dialog background) with no hue-mixing in between. Edit any preset, or
-add your own `[[theme]]` blocks — they appear in the Settings theme chooser. Open
-the file straight from **Options → Edit themes…** (it opens in the built-in
-editor with TOML highlighting); saving applies the changes immediately. Delete
-the file to regenerate the presets.
-
-### Remote connections
-
-Open `F9 → Left`/`Right → SFTP/FTP/SCP connection…`, enter host / port / user /
-password / remote path, and the panel mounts the server. SSH host keys are
-checked against `~/.ssh/known_hosts` (trust-on-first-use; a changed key is
-rejected). `Disconnect` returns the panel to the local filesystem.
-
-Previously used servers are remembered in `config.toml` (passwords are **not**
-stored). In the connection dialog, pick one from the **history dropdown** — open
-it by clicking the **▼** chevron on the Host field or pressing **↓** while the
-Host field is focused; selecting an entry fills in the host/port/user/path.
 
 ---
 
@@ -519,7 +193,19 @@ pkgbuild --identifier com.rat-commander.rc --version 0.1.0 \
 
 Some dependencies (`unrar`, `bzip2`, `xz2`, archive backends) compile bundled
 C/C++ sources, so a C/C++ toolchain is required (provided automatically by
-`cross` for the Raspberry Pi targets).
+`cross` for the Raspberry Pi targets). RAR support is an optional build feature
+(`rar`, on by default), omitted from the Raspberry Pi (arm) packages because the
+C++ `unrar` library doesn't build with those cross toolchains.
+
+---
+
+## Configuration
+
+Configuration lives in your platform config directory
+(`~/.config/rat-commander/` on Linux): **`config.toml`** (written from the
+Settings dialog), **`themes.toml`** (editable color themes), and **`menu`** (the
+F2 user menu, in Midnight Commander format). See the
+**[user manual](doc/MANUAL.md#configuration)** for details.
 
 ---
 

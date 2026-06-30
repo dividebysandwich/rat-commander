@@ -718,63 +718,13 @@ fn gid_name(_gid: u32) -> Option<String> {
     None
 }
 
-const HELP_TEXT: &str = "\
-rat-commander — Help
-====================
+/// The full user manual, embedded at build time. F1 opens it in the viewer's
+/// Markdown render mode (see `open_help` in the `keys` submodule).
+const HELP_TEXT: &str = include_str!("../../../doc/MANUAL.md");
 
-PANEL NAVIGATION
-  Up/Down/PgUp/PgDn/Home/End   move the cursor
-  Enter                        open directory / enter archive / run command line
-  Tab                          switch active panel
-  Insert                       mark file and advance
-  + / - / *                    select group / unselect group / invert selection
-  Ctrl-R                       re-read the active panel
-  Ctrl-S / Ctrl-E              cycle sort key / toggle reverse
-  Ctrl-W                       toggle brief / full listing
-  Ctrl-T                       toggle vertical / horizontal split
-
-FUNCTION KEYS
-  F1  Help (this screen)       F2  User menu (config 'menu' file)
-  F3  View file                F4  Edit file
-  F5  Copy                     F6  Rename / move
-  F7  Make directory           F8  Delete
-  F9  Pulldown menu            F10 Quit
-  Esc then 1..9 / 0            alias for F1..F9 / F10 (works in editor & viewer)
-  Ctrl-O                       toggle the persistent subshell (Ctrl-O to return)
-  Ctrl-Q                       quit immediately
-
-VIEWER (F3)
-  F2 wrap   F4 hex/text   F7 search   n next   Esc/F10 quit
-
-EDITOR (F4)
-  F2 save   F3 mark block   F5 copy   F6 move   F8 delete block
-  F4 search & replace   F7 search   Ctrl-Z/Ctrl-Y undo/redo
-  Ctrl-V paste   Esc/F10 quit (prompts if modified)
-  F9 toggle hex editor (in-place; Tab switches hex/ASCII column)
-
-ARCHIVES
-  Enter an archive file (.zip .tar.gz .tar.bz2 .tar.xz .7z .rar) to browse it.
-  Copy files into/out of an archive panel; Delete removes from the archive.
-  F9 -> File -> Compress... builds a new archive from the selection.
-  RAR is read-only (no tool can create RAR archives).
-
-REMOTE (F9 -> Command)
-  SFTP / FTP / SCP connection... opens a login dialog and mounts the server in
-  the active panel. Disconnect returns the panel to the local filesystem.
-  Copy/move/delete work between local, remote and archive panels.
-
-FIND FILE (F9 -> Command)
-  Searches recursively with a progress dialog (Esc/Enter aborts; results so
-  far are kept). Results open in the panel; the .. entry returns to browsing.
-
-OTHER (F9 -> File / Options)
-  Chmod, Chown, Symlink, Compress, and Settings (theme, external editor/
-  viewer, confirm-delete). Many color themes are available; with a truecolor
-  terminal the bars and cursor use a gradient.
-
-Press Esc or F10 to close this help.";
-
-const HELP_NAME: &str = "Help (F1)";
+/// The `.md` suffix makes the help viewer auto-detect Markdown and open in the
+/// rendered (tags-hidden) mode rather than raw.
+const HELP_NAME: &str = "rat-commander Manual.md";
 
 #[cfg(test)]
 mod tests;
