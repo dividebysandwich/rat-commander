@@ -53,6 +53,7 @@ impl AppState {
             details: Default::default(),
             pending_focus: None,
             edit_only: false,
+            kbd_enhanced: false,
         }
     }
 

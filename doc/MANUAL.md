@@ -113,7 +113,9 @@ A quick **Alt** + digit does the same.
 
 ### Editor (F4)
 
+- `F1` — Editor shortcut help (any key closes it)
 - `F2` — Save
+- `Shift-F2` / `Ctrl-F2` — Save as… (browse + name)
 - `F3` — Start / end a block mark
 - `F4` — Search & replace
 - `F5` — Copy the block to the cursor
@@ -126,7 +128,11 @@ A quick **Alt** + digit does the same.
 - `Ctrl-Home` / `Ctrl-End` — Start / end of the document
 - `Ctrl-← / →` — Move by word
 - `F9` — Toggle the in-place hex editor
+- `Shift-F9` / `Ctrl-F9` — Toggle word wrap
 - `Esc` / `F10` — Quit (prompts if modified)
+
+While **Shift** or **Ctrl** is held, the F-key bar relabels **F2 → Save as**
+and **F9 → Wrap** to show those alternates.
 
 ### Hex editor (F9 in the editor)
 
@@ -440,6 +446,24 @@ clears the selection (F3 again toggles a block off).
 
 **Search and replace.** **F7** searches; **F4** opens search & replace, which
 can be a literal or a regular expression.
+
+**Saving.** **F2** writes the file in place. **Save as** (**Shift-F2** or
+**Ctrl-F2**) opens a browser — navigate directories and type a file name,
+prefilled with the current one — to write the buffer somewhere else; the editor
+then continues editing the new file. If a normal save fails (a read-only
+location, a permission error, …), the Save-as browser opens automatically with
+the reason shown, so you can redirect the write without losing your work.
+
+**Word wrap.** **Shift-F9** (or **Ctrl-F9**) toggles virtual word wrap: long
+lines are shown across several screen rows without changing the file, and each
+*continued* row ends in a **`>`** marker so soft wraps are distinguishable from
+real line breaks. Cursor movement, scrolling and the mouse all follow the
+visible (wrapped) rows; `WRAP` shows on the status line while it is on.
+
+**Help.** **F1** brings up a list of the editor's keyboard shortcuts and what
+they do; any key closes it. While **Shift** or **Ctrl** is held, the F-key bar
+relabels **F2 → Save as** and **F9 → Wrap** to advertise those alternates (on
+terminals that report held modifier keys via the enhanced keyboard protocol).
 
 **Other.** **Ctrl-Z** / **Ctrl-Y** undo and redo. The status bar shows the byte
 under the cursor, the line and column, and the totals. Syntax highlighting

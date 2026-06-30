@@ -12,9 +12,11 @@ use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::crossterm::event::{
     DisableMouseCapture, EnableMouseCapture, Event, EventStream, KeyEventKind,
+    KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
 };
 use ratatui::crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
+    supports_keyboard_enhancement,
 };
 use ratatui::crossterm::{execute, queue};
 use state::{AppState, Flow};
@@ -38,12 +40,13 @@ pub async fn run(edit_file: Option<std::path::PathBuf>) -> Result<()> {
         state.open_path_in_editor(file).await;
     }
 
-    let mut term = setup_terminal()?;
+    let (mut term, kbd) = setup_terminal()?;
+    state.kbd_enhanced = kbd;
     let mut events = EventStream::new();
 
     let result = run_loop(&mut term, &mut state, &mut rx, &mut events).await;
 
-    restore_terminal(&mut term)?;
+    restore_terminal(&mut term, state.kbd_enhanced)?;
     result
 }
 
@@ -76,15 +79,27 @@ async fn run_loop(
         tokio::select! {
             maybe_event = events.next() => {
                 match maybe_event {
-                    Some(Ok(Event::Key(key))) if key.kind == KeyEventKind::Press => {
-                        match state.handle_key(key).await {
-                            Flow::Quit => break,
-                            Flow::RunCommand(cmd) => run_command(term, state, &cmd).await?,
-                            Flow::RunExternal { program, path } => {
-                                run_external(term, state, &program, &path).await?
+                    Some(Ok(Event::Key(key))) => {
+                        // Track held modifiers (where the terminal reports them via
+                        // the enhanced keyboard protocol) so the editor's F-key bar
+                        // can show the Shift/Ctrl alternate labels while held.
+                        if state.kbd_enhanced
+                            && let Some(ed) = state.editor.as_mut()
+                        {
+                            ed.note_key(key);
+                        }
+                        // Act on presses and auto-repeats; release events only
+                        // update the modifier hint above.
+                        if matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
+                            match state.handle_key(key).await {
+                                Flow::Quit => break,
+                                Flow::RunCommand(cmd) => run_command(term, state, &cmd).await?,
+                                Flow::RunExternal { program, path } => {
+                                    run_external(term, state, &program, &path).await?
+                                }
+                                Flow::SubShell => toggle_subshell(term, state, &mut subshell).await?,
+                                Flow::Continue => {}
                             }
-                            Flow::SubShell => toggle_subshell(term, state, &mut subshell).await?,
-                            Flow::Continue => {}
                         }
                     }
                     Some(Ok(Event::Mouse(me))) => {
@@ -146,7 +161,7 @@ fn interactive_shell() -> tokio::process::Command {
 /// Suspend the TUI, run a shell command in the active panel's directory, wait
 /// for the user, then restore the TUI and refresh the panels.
 async fn run_command(term: &mut Term, state: &mut AppState, cmd: &str) -> Result<()> {
-    restore_terminal(term)?;
+    restore_terminal(term, state.kbd_enhanced)?;
 
     // Use the panel's directory only when it's a real local path; otherwise
     // (remote/archive panel) fall back to the process cwd.
@@ -168,7 +183,9 @@ async fn run_command(term: &mut Term, state: &mut AppState, cmd: &str) -> Result
     let mut line = String::new();
     let _ = io::stdin().read_line(&mut line);
 
-    *term = setup_terminal()?;
+    let (t, k) = setup_terminal()?;
+    *term = t;
+    state.kbd_enhanced = k;
     term.clear()?;
     state.reload_all().await;
     Ok(())
@@ -181,7 +198,7 @@ async fn run_external(
     program: &str,
     path: &std::path::Path,
 ) -> Result<()> {
-    restore_terminal(term)?;
+    restore_terminal(term, state.kbd_enhanced)?;
 
     // Run `program <path>` via the shell so arguments in the command work.
     let cmd = format!("{program} \"{}\"", path.display());
@@ -194,7 +211,9 @@ async fn run_external(
         let _ = io::stdin().read_line(&mut line);
     }
 
-    *term = setup_terminal()?;
+    let (t, k) = setup_terminal()?;
+    *term = t;
+    state.kbd_enhanced = k;
     term.clear()?;
     state.reload_all().await;
     Ok(())
@@ -237,6 +256,10 @@ async fn toggle_subshell(
     // so keystrokes pass through byte-for-byte; the PTY does its own cooking.
     {
         let out = term.backend_mut();
+        // Hand normal keyboard reporting to the shell while it owns the screen.
+        if state.kbd_enhanced {
+            let _ = queue!(out, PopKeyboardEnhancementFlags);
+        }
         queue!(out, LeaveAlternateScreen, DisableMouseCapture)?;
         out.flush()?;
     }
@@ -249,6 +272,16 @@ async fn toggle_subshell(
     {
         let out = term.backend_mut();
         queue!(out, EnterAlternateScreen, EnableMouseCapture)?;
+        if state.kbd_enhanced {
+            let _ = queue!(
+                out,
+                PushKeyboardEnhancementFlags(
+                    KeyboardEnhancementFlags::REPORT_EVENT_TYPES
+                        | KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS
+                        | KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES
+                )
+            );
+        }
         out.flush()?;
     }
     term.hide_cursor()?;
@@ -269,28 +302,48 @@ async fn toggle_subshell(
 
 /// Fallback when a PTY can't be created: run an interactive shell once.
 async fn run_oneshot_shell(term: &mut Term, state: &mut AppState, cwd: &std::path::Path) -> Result<()> {
-    restore_terminal(term)?;
+    restore_terminal(term, state.kbd_enhanced)?;
     println!("[rat-commander subshell — type 'exit' to return]");
     let _ = interactive_shell().current_dir(cwd).status().await;
-    *term = setup_terminal()?;
+    let (t, k) = setup_terminal()?;
+    *term = t;
+    state.kbd_enhanced = k;
     term.clear()?;
     state.reload_all().await;
     Ok(())
 }
 
-fn setup_terminal() -> Result<Term> {
+/// Set up the terminal, returning the terminal handle and whether the enhanced
+/// keyboard protocol was enabled (so key release/repeat and standalone-modifier
+/// events are reported — used to live-update the editor's F-key labels while
+/// Shift/Ctrl is held). It is left off where the terminal doesn't support it.
+fn setup_terminal() -> Result<(Term, bool)> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    let kbd = supports_keyboard_enhancement().unwrap_or(false);
+    if kbd {
+        let _ = execute!(
+            stdout,
+            PushKeyboardEnhancementFlags(
+                KeyboardEnhancementFlags::REPORT_EVENT_TYPES
+                    | KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS
+                    | KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES
+            )
+        );
+    }
     let backend = CrosstermBackend::new(stdout);
     let mut term = Terminal::new(backend)?;
     term.hide_cursor()?;
-    Ok(term)
+    Ok((term, kbd))
 }
 
-fn restore_terminal(term: &mut Term) -> Result<()> {
+fn restore_terminal(term: &mut Term, kbd: bool) -> Result<()> {
     disable_raw_mode()?;
     let out = term.backend_mut();
+    if kbd {
+        let _ = queue!(out, PopKeyboardEnhancementFlags);
+    }
     queue!(out, LeaveAlternateScreen, DisableMouseCapture)?;
     out.flush()?;
     term.show_cursor()?;

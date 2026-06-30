@@ -155,6 +155,10 @@ pub struct AppState {
     /// Launched via `rc /edit <file>` (or the `rcedit` shim): the program opens
     /// straight into the editor and exits when it is closed.
     pub edit_only: bool,
+    /// Whether the terminal's enhanced keyboard protocol is active (key
+    /// release/repeat + standalone modifiers reported). Lets the editor's F-key
+    /// bar track held Shift/Ctrl; set by the event loop after terminal setup.
+    pub kbd_enhanced: bool,
 }
 
 /// How long a lone Esc is held, waiting for a digit, before it is delivered as

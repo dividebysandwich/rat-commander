@@ -11,7 +11,7 @@ pub mod render;
 use crate::vfs::VfsPath;
 use buffer::EditorBuffer;
 use ratatui::crossterm::event::{
-    KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
 use ratatui::layout::Rect;
 use std::path::Path;
@@ -85,6 +85,9 @@ pub struct EditorState {
     top_sub: usize,
     /// Whether the F1 keyboard-shortcut help overlay is showing.
     help_open: bool,
+    /// Modifiers on the last key event, so the F-key bar can show the alternate
+    /// F2 / F9 labels ("Save as" / "Wrap") while Shift or Ctrl is held.
+    hint_mods: KeyModifiers,
 }
 
 /// Above this size a file is opened straight into hex mode (text mode loads the
@@ -142,7 +145,48 @@ impl EditorState {
             wrap: false,
             top_sub: 0,
             help_open: false,
+            hint_mods: KeyModifiers::NONE,
         }
+    }
+
+    /// Track held Shift/Ctrl from a key event to drive the F-key bar's alternate
+    /// labels. Fed every key event by the event loop *only* when the terminal's
+    /// enhanced keyboard protocol reports standalone modifier presses/releases —
+    /// so on terminals without it the labels never change (rather than sticking).
+    /// Held state is tracked from the modifier keys' own press/release events
+    /// (a modifier-key release still reports the modifier as set, so mirroring
+    /// `key.modifiers` would never clear).
+    pub fn note_key(&mut self, key: KeyEvent) {
+        use ratatui::crossterm::event::ModifierKeyCode;
+        if let KeyCode::Modifier(m) = key.code {
+            let bit = match m {
+                ModifierKeyCode::LeftShift | ModifierKeyCode::RightShift => KeyModifiers::SHIFT,
+                ModifierKeyCode::LeftControl | ModifierKeyCode::RightControl => {
+                    KeyModifiers::CONTROL
+                }
+                _ => return,
+            };
+            if key.kind == KeyEventKind::Release {
+                self.hint_mods.remove(bit);
+            } else {
+                self.hint_mods.insert(bit);
+            }
+        }
+    }
+
+    /// The F-key bar labels for the current mode and modifier state. While Shift
+    /// or Ctrl is held in text mode, F2 / F9 show their alternates ("Save as" /
+    /// "Wrap").
+    pub fn footer_labels(&self) -> [&'static str; 10] {
+        if self.hex.is_some() {
+            return crate::ui::fkeys::HEX_LABELS;
+        }
+        let mut labels = crate::ui::fkeys::EDITOR_LABELS;
+        if self.hint_mods.intersects(KeyModifiers::SHIFT | KeyModifiers::CONTROL) {
+            labels[1] = "Save as"; // F2
+            labels[8] = "Wrap"; // F9
+        }
+        labels
     }
 
     /// Whether the F1 shortcut-help overlay is currently shown.
@@ -291,6 +335,107 @@ impl EditorState {
         self.buf.line_to_char(line)
     }
 
+    // -- Word-wrap geometry (only active when `self.wrap`) ------------------
+
+    /// Content width of a *continued* wrapped row; the final column is reserved
+    /// for the `>` continuation marker.
+    fn wrap_seg(&self) -> usize {
+        self.view_cols.saturating_sub(1).max(1)
+    }
+
+    /// Start offsets (chars within the line) of each visual sub-row of logical
+    /// `line`. Always starts with `0`; its length is the number of visual rows.
+    /// With wrap off, a width ≤ 1, or a line that fits, this is `[0]`.
+    fn line_breaks(&self, line: usize) -> Vec<usize> {
+        let len = self.buf.line_len(line);
+        if !self.wrap || self.view_cols <= 1 || len <= self.view_cols {
+            return vec![0];
+        }
+        let chars: Vec<char> = self.buf.line_text(line).chars().collect();
+        let segw = self.wrap_seg();
+        let mut starts = vec![0usize];
+        let mut s = 0usize;
+        while len - s > self.view_cols {
+            let hard = s + segw;
+            // Prefer breaking just after the last space/tab within (s, hard);
+            // otherwise hard-break. Either way the break is > s (progress).
+            let brk = chars[s..hard]
+                .iter()
+                .rposition(|c| *c == ' ' || *c == '\t')
+                .map(|pos| s + pos + 1)
+                .unwrap_or(hard);
+            starts.push(brk);
+            s = brk;
+        }
+        starts
+    }
+
+    /// The cursor's `(logical line, visual sub-row, visual column)`.
+    fn cursor_visual(&self) -> (usize, usize, usize) {
+        let line = self.cur_line();
+        let col = self.cur_col();
+        let breaks = self.line_breaks(line);
+        let sub = breaks.iter().rposition(|&b| b <= col).unwrap_or(0);
+        (line, sub, col - breaks[sub])
+    }
+
+    /// Char index at visual column `vcol` of sub-row `sub` on `line` (clamped to
+    /// the sub-row's content width).
+    fn char_at_subrow(&self, line: usize, sub: usize, vcol: usize) -> usize {
+        let breaks = self.line_breaks(line);
+        let sub = sub.min(breaks.len() - 1);
+        let start = breaks[sub];
+        let end = breaks.get(sub + 1).copied().unwrap_or(self.buf.line_len(line));
+        self.line_start_char(line) + start + vcol.min(end - start)
+    }
+
+    /// The visual row after `(line, sub)`, or `None` at the document end.
+    fn vis_next(&self, line: usize, sub: usize) -> Option<(usize, usize)> {
+        if sub + 1 < self.line_breaks(line).len() {
+            Some((line, sub + 1))
+        } else if line + 1 < self.buf.len_lines() {
+            Some((line + 1, 0))
+        } else {
+            None
+        }
+    }
+
+    /// The visual row before `(line, sub)`, or `None` at the document start.
+    fn vis_prev(&self, line: usize, sub: usize) -> Option<(usize, usize)> {
+        if sub > 0 {
+            Some((line, sub - 1))
+        } else if line > 0 {
+            Some((line - 1, self.line_breaks(line - 1).len() - 1))
+        } else {
+            None
+        }
+    }
+
+    /// Move the cursor by `delta` *visual* rows (word-wrap mode), keeping the
+    /// goal visual column.
+    fn move_vertical_wrapped(&mut self, delta: isize) {
+        let (line, sub, vcol) = self.cursor_visual();
+        let goal = self.goal_col.unwrap_or(vcol);
+        self.goal_col = Some(goal);
+        let mut pos = (line, sub);
+        if delta >= 0 {
+            for _ in 0..delta {
+                match self.vis_next(pos.0, pos.1) {
+                    Some(p) => pos = p,
+                    None => break,
+                }
+            }
+        } else {
+            for _ in 0..(-delta) {
+                match self.vis_prev(pos.0, pos.1) {
+                    Some(p) => pos = p,
+                    None => break,
+                }
+            }
+        }
+        self.cursor = self.char_at_subrow(pos.0, pos.1, goal);
+    }
+
     // -- Key handling ------------------------------------------------------
 
     pub fn handle_key(&mut self, key: KeyEvent) -> EditorSignal {
@@ -368,7 +513,9 @@ impl EditorState {
                 &crate::ui::fkeys::EDITOR_LABELS
             };
             return match crate::ui::fkeys::index_at(self.footer_area, labels, col, row) {
-                Some(i) => self.handle_key(KeyEvent::new(KeyCode::F(i as u8 + 1), KeyModifiers::NONE)),
+                // Pass the click's modifiers through, so clicking the bar while
+                // holding Shift/Ctrl triggers the alternate action (Save as / Wrap).
+                Some(i) => self.handle_key(KeyEvent::new(KeyCode::F(i as u8 + 1), ev.modifiers)),
                 None => EditorSignal::Stay,
             };
         }
@@ -463,6 +610,18 @@ impl EditorState {
         let lines = self.buf.len_lines();
         if lines == 0 {
             return Some(0);
+        }
+        if self.wrap {
+            // Walk visual rows from the scroll position to the clicked row.
+            let target = (row - a.y) as usize;
+            let mut pos = (self.top_line, self.top_sub);
+            for _ in 0..target {
+                match self.vis_next(pos.0, pos.1) {
+                    Some(p) => pos = p,
+                    None => return Some(self.buf.len_chars()),
+                }
+            }
+            return Some(self.char_at_subrow(pos.0, pos.1, (col - a.x) as usize));
         }
         let line = (self.top_line + (row - a.y) as usize).min(lines - 1);
         let col_in = (self.left_col + (col - a.x) as usize).min(self.buf.line_len(line));
@@ -846,6 +1005,9 @@ impl EditorState {
     }
 
     fn move_vertical(&mut self, delta: isize) {
+        if self.wrap {
+            return self.move_vertical_wrapped(delta);
+        }
         let line = self.cur_line();
         let goal = self.goal_col.unwrap_or_else(|| self.cur_col());
         self.goal_col = Some(goal);
@@ -1524,5 +1686,119 @@ mod tests {
         e.handle_key(key(KeyCode::Down)); // line 2 "short" -> goal col 5 restored
         assert_eq!(e.cur_line(), 2);
         assert_eq!(e.cur_col(), 5);
+    }
+
+    #[test]
+    fn save_as_keys_emit_signal() {
+        let mut e = ed("hi");
+        assert!(matches!(
+            e.handle_key(key_mod(KeyCode::F(2), KeyModifiers::SHIFT)),
+            EditorSignal::SaveAs
+        ));
+        assert!(matches!(
+            e.handle_key(key_mod(KeyCode::F(2), KeyModifiers::CONTROL)),
+            EditorSignal::SaveAs
+        ));
+        assert!(matches!(
+            e.handle_key(key(KeyCode::F(2))),
+            EditorSignal::Save { close_after: false }
+        ));
+    }
+
+    #[test]
+    fn f1_opens_help_and_next_key_dismisses_it() {
+        let mut e = ed("hi");
+        assert!(!e.help_open());
+        e.handle_key(key(KeyCode::F(1)));
+        assert!(e.help_open(), "F1 opens the shortcut help");
+        // The dismiss key is swallowed (not inserted into the buffer).
+        e.handle_key(key(KeyCode::Char('x')));
+        assert!(!e.help_open(), "any key closes the help overlay");
+        assert_eq!(e.contents(), "hi", "the dismiss key is consumed, not typed");
+    }
+
+    #[test]
+    fn word_wrap_toggles_with_shift_and_ctrl_f9() {
+        let mut e = ed("hello");
+        e.handle_key(key_mod(KeyCode::F(9), KeyModifiers::SHIFT));
+        assert!(e.wrap, "Shift-F9 turns word wrap on");
+        e.handle_key(key_mod(KeyCode::F(9), KeyModifiers::CONTROL));
+        assert!(!e.wrap, "Ctrl-F9 turns word wrap off");
+    }
+
+    #[test]
+    fn wrap_breaks_a_long_line_at_spaces() {
+        let mut e = ed("aaaaaaaaaa bbbbbbbbbb cccccccccc"); // 32 chars
+        e.wrap = true;
+        e.view_cols = 12; // segment width 11
+        let breaks = e.line_breaks(0);
+        // Three visual rows, breaking just after each space.
+        assert_eq!(breaks, vec![0, 11, 22], "wrapped at the spaces: {breaks:?}");
+        // A line that fits is a single visual row.
+        let mut s = ed("short");
+        s.wrap = true;
+        s.view_cols = 12;
+        assert_eq!(s.line_breaks(0), vec![0]);
+    }
+
+    #[test]
+    fn wrap_arrows_move_by_visual_row() {
+        let mut e = ed("aaaaaaaaaa bbbbbbbbbb cccccccccc");
+        e.wrap = true;
+        e.view_cols = 12;
+        e.cursor = 0; // line 0, sub-row 0, column 0
+        e.handle_key(key(KeyCode::Down));
+        assert_eq!(e.cursor, 11, "Down steps to the next visual row (offset 11)");
+        e.handle_key(key(KeyCode::Down));
+        assert_eq!(e.cursor, 22, "Down again → third visual row (offset 22)");
+        e.handle_key(key(KeyCode::Up));
+        assert_eq!(e.cursor, 11, "Up returns one visual row");
+    }
+
+    #[test]
+    fn wrap_renders_continuation_marker() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let mut e = ed("aaaaaaaaaa bbbbbbbbbb cccccccccc");
+        e.handle_key(key_mod(KeyCode::F(9), KeyModifiers::SHIFT)); // wrap on
+        let theme = crate::ui::theme::Theme::mc();
+        let mut t = Terminal::new(TestBackend::new(14, 8)).unwrap();
+        t.draw(|f| crate::editor::render::render(f, f.area(), &mut e, &theme)).unwrap();
+        let b = t.backend().buffer();
+        let mut s = String::new();
+        for y in 0..b.area.height {
+            for x in 0..b.area.width {
+                s.push_str(b[(x, y)].symbol());
+            }
+        }
+        assert!(s.contains('>'), "continued wrapped rows show a `>` marker");
+    }
+
+    #[test]
+    fn fbar_labels_switch_while_modifier_held() {
+        let mut e = ed("hi");
+        use ratatui::crossterm::event::ModifierKeyCode;
+        let press = |code| KeyEvent::new_with_kind(code, KeyModifiers::NONE, KeyEventKind::Press);
+        let release =
+            |code| KeyEvent::new_with_kind(code, KeyModifiers::NONE, KeyEventKind::Release);
+
+        let plain = e.footer_labels();
+        assert_eq!(plain[1], "Save");
+        assert_eq!(plain[8], "Hex");
+        // Pressing (holding) Ctrl flips F2/F9 to their alternates.
+        e.note_key(press(KeyCode::Modifier(ModifierKeyCode::LeftControl)));
+        let held = e.footer_labels();
+        assert_eq!(held[1], "Save as");
+        assert_eq!(held[8], "Wrap");
+        // Releasing it restores the defaults (a modifier-key release event still
+        // reports the modifier as set, so this must come from the release kind).
+        e.note_key(release(KeyCode::Modifier(ModifierKeyCode::LeftControl)));
+        assert_eq!(e.footer_labels()[1], "Save");
+        assert_eq!(e.footer_labels()[8], "Hex");
+        // Shift works too.
+        e.note_key(press(KeyCode::Modifier(ModifierKeyCode::RightShift)));
+        assert_eq!(e.footer_labels()[1], "Save as");
+        e.note_key(release(KeyCode::Modifier(ModifierKeyCode::RightShift)));
+        assert_eq!(e.footer_labels()[1], "Save");
     }
 }

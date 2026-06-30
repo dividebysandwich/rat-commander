@@ -597,6 +597,20 @@ fn multi_rename_mouse_focuses_and_toggles_fields() {
 }
 
 #[test]
+fn save_as_dialog_confirms_joined_path() {
+    let dir = std::env::temp_dir();
+    let mut d = SaveAsDialog::new(dir.clone(), "notes.txt".into(), None);
+    // Focus starts on the name field, so Enter submits the cwd-joined path.
+    match d.handle_key(key(KeyCode::Enter)) {
+        DialogResult::Submit(Submit::EditorSaveAs(p)) => assert_eq!(p, dir.join("notes.txt")),
+        _ => panic!("expected an EditorSaveAs submit"),
+    }
+    // An empty name refuses to submit.
+    let mut d = SaveAsDialog::new(dir, "   ".into(), None);
+    assert!(matches!(d.handle_key(key(KeyCode::Enter)), DialogResult::None));
+}
+
+#[test]
 fn compare_dialog_selects_mode() {
     // Default focus is Quick; Enter submits it.
     let mut d = CompareDialog::new();

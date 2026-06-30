@@ -1007,6 +1007,34 @@ async fn edit_startup_opens_file_in_editor() {
 }
 
 #[tokio::test]
+async fn editor_save_as_writes_and_retargets() {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("rc_sa_{}_{nanos}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let orig = dir.join("orig.txt");
+    std::fs::write(&orig, b"data").unwrap();
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.open_path_in_editor(orig.clone()).await;
+    assert!(st.editor.is_some());
+
+    // Save As to a new path: the file is written and the editor retargets.
+    let dest = dir.join("renamed.md");
+    st.do_save_as(dest.clone()).await;
+    assert_eq!(std::fs::read_to_string(&dest).unwrap(), "data", "buffer written to the new path");
+    let ed = st.editor.as_ref().unwrap();
+    assert_eq!(ed.name, "renamed.md", "editor name retargeted");
+    assert_eq!(ed.path, VfsPath::local(&dest), "editor path retargeted");
+    assert!(!ed.dirty, "saved buffer is no longer dirty");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
 async fn disk_mounter_opens_and_prompts_for_path() {
     let (tx, _rx) = async_bridge::channel();
     let mut st = AppState::new(tx);

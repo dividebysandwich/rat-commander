@@ -103,7 +103,9 @@ also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1
 
 | Key | Action |
 | --- | --- |
+| `F1` | Editor shortcut help |
 | `F2` | Save |
+| `Shift-F2` / `Ctrl-F2` | Save as… (browse + name) |
 | `F3` | Start / end block mark |
 | `F4` | Search & replace |
 | `F5` / `F6` / `F8` | Copy / move / delete block |
@@ -111,6 +113,7 @@ also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1
 | `Ctrl-C` / `Ctrl-V` | Copy block to clipboard / paste |
 | `Ctrl-Z` / `Ctrl-Y` | Undo / redo |
 | `F9` | Toggle in-place hex editor |
+| `Shift-F9` / `Ctrl-F9` | Toggle word wrap |
 | `Esc` / `F10` | Quit (prompts if modified) |
 
 ### Dialogs

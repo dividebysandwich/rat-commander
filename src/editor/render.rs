@@ -40,12 +40,20 @@ pub fn render(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) {
         return;
     }
 
-    ensure_visible(ed);
+    if ed.wrap() {
+        ensure_visible_wrapped(ed);
+    } else {
+        ensure_visible(ed);
+    }
     // Highlight up to the bottom of the visible window before drawing.
     let bottom = ed.top_line + ed.view_rows + 1;
     ed.ensure_hl(bottom);
     render_status(f, status, ed, theme);
-    let cursor_pos = render_text(f, text_area, ed, theme);
+    let cursor_pos = if ed.wrap() {
+        render_text_wrapped(f, text_area, ed, theme)
+    } else {
+        render_text(f, text_area, ed, theme)
+    };
     render_footer(f, footer, ed, theme);
 
     // The F1 help overlay sits above the text and hides the hardware cursor.
@@ -229,7 +237,8 @@ fn render_hex_status(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Th
 fn render_hex_footer(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) {
     if ed.status.is_empty() {
         // Same F-key bar as text mode, showing only the supported functions.
-        crate::ui::fkeys::render(f, area, &crate::ui::fkeys::HEX_LABELS, theme);
+        let labels = ed.footer_labels();
+        crate::ui::fkeys::render(f, area, &labels, theme);
     } else {
         f.render_widget(
             Paragraph::new(Line::from(Span::styled(
@@ -266,9 +275,10 @@ fn render_status(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) {
         None => "C= <EOF>".to_string(),
     };
     let dirty = if ed.dirty { "[+]" } else { "   " };
-    let name = ellipsize(&ed.name, area.width.saturating_sub(48) as usize);
+    let wrap = if ed.wrap() { " WRAP" } else { "" };
+    let name = ellipsize(&ed.name, area.width.saturating_sub(54) as usize);
     let text = format!(
-        " {name} {dirty}  Ln {}/{}  Col {}  {code}  Ofs {} ",
+        " {name} {dirty}{wrap}  Ln {}/{}  Col {}  {code}  Ofs {} ",
         line + 1,
         total,
         col + 1,
@@ -362,11 +372,157 @@ fn render_text(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) -> Op
     None
 }
 
+/// Adjust the wrap scroll position (`top_line` / `top_sub`) so the cursor's
+/// visual row is within the window. Walks at most `view_rows` visual rows.
+fn ensure_visible_wrapped(ed: &mut EditorState) {
+    ed.left_col = 0;
+    let total = ed.buf.len_lines();
+    if ed.top_line >= total {
+        ed.top_line = total.saturating_sub(1);
+        ed.top_sub = 0;
+    }
+    let tsubs = ed.line_breaks(ed.top_line).len();
+    if ed.top_sub >= tsubs {
+        ed.top_sub = tsubs - 1;
+    }
+    let (cl, cs, _) = ed.cursor_visual();
+    // Above the window → scroll up to the cursor's row.
+    if (cl, cs) < (ed.top_line, ed.top_sub) {
+        ed.top_line = cl;
+        ed.top_sub = cs;
+        return;
+    }
+    // Count visual rows from the top down to the cursor (capped).
+    let mut steps = 0usize;
+    let mut pos = (ed.top_line, ed.top_sub);
+    while pos != (cl, cs) {
+        match ed.vis_next(pos.0, pos.1) {
+            Some(p) => {
+                pos = p;
+                steps += 1;
+                if steps >= ed.view_rows {
+                    break;
+                }
+            }
+            None => break,
+        }
+    }
+    // At/below the bottom → put the cursor's row on the last visible line.
+    if steps >= ed.view_rows {
+        let mut top = (cl, cs);
+        for _ in 0..ed.view_rows.saturating_sub(1) {
+            match ed.vis_prev(top.0, top.1) {
+                Some(p) => top = p,
+                None => break,
+            }
+        }
+        ed.top_line = top.0;
+        ed.top_sub = top.1;
+    }
+}
+
+/// Render the body with virtual word wrap: each logical line spans one or more
+/// screen rows, and every *continued* row ends in a `>` marker. Returns the
+/// hardware cursor position, if on screen.
+fn render_text_wrapped(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) -> Option<Position> {
+    let normal = Style::default().fg(theme.text_fg).bg(theme.panel_bg);
+    let block_style = Style::default()
+        .fg(ratatui::style::Color::Black)
+        .bg(ratatui::style::Color::Cyan);
+    let marker_style = Style::default().fg(theme.header_fg).bg(theme.panel_bg);
+    let block = ed.block_range();
+    let cols = area.width as usize;
+    let total_lines = ed.buf.len_lines();
+    let (cl, cs, cvcol) = ed.cursor_visual();
+
+    let mut lines: Vec<Line> = Vec::with_capacity(area.height as usize);
+    let mut cursor_screen = None;
+    let mut pos = (ed.top_line, ed.top_sub);
+    let mut past_end = ed.top_line >= total_lines;
+    for row in 0..area.height as usize {
+        if past_end {
+            lines.push(Line::from(Span::styled(" ".repeat(cols), normal)));
+            continue;
+        }
+        let (line, sub) = pos;
+        let breaks = ed.line_breaks(line);
+        let start = breaks[sub];
+        let end = breaks.get(sub + 1).copied().unwrap_or(ed.buf.line_len(line));
+        let has_marker = sub + 1 < breaks.len();
+        let line_start = ed.buf.line_to_char(line);
+        let chars: Vec<char> = ed.buf.line_text(line).chars().collect();
+        let mut fg = ed.line_fg(line, chars.len(), theme.text_fg);
+        let hashes = crate::ui::hexcolor::hex_color_hashes(&chars);
+        if !hashes.is_empty() {
+            let v = fg.get_or_insert_with(|| vec![theme.text_fg; chars.len()]);
+            if v.len() < chars.len() {
+                v.resize(chars.len(), theme.text_fg);
+            }
+            for (i, color) in hashes {
+                v[i] = color;
+            }
+        }
+
+        let mut spans: Vec<Span> = Vec::new();
+        let mut run = String::new();
+        let mut run_style = normal;
+        for vc in 0..cols {
+            // Reserve the final column for the `>` continuation marker.
+            if has_marker && vc + 1 == cols {
+                if !run.is_empty() {
+                    spans.push(Span::styled(std::mem::take(&mut run), run_style));
+                }
+                spans.push(Span::styled(">".to_string(), marker_style));
+                run_style = normal;
+                break;
+            }
+            let ci = start + vc;
+            let (ch, style) = if ci < end {
+                let abs = line_start + ci;
+                if block.map(|(s, e)| abs >= s && abs < e).unwrap_or(false) {
+                    (chars[ci], block_style)
+                } else {
+                    let color = fg.as_ref().map(|v| v[ci]).unwrap_or(theme.text_fg);
+                    (chars[ci], Style::default().fg(color).bg(theme.panel_bg))
+                }
+            } else {
+                (' ', normal)
+            };
+            if style != run_style && !run.is_empty() {
+                spans.push(Span::styled(std::mem::take(&mut run), run_style));
+            }
+            run_style = style;
+            run.push(ch);
+        }
+        if !run.is_empty() {
+            spans.push(Span::styled(run, run_style));
+        }
+        lines.push(Line::from(spans));
+
+        if (line, sub) == (cl, cs) {
+            let x = area.x + cvcol.min(cols.saturating_sub(1)) as u16;
+            cursor_screen = Some(Position::new(x, area.y + row as u16));
+        }
+
+        match ed.vis_next(line, sub) {
+            Some(p) => pos = p,
+            None => past_end = true,
+        }
+    }
+    f.render_widget(
+        Paragraph::new(lines).style(Style::default().bg(theme.panel_bg)),
+        area,
+    );
+    cursor_screen
+}
+
 fn render_footer(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) {
     let width = area.width as usize;
     if ed.status.is_empty() {
-        // Same full-width, number+label styling as the main program.
-        crate::ui::fkeys::render(f, area, &crate::ui::fkeys::EDITOR_LABELS, theme);
+        // Same full-width, number+label styling as the main program. Labels
+        // reflect the held modifiers (Save→Save as, Hex→Wrap with Shift/Ctrl).
+        let labels = ed.footer_labels();
+        crate::ui::fkeys::render(f, area, &labels, theme);
     } else {
         f.render_widget(
             Paragraph::new(Line::from(Span::styled(
