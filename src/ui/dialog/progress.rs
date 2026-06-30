@@ -20,11 +20,16 @@ pub struct ProgressDialog {
     pub files_total: u64,
     /// When true, render an indeterminate sweep (e.g. find-file scanning).
     pub indeterminate: bool,
+    /// Noun in the indeterminate "{n} {noun} found" line (e.g. "files").
+    pub(crate) noun: &'static str,
     /// Transfer-speed samples: (bytes-done, bytes/sec) for the chart.
     pub(crate) samples: Vec<(f64, f64)>,
     peak_speed: f64,
     last_bytes: u64,
     last_instant: Option<std::time::Instant>,
+    /// The Abort button's screen rect, recorded by the indeterminate renderer so
+    /// the button can also be clicked (determinate dialogs leave it empty).
+    abort_rect: Rect,
 }
 
 impl ProgressDialog {
@@ -40,10 +45,12 @@ impl ProgressDialog {
             files_done: 0,
             files_total: 0,
             indeterminate: false,
+            noun: "files",
             samples: Vec::new(),
             peak_speed: 0.0,
             last_bytes: 0,
             last_instant: None,
+            abort_rect: Rect::default(),
         }
     }
 
@@ -52,6 +59,30 @@ impl ProgressDialog {
         let mut d = Self::new(id, "Searching");
         d.indeterminate = true;
         d
+    }
+
+    /// An indeterminate "scanning" dialog with a custom title `verb` and the
+    /// noun used in its "{n} {noun} found" line.
+    pub fn scan(id: TaskId, verb: &'static str, noun: &'static str) -> Self {
+        let mut d = Self::new(id, verb);
+        d.indeterminate = true;
+        d.noun = noun;
+        d
+    }
+
+    /// Hit-test a click against the Abort button (indeterminate dialogs only).
+    pub(crate) fn handle_click(&self, col: u16, row: u16) -> DialogResult {
+        let r = self.abort_rect;
+        if self.indeterminate
+            && r.width > 0
+            && col >= r.x
+            && col < r.x + r.width
+            && row >= r.y
+            && row < r.y + r.height
+        {
+            return DialogResult::Abort(self.id);
+        }
+        DialogResult::None
     }
 
     pub fn update(&mut self, u: &ProgressUpdate) {
@@ -119,7 +150,7 @@ impl ProgressDialog {
         }
     }
 
-    pub(crate) fn render(&self, f: &mut Frame, area: Rect, theme: &Theme) {
+    pub(crate) fn render(&mut self, f: &mut Frame, area: Rect, theme: &Theme) {
         if self.indeterminate {
             return self.render_indeterminate(f, area, theme);
         }
@@ -280,7 +311,7 @@ impl ProgressDialog {
     }
 
     /// Render an indeterminate scanning dialog (current path + sweep + count).
-    fn render_indeterminate(&self, f: &mut Frame, area: Rect, theme: &Theme) {
+    fn render_indeterminate(&mut self, f: &mut Frame, area: Rect, theme: &Theme) {
         let w = 64u16.min(area.width.saturating_sub(4));
         let rect = centered(area, w, 8);
         draw_shadow(f, rect, theme);
@@ -293,7 +324,8 @@ impl ProgressDialog {
         let line_at = |yy: u16| Rect { x: inner.x, y: yy, width: inner.width, height: 1 };
 
         f.render_widget(
-            Paragraph::new(Line::from(format!("{} files found", self.files_done))).style(base),
+            Paragraph::new(Line::from(format!("{} {} found", self.files_done, self.noun)))
+                .style(base),
             line_at(inner.y),
         );
         let name = crate::util::text::ellipsize(&self.current_name, inner.width as usize);
@@ -317,12 +349,17 @@ impl ProgressDialog {
             line_at(inner.y + 3),
         );
 
-        f.render_widget(
-            Paragraph::new(Line::from(button("[ Abort ]", true, theme)))
-                .alignment(ratatui::layout::Alignment::Center)
-                .style(base),
-            line_at(inner.y + inner.height - 1),
-        );
+        // Centered, clickable Abort button (rect recorded for hit-testing).
+        let label = "[ Abort ]";
+        let bw = label.chars().count() as u16;
+        let arect = Rect {
+            x: inner.x + inner.width.saturating_sub(bw) / 2,
+            y: inner.y + inner.height - 1,
+            width: bw,
+            height: 1,
+        };
+        f.render_widget(Paragraph::new(Line::from(button(label, true, theme))).style(base), arect);
+        self.abort_rect = arect;
     }
 }
 

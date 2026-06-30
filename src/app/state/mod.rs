@@ -15,7 +15,7 @@ use crate::proc::{ProcSignal, ProcView};
 use crate::ui::cmdline::CommandLine;
 use crate::ui::dialog::{
     BusyDialog, CompareDialog, CompareMode, ConfirmDialog, Dialog, DialogResult, DriveDialog,
-    FileBrowserDialog, FindDialog, FindParams, FlashTargetDialog, FormDialog, GotoDialog,
+    DupCriteria, FileBrowserDialog, FindDialog, FindParams, FlashTargetDialog, FormDialog, GotoDialog,
     ImageSaveDialog, InputDialog, InputPurpose, MessageDialog, MultiRenameDialog, OverwriteDialog,
     ProgressDialog, SearchReplaceDialog, SearchReplaceParams, SelectDialog, Submit, UserMenuDialog,
 };
@@ -357,6 +357,7 @@ mod fileops;
 mod disk;
 mod remote;
 mod find;
+mod duplicates;
 mod viewer_editor;
 
 /// Read a file fully into memory (capped just above the viewer limit).

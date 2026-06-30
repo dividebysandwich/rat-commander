@@ -80,6 +80,7 @@ impl AppState {
             Submit::UserCommand(tpl) => self.pending_run = Some(self.expand_macros(&tpl)),
             Submit::KillProcess { pid, force } => self.kill_process(pid, force),
             Submit::CompareDirs(mode) => self.compare_dirs(mode).await,
+            Submit::FindDuplicates(crit) => self.start_find_duplicates(crit),
             Submit::Quit => self.pending_quit = true,
             Submit::EditorSaveQuit => self.save_editor(true).await,
             Submit::EditorSave => self.save_editor(false).await,

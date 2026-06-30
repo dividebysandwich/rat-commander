@@ -318,6 +318,33 @@ fn progress_dialog_estimates_time() {
 }
 
 #[test]
+fn indeterminate_progress_abort_is_clickable_but_determinate_is_not() {
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    let theme = crate::ui::theme::Theme::mc();
+    let area = Rect::new(0, 0, 80, 24);
+
+    // Indeterminate scan dialog: the Abort button (centered on the last interior
+    // row of the 64x8 centered box) is hit-testable.
+    let mut d = Dialog::Progress(ProgressDialog::scan(7, "Find duplicates", "duplicates"));
+    let mut t = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    t.draw(|f| d.render(f, area, &theme)).unwrap();
+    // Box centered(80x24, 64, 8): origin (8,8); inner (9,9,62,6); button row 14.
+    assert!(
+        matches!(d.handle_click(area, 40, 14), DialogResult::Abort(7)),
+        "clicking the scan dialog's Abort button cancels it"
+    );
+    assert!(matches!(d.handle_click(area, 40, 10), DialogResult::None), "a click elsewhere does nothing");
+
+    // A determinate (copy) progress dialog ignores clicks entirely.
+    let mut c = Dialog::Progress(ProgressDialog::new(8, "Copying"));
+    t.draw(|f| c.render(f, area, &theme)).unwrap();
+    for row in 0..24 {
+        assert!(matches!(c.handle_click(area, 40, row), DialogResult::None));
+    }
+}
+
+#[test]
 fn unmount_danger_defaults_to_cancel_and_confirms_explicitly() {
     // The red essential-mount warning defaults focus to Cancel, so a stray
     // Enter is harmless.

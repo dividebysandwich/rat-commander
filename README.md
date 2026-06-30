@@ -54,6 +54,11 @@ The installed executable is named **`rc`** for quick typing.
   two panels — **Quick** (present in one panel only), **Size only** (also marks
   the larger of two differently-sized files), or **Content** (marks both files
   whenever their bytes differ)
+- **Find duplicates** (Command menu): mark files that are identical between the
+  two panel directories. A dialog chooses what "identical" means — file names
+  always, plus optionally **size**, **date/time**, and/or **content** (none
+  ticked ⇒ name only), with a **case-sensitive** name-match toggle (on by
+  default).
 - **Compare files** (Command menu): a side-by-side diff of the files under the
   cursor in each panel. Changed/added blocks are highlighted and connected by
   gutter guides; **↑/↓** moves through the document and selects the active change,

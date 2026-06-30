@@ -196,6 +196,9 @@ impl AppState {
             MenuAction::Refresh => self.reload_all().await,
             MenuAction::ToggleSplit => self.split = self.split.toggle(),
             MenuAction::FindFile => self.open_find_dialog(),
+            MenuAction::FindDuplicates => {
+                self.dialog = Some(Dialog::Form(FormDialog::find_duplicates()))
+            }
             MenuAction::ProcExplorer => self.open_proc_explorer(),
             MenuAction::DiskExplorer => self.open_disk_explorer(),
             MenuAction::DiskManager => self.mountview = Some(MountView::new()),

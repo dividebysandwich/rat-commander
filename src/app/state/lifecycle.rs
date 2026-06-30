@@ -237,6 +237,15 @@ impl AppState {
                 }
                 self.panelize_results(results);
             }
+            AppEvent::DuplicatesFound { id, left, right } => {
+                self.tasks.remove(&id);
+                if let Some(Dialog::Progress(p)) = &self.dialog
+                    && p.id == id
+                {
+                    self.dialog = None;
+                }
+                self.mark_duplicates(left, right);
+            }
             AppEvent::DiskScanProgress { generation, done, total } => {
                 if let Some(dv) = self.diskview.as_mut()
                     && dv.generation == generation
@@ -317,7 +326,7 @@ impl AppState {
         self.dialog = Some(Dialog::Message(MessageDialog::error(msg)));
     }
 
-    fn show_info(&mut self, title: &str, msg: impl Into<String>) {
+    pub(in crate::app::state) fn show_info(&mut self, title: &str, msg: impl Into<String>) {
         self.dialog = Some(Dialog::Message(MessageDialog {
             title: title.to_string(),
             message: msg.into(),

@@ -251,6 +251,86 @@ async fn compare_dirs_marks_by_mode() {
     std::fs::remove_dir_all(&root).ok();
 }
 
+/// Run a spawned background task to completion, applying its events (and the
+/// final `DuplicatesFound`) to `st`.
+async fn drain_duplicates(st: &mut AppState, rx: &mut crate::util::async_bridge::AppReceiver) {
+    loop {
+        let ev = rx.recv().await.unwrap();
+        let done = matches!(ev, AppEvent::DuplicatesFound { .. });
+        st.apply_event(ev).await;
+        if done {
+            break;
+        }
+    }
+}
+
+#[tokio::test]
+async fn find_duplicates_marks_by_criteria() {
+    use crate::ui::dialog::DupCriteria;
+    use std::collections::HashSet;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("rc_dups_{}_{nanos}", std::process::id()));
+    let da = root.join("a");
+    let db = root.join("b");
+    std::fs::create_dir_all(&da).unwrap();
+    std::fs::create_dir_all(&db).unwrap();
+    std::fs::write(da.join("same.txt"), b"hello").unwrap(); // identical
+    std::fs::write(db.join("same.txt"), b"hello").unwrap();
+    std::fs::write(da.join("diff.txt"), b"abc").unwrap(); // same size, different bytes
+    std::fs::write(db.join("diff.txt"), b"xyz").unwrap();
+    std::fs::write(da.join("big.txt"), b"AAAA").unwrap(); // different size
+    std::fs::write(db.join("big.txt"), b"AA").unwrap();
+    std::fs::write(da.join("onlyA.txt"), b"x").unwrap(); // present on one side only
+    std::fs::write(db.join("onlyB.txt"), b"y").unwrap();
+    std::fs::write(da.join("Case.txt"), b"z").unwrap(); // name differs only by case
+    std::fs::write(db.join("case.txt"), b"z").unwrap();
+
+    let (tx, mut rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.panels[0].cwd = VfsPath::local(&da);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+    st.panels[1].cwd = VfsPath::local(&db);
+    st.panels[1].backend = st.registry.local();
+    st.panels[1].reload().await.unwrap();
+
+    let marked = |p: &Panel| -> HashSet<String> {
+        p.entries.iter().filter(|e| p.selection.is_marked(&e.name)).map(|e| e.name.clone()).collect()
+    };
+    let set = |names: &[&str]| -> HashSet<String> { names.iter().map(|s| s.to_string()).collect() };
+    let crit = |size, date, content, cs| DupCriteria { size, date, content, case_sensitive: cs };
+
+    // Names only (case-sensitive): every same-named file is a duplicate, but
+    // Case.txt / case.txt differ in case so they don't match.
+    st.start_find_duplicates(crit(false, false, false, true));
+    drain_duplicates(&mut st, &mut rx).await;
+    assert_eq!(marked(&st.panels[0]), set(&["same.txt", "diff.txt", "big.txt"]));
+    assert_eq!(marked(&st.panels[1]), set(&["same.txt", "diff.txt", "big.txt"]));
+
+    // By content: only files with identical bytes count (diff differs; big's
+    // size already rules it out without a read).
+    st.start_find_duplicates(crit(false, false, true, true));
+    drain_duplicates(&mut st, &mut rx).await;
+    assert_eq!(marked(&st.panels[0]), set(&["same.txt"]));
+    assert_eq!(marked(&st.panels[1]), set(&["same.txt"]));
+
+    // By size: same and diff share a size; big does not.
+    st.start_find_duplicates(crit(true, false, false, true));
+    drain_duplicates(&mut st, &mut rx).await;
+    assert_eq!(marked(&st.panels[0]), set(&["same.txt", "diff.txt"]));
+
+    // Case-insensitive names: now Case.txt and case.txt match as well.
+    st.start_find_duplicates(crit(false, false, false, false));
+    drain_duplicates(&mut st, &mut rx).await;
+    assert!(marked(&st.panels[0]).contains("Case.txt"), "case-insensitive name match (left)");
+    assert!(marked(&st.panels[1]).contains("case.txt"), "case-insensitive name match (right)");
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
 #[test]
 fn parse_cd_recognizes_the_builtin() {
     assert_eq!(parse_cd("cd"), Some(""));

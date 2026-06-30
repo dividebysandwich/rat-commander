@@ -38,6 +38,8 @@ pub enum MenuAction {
     Refresh,
     ToggleSplit,
     FindFile,
+    /// Mark files identical between the left and right panel directories.
+    FindDuplicates,
     ProcExplorer,
     DiskExplorer,
     DiskManager,
@@ -152,6 +154,7 @@ impl MenuBarState {
 
         let mut command_items = vec![
             item("&Find file...", MenuAction::FindFile),
+            item("Find d&uplicates...", MenuAction::FindDuplicates),
             item("Compare &directories...", MenuAction::CompareDirs),
             item("Compare fi&les...", MenuAction::CompareFiles),
             item("&Process explorer...", MenuAction::ProcExplorer),

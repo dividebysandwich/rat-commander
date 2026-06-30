@@ -46,6 +46,14 @@ pub enum AppEvent {
         id: TaskId,
         results: Vec<(VfsPath, u64)>,
     },
+    /// A find-duplicates task finished (or was cancelled). Carries the file names
+    /// to mark in the left and right panels (identical per the chosen criteria);
+    /// partial on cancel.
+    DuplicatesFound {
+        id: TaskId,
+        left: Vec<String>,
+        right: Vec<String>,
+    },
     /// Progress of an in-flight disk-explorer scan: `done` of `total` immediate
     /// subdirectories sized so far. `generation` guards against stale updates.
     DiskScanProgress {

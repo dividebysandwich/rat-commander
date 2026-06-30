@@ -1,7 +1,7 @@
 //! Form dialog (settings, chmod, chown, symlink, connect, formatter).
 
 use super::widgets::*;
-use super::{ConfirmValues, DialogResult, SettingsValues, Submit};
+use super::{ConfirmValues, DialogResult, DupCriteria, SettingsValues, Submit};
 use crate::vfs::remote::{Protocol, RemoteCreds};
 
 // ---------------------------------------------------------------------------
@@ -166,6 +166,8 @@ pub enum FormPurpose {
     Connect(Protocol, usize),
     /// Format this device node (disk manager).
     Format(String),
+    /// Collect the "Find duplicates" comparison criteria.
+    FindDuplicates,
 }
 
 /// Connect-form history dropdown state (recent servers).
@@ -220,6 +222,23 @@ impl FormDialog {
             title: "Confirmations".to_string(),
             form,
             purpose: FormPurpose::Confirmations,
+            connect: None,
+        }
+    }
+
+    /// Build the "Find duplicates" options form. With size/date/content all off,
+    /// only file names are compared; name matching is case-sensitive by default.
+    pub fn find_duplicates() -> Self {
+        let form = Form::new(vec![
+            Field::check("Also compare size", false),
+            Field::check("Also compare date/time", false),
+            Field::check("Also compare content", false),
+            Field::check("Case-sensitive names", true),
+        ]);
+        FormDialog {
+            title: "Find duplicates".to_string(),
+            form,
+            purpose: FormPurpose::FindDuplicates,
             connect: None,
         }
     }
@@ -473,6 +492,12 @@ impl FormDialog {
                     inode_bytes: fields[3].as_text().trim().to_string(),
                 })
             }
+            FormPurpose::FindDuplicates => Submit::FindDuplicates(DupCriteria {
+                size: fields[0].as_bool(),
+                date: fields[1].as_bool(),
+                content: fields[2].as_bool(),
+                case_sensitive: fields[3].as_bool(),
+            }),
             FormPurpose::Chmod(paths) => {
                 Submit::Chmod(paths.clone(), self.chmod_mode(), self.recursive())
             }

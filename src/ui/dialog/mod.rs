@@ -157,6 +157,9 @@ pub enum Submit {
     KillProcess { pid: i32, force: bool },
     /// Compare the two panels' directories and mark the differing files.
     CompareDirs(CompareMode),
+    /// Find files identical between the two panels (by the chosen criteria) and
+    /// mark them in both.
+    FindDuplicates(DupCriteria),
     /// Open/execute a local file with its default application (confirmed).
     OpenWith(std::path::PathBuf),
     /// Mount `device` at `path` (disk manager); the app handles create-if-missing.
@@ -225,6 +228,18 @@ pub enum CompareMode {
     Size,
     /// By content: mark both files when their bytes differ.
     Content,
+}
+
+/// Which attributes must match for the "Find duplicates" tool to treat two
+/// same-named files as identical. With all of `size`/`date`/`content` off, only
+/// the file name is compared.
+#[derive(Debug, Clone, Copy)]
+pub struct DupCriteria {
+    pub size: bool,
+    pub date: bool,
+    pub content: bool,
+    /// Whether the file-name match is case-sensitive (default on).
+    pub case_sensitive: bool,
 }
 
 /// Values collected by the settings form.
@@ -321,9 +336,10 @@ impl Dialog {
             }
             // Any click dismisses a message box.
             Dialog::Message(_) => return DialogResult::Cancel,
-            // The progress dialog is keyboard-aborted (Esc); ignore clicks so a
-            // stray click can't cancel a running operation.
-            Dialog::Progress(_) => return DialogResult::None,
+            // A determinate (copy/move) progress dialog ignores clicks so a stray
+            // click can't cancel it; an indeterminate scan dialog hit-tests its
+            // Abort button so it can be cancelled with the mouse too.
+            Dialog::Progress(d) => return d.handle_click(col, row),
             // The busy spinner can't be dismissed at all.
             Dialog::Busy(_) => return DialogResult::None,
             // The Goto dialog hit-tests its radios and OK/Cancel buttons.
