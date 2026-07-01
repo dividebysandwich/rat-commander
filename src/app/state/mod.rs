@@ -69,6 +69,22 @@ struct PendingPriv {
     busy: String,
 }
 
+/// A live remote connection the user can switch back to like a drive letter.
+///
+/// The backend itself is not stored here — it stays the single source of truth
+/// in [`AppState::registry`], resolvable via `scheme`. `id` is the stable key
+/// the UI/`Submit` path uses (so dialogs never carry a `String`); `scheme` is
+/// how we tell which session a panel is currently on (`panel.cwd.scheme`).
+pub struct RemoteSession {
+    pub id: usize,
+    /// Unique backend scheme, e.g. `"sftp-3"`.
+    pub scheme: String,
+    /// One-line label for the picker button, e.g. `"sftp://user@host"`.
+    pub label: String,
+    /// The last directory visited on this session, restored on switch-back.
+    pub cwd: VfsPath,
+}
+
 /// How to execute a privileged command on the background task.
 enum PrivExec {
     /// Already root: run the command directly.
@@ -108,6 +124,13 @@ pub struct AppState {
     pub theme: Theme,
     pub config: Config,
     pub registry: Registry,
+    /// All open remote connections, in creation order. Each stays alive (and
+    /// registered) until the user explicitly disconnects it, so a panel can
+    /// switch to Local and back without losing the connection.
+    pub sessions: Vec<RemoteSession>,
+    /// Per-panel last local directory, restored by the "Local" button so a panel
+    /// returns to where it was before going remote (drive-letter style).
+    last_local_cwd: [VfsPath; 2],
     tasks: HashMap<TaskId, TaskHandle>,
     next_task_id: TaskId,
     next_session_id: usize,

@@ -514,8 +514,22 @@ stored): open the **history dropdown** with the **▼** on the Host field, or by
 pressing **↓** while the Host field is focused, to refill the form.
 
 SSH host keys are checked against `~/.ssh/known_hosts` (trust-on-first-use; a
-changed key is rejected). **Disconnect** (a button in the picker, or the panel
-menu) returns the panel to the local filesystem.
+changed key is rejected).
+
+**Connections behave like drives.** Every open connection stays alive as a
+button in the picker, so you can switch a panel between **Local** and any server
+at will — like drive letters. The **Local** button returns a panel to the local
+filesystem *without* closing the connection (it even restores the local
+directory you were last in); the connection is only closed by its own **✕
+Disconnect** button, which asks for confirmation first. Several servers can be
+open at once, and each remembers the directory you were last browsing on it. The
+open connections (and a disconnect entry for each) also appear in the **Left** /
+**Right** panel menus.
+
+To keep things simple, **one panel is always local**: while one panel is on a
+remote connection, the other panel's picker offers only Local and drive letters.
+Return the remote panel to Local first to open a connection on the other side.
+This avoids server-to-server transfers.
 
 **Pulling a file down.** When the destination panel is remote, the copy/move
 dialog prefills a `scheme://path` target (e.g. `scp-0:///home/user`). **Delete
@@ -650,8 +664,8 @@ name (defaulting to `<device>.img`), then streams the device out to that file.
 On Windows the **Drive / connection picker** (**Alt-F1** / **Alt-F2**, or the
 panel menu's **Drive…** entry) shows the available **drive letters** on its first
 row, with the current drive highlighted. Use the arrow keys or press a
-drive-letter key to switch the panel to that drive. The SFTP / FTP / SCP buttons
-appear below.
+drive-letter key to switch the panel to that drive. The **Local** button, any
+open remote connections and the SFTP / FTP / SCP buttons appear below.
 
 
 ## Configuration

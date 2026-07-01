@@ -47,6 +47,10 @@ pub enum MenuAction {
     CompareFiles,
     Connect(usize, Protocol),
     Disconnect(usize),
+    /// Switch a panel (side) to an already-open remote session by id.
+    SwitchSession(usize, usize),
+    /// Disconnect (with confirmation) the remote session with this id.
+    DisconnectSession(usize),
     /// Open the drive-letter picker for a panel (Windows).
     Drive(usize),
     Settings,
@@ -95,10 +99,13 @@ pub struct MenuBarState {
 impl MenuBarState {
     /// Build the standard menu set (Left, File, Command, Options, Right).
     /// `active` selects which top menu is initially open (0 = Left, 4 = Right).
-    pub fn new(active: usize) -> Self {
+    /// `sessions` are the open remote connections `(id, label)`, listed in each
+    /// panel menu so they can be switched to / disconnected without the drive
+    /// picker.
+    pub fn new(active: usize, sessions: &[(usize, String)]) -> Self {
         let panel_menu = |side: usize| {
-            // `mut` is used only on Windows (the Drive item is inserted there).
-            #[allow(unused_mut)]
+            // `items` is grown below with the open-session rows (and, on Windows,
+            // a leading Drive entry).
             let mut items = vec![
                 item("&Full view", MenuAction::SetFormat(side, ViewFormat::Full)),
                 item("&Brief view", MenuAction::SetFormat(side, ViewFormat::Brief)),
@@ -115,8 +122,26 @@ impl MenuBarState {
                 item("SFT&P connection...", MenuAction::Connect(side, Protocol::Sftp)),
                 item("F&TP connection...", MenuAction::Connect(side, Protocol::Ftp)),
                 item("S&CP connection...", MenuAction::Connect(side, Protocol::Scp)),
-                item("Disconnect (&local)", MenuAction::Disconnect(side)),
+                item("Go &local (keep session)", MenuAction::Disconnect(side)),
             ];
+            // List the open connections: one row to switch this panel to each,
+            // then one row to disconnect each. Empty when nothing is connected.
+            if !sessions.is_empty() {
+                items.push(sep());
+                for (id, label) in sessions {
+                    items.push(item_raw(
+                        format!("Go to {label}"),
+                        MenuAction::SwitchSession(side, *id),
+                    ));
+                }
+                items.push(sep());
+                for (id, label) in sessions {
+                    items.push(item_raw(
+                        format!("Disconnect {label}"),
+                        MenuAction::DisconnectSession(*id),
+                    ));
+                }
+            }
             // Drive-letter switching is a Windows concept; Alt-F1 (left) / Alt-F2
             // (right) are the matching shortcuts.
             #[cfg(windows)]
@@ -433,12 +458,18 @@ impl MenuBarState {
 
 impl Default for MenuBarState {
     fn default() -> Self {
-        Self::new(1)
+        Self::new(1, &[])
     }
 }
 
 fn item(label: &str, action: MenuAction) -> MenuItem {
     MenuItem { label: crate::l10n::tr(label), shortcut: "", action }
+}
+
+/// A menu item whose label is used verbatim (no translation, no `&` hotkey) —
+/// for runtime text like a remote-connection label.
+fn item_raw(label: String, action: MenuAction) -> MenuItem {
+    MenuItem { label, shortcut: "", action }
 }
 
 /// A menu item with a right-aligned keyboard-shortcut hint.
@@ -512,7 +543,7 @@ mod tests {
     #[test]
     fn item_hotkeys_match_the_request() {
         // File menu (active index 1): the requested accelerators.
-        let m = MenuBarState::new(1);
+        let m = MenuBarState::new(1, &[]);
         let file = &m.menus[1];
         let hk = |action_label: char| {
             file.items.iter().find(|it| it.hotkey() == Some(action_label)).map(|it| it.action)
@@ -532,21 +563,21 @@ mod tests {
     #[test]
     fn typing_an_item_hotkey_activates_it() {
         // File menu: 'c' → Copy, 'g' → Select group.
-        let mut m = MenuBarState::new(1);
+        let mut m = MenuBarState::new(1, &[]);
         assert!(matches!(m.handle_key(key('c')), MenuSignal::Activate(MenuAction::Copy)));
-        let mut m = MenuBarState::new(1);
+        let mut m = MenuBarState::new(1, &[]);
         assert!(matches!(m.handle_key(key('g')), MenuSignal::Activate(MenuAction::SelectGroup)));
         // Command menu (index 2): 'f' → Find file, 'w' → Swap panels.
-        let mut m = MenuBarState::new(2);
+        let mut m = MenuBarState::new(2, &[]);
         assert!(matches!(m.handle_key(key('f')), MenuSignal::Activate(MenuAction::FindFile)));
-        let mut m = MenuBarState::new(2);
+        let mut m = MenuBarState::new(2, &[]);
         assert!(matches!(m.handle_key(key('w')), MenuSignal::Activate(MenuAction::SwapPanels)));
     }
 
     #[test]
     fn f10_and_f9_and_esc_close_the_menu() {
         for code in [KeyCode::F(10), KeyCode::F(9), KeyCode::Esc] {
-            let mut m = MenuBarState::new(1);
+            let mut m = MenuBarState::new(1, &[]);
             let sig = m.handle_key(KeyEvent::new(code, KeyModifiers::NONE));
             assert!(matches!(sig, MenuSignal::Close), "{code:?} should close the menu");
         }
@@ -554,7 +585,10 @@ mod tests {
 
     #[test]
     fn hotkeys_are_unique_within_each_menu() {
-        let m = MenuBarState::new(0);
+        // Sessions are present to make sure their runtime labels never introduce
+        // a duplicate accelerator into a panel menu.
+        let sessions = [(0usize, "sftp://u@host".to_string())];
+        let m = MenuBarState::new(0, &sessions);
         for (mi, menu) in m.menus.iter().enumerate() {
             let mut seen = Vec::new();
             for it in &menu.items {
@@ -567,18 +601,48 @@ mod tests {
     }
 
     #[test]
+    fn open_sessions_appear_in_both_panel_menus() {
+        let sessions = [(7usize, "sftp://u@host".to_string())];
+        let m = MenuBarState::new(0, &sessions);
+        // Panel menus are index 0 (left) and 4 (right); each should list a
+        // switch item for the session on its own side plus a disconnect item.
+        for (side, mi) in [(0usize, 0usize), (1, 4)] {
+            let items = &m.menus[mi].items;
+            assert!(
+                items.iter().any(|it| matches!(
+                    it.action,
+                    MenuAction::SwitchSession(s, 7) if s == side
+                )),
+                "menu {mi} should offer switching side {side} to session 7"
+            );
+            assert!(
+                items
+                    .iter()
+                    .any(|it| matches!(it.action, MenuAction::DisconnectSession(7))),
+                "menu {mi} should offer disconnecting session 7"
+            );
+        }
+        // With no sessions, no such items appear.
+        let m = MenuBarState::new(0, &[]);
+        assert!(!m.menus[0]
+            .items
+            .iter()
+            .any(|it| matches!(it.action, MenuAction::SwitchSession(..))));
+    }
+
+    #[test]
     fn top_bar_letter_switches_menu_when_unclaimed() {
         // From the File menu, 'o' has no item → switches to Options (index 3),
         // and 'l' switches to the Left panel menu (index 0).
-        let mut m = MenuBarState::new(1);
+        let mut m = MenuBarState::new(1, &[]);
         assert!(matches!(m.handle_key(key('o')), MenuSignal::Stay));
         assert_eq!(m.active, 3);
-        let mut m = MenuBarState::new(1);
+        let mut m = MenuBarState::new(1, &[]);
         assert!(matches!(m.handle_key(key('l')), MenuSignal::Stay));
         assert_eq!(m.active, 0);
         // An item accelerator still wins over a top letter: 'c' in File is Copy,
         // not "Command".
-        let mut m = MenuBarState::new(1);
+        let mut m = MenuBarState::new(1, &[]);
         assert!(matches!(m.handle_key(key('c')), MenuSignal::Activate(MenuAction::Copy)));
     }
 }

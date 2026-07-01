@@ -246,6 +246,18 @@ impl ConfirmDialog {
         Self::from_buttons("Format", msg, vec![("Format", Some(Submit::DoFormat(spec))), ("Cancel", None)])
     }
 
+    /// Confirm permanently disconnecting a remote session.
+    pub fn disconnect_session(id: usize, label: &str) -> Self {
+        Self::yes_no(
+            "Disconnect",
+            format!("Disconnect from \"{label}\"?"),
+            Submit::DisconnectSession(id),
+            "Yes",
+            "No",
+            None,
+        )
+    }
+
     /// Confirm creating a missing mount point before mounting.
     pub fn create_mountpoint(device: &str, path: &str) -> Self {
         Self::yes_no(

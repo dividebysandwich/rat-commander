@@ -18,7 +18,7 @@ impl AppState {
                 && let KeyCode::Char(c) = key.code
                 && let Some(idx) = menu_title_index(c)
             {
-                self.menu = Some(MenuBarState::new(idx));
+                self.menu = Some(MenuBarState::new(idx, &self.session_list()));
                 self.alt_hint = false;
                 return Flow::Continue;
             }
@@ -200,13 +200,21 @@ impl AppState {
             MenuAction::CompareDirs => self.dialog = Some(Dialog::Compare(CompareDialog::new())),
             MenuAction::CompareFiles => self.open_compare_files().await,
             MenuAction::Connect(side, proto) => {
-                self.dialog = Some(Dialog::Form(FormDialog::connect(
-                    proto,
-                    side,
-                    self.config.recent_remotes.clone(),
-                )))
+                if self.other_panel_is_remote(side) {
+                    self.show_error(
+                        "The other panel is already remote — one panel must stay local.".to_string(),
+                    );
+                } else {
+                    self.dialog = Some(Dialog::Form(FormDialog::connect(
+                        proto,
+                        side,
+                        self.config.recent_remotes.clone(),
+                    )));
+                }
             }
-            MenuAction::Disconnect(side) => self.disconnect(side).await,
+            MenuAction::Disconnect(side) => self.go_local(side).await,
+            MenuAction::SwitchSession(side, id) => self.switch_to_session(side, id).await,
+            MenuAction::DisconnectSession(id) => self.ask_disconnect_session(id),
             MenuAction::Drive(side) => self.open_drive_dialog(side),
             MenuAction::Settings => self.open_settings(),
             MenuAction::Confirmations => self.open_confirmations(),
@@ -403,7 +411,7 @@ impl AppState {
     fn open_menu(&mut self) {
         // F9 opens the pulldown menu matching the active panel: Left (0)/Right (4).
         let active = if self.active == 0 { 0 } else { 4 };
-        self.menu = Some(MenuBarState::new(active));
+        self.menu = Some(MenuBarState::new(active, &self.session_list()));
     }
 
     fn open_user_menu(&mut self) {

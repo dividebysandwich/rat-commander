@@ -161,58 +161,94 @@ fn image_save_dialog_builds_a_spec() {
 fn drive_dialog_anchors_over_its_panel() {
     // Alt-F1 → left panel (side 0), Alt-F2 → right panel (side 1); other dialogs
     // are not panel-anchored.
-    assert_eq!(Dialog::Drive(DriveDialog::new(0, vec![], None, false)).anchor_panel(), Some(0));
-    assert_eq!(Dialog::Drive(DriveDialog::new(1, vec![], None, false)).anchor_panel(), Some(1));
+    assert_eq!(
+        Dialog::Drive(DriveDialog::new(0, vec![], None, None, vec![], true)).anchor_panel(),
+        Some(0)
+    );
+    assert_eq!(
+        Dialog::Drive(DriveDialog::new(1, vec![], None, None, vec![], true)).anchor_panel(),
+        Some(1)
+    );
     assert_eq!(Dialog::Confirm(ConfirmDialog::quit()).anchor_panel(), None);
 }
 
 #[test]
-fn drive_dialog_connection_buttons() {
-    // No drives (Linux/macOS): only SFTP/FTP/SCP; default cursor on SFTP.
-    let mut d = DriveDialog::new(0, vec![], None, false);
-    match d.handle_key(key(KeyCode::Enter)) {
-        DialogResult::Submit(Submit::OpenConnect(0, Protocol::Sftp)) => {}
-        _ => panic!("expected SFTP OpenConnect"),
-    }
-    // Right, Right → SCP.
-    let mut d = DriveDialog::new(1, vec![], None, false);
-    d.handle_key(key(KeyCode::Right));
-    d.handle_key(key(KeyCode::Right));
+fn drive_dialog_local_button_is_default() {
+    // No drives, no sessions: the always-present Local button is the default.
+    let mut d = DriveDialog::new(0, vec![], None, None, vec![], true);
     assert!(matches!(
         d.handle_key(key(KeyCode::Enter)),
-        DialogResult::Submit(Submit::OpenConnect(1, Protocol::Scp))
+        DialogResult::Submit(Submit::GoLocal(0))
     ));
 }
 
 #[test]
-fn drive_dialog_disconnect_only_when_connected() {
-    // Connected → a trailing Disconnect button (End lands on it).
-    let mut d = DriveDialog::new(0, vec![], None, true);
-    d.handle_key(key(KeyCode::End));
-    assert!(matches!(
-        d.handle_key(key(KeyCode::Enter)),
-        DialogResult::Submit(Submit::DisconnectPanel(0))
-    ));
-    // Not connected → End lands on the last connection (SCP), no Disconnect.
-    let mut d = DriveDialog::new(0, vec![], None, false);
+fn drive_dialog_connection_buttons() {
+    // No drives, no sessions: Local then SFTP/FTP/SCP. End lands on SCP.
+    let mut d = DriveDialog::new(0, vec![], None, None, vec![], true);
     d.handle_key(key(KeyCode::End));
     assert!(matches!(
         d.handle_key(key(KeyCode::Enter)),
         DialogResult::Submit(Submit::OpenConnect(0, Protocol::Scp))
+    ));
+    // Right off Local → SFTP.
+    let mut d = DriveDialog::new(1, vec![], None, None, vec![], true);
+    d.handle_key(key(KeyCode::Right));
+    assert!(matches!(
+        d.handle_key(key(KeyCode::Enter)),
+        DialogResult::Submit(Submit::OpenConnect(1, Protocol::Sftp))
+    ));
+}
+
+#[test]
+fn drive_dialog_sessions_switch_and_disconnect() {
+    // One open session: a switch button + a ✕ disconnect button are present.
+    let sessions = vec![(3usize, "sftp://u@host".to_string())];
+    // current_session highlights the Session button, so Enter switches to it.
+    let mut d = DriveDialog::new(0, vec![], None, Some(3), sessions.clone(), true);
+    assert!(matches!(
+        d.handle_key(key(KeyCode::Enter)),
+        DialogResult::Submit(Submit::SwitchSession(0, 3))
+    ));
+    // Right of the highlighted session button → its ✕ (ask-disconnect).
+    let mut d = DriveDialog::new(0, vec![], None, Some(3), sessions, true);
+    d.handle_key(key(KeyCode::Right));
+    assert!(matches!(
+        d.handle_key(key(KeyCode::Enter)),
+        DialogResult::Submit(Submit::AskDisconnectSession(3))
+    ));
+}
+
+#[test]
+fn drive_dialog_hides_remote_when_not_show_remote() {
+    // Other panel is remote → show_remote=false: sessions and connect buttons are
+    // gone; only Local (+ any drives) remains, so every position is Local.
+    let sessions = vec![(1usize, "sftp://u@host".to_string())];
+    let mut d = DriveDialog::new(0, vec![], None, None, sessions, false);
+    // Home and End both land on Local (the sole item).
+    d.handle_key(key(KeyCode::End));
+    assert!(matches!(
+        d.handle_key(key(KeyCode::Enter)),
+        DialogResult::Submit(Submit::GoLocal(0))
+    ));
+    d.handle_key(key(KeyCode::Home));
+    assert!(matches!(
+        d.handle_key(key(KeyCode::Enter)),
+        DialogResult::Submit(Submit::GoLocal(0))
     ));
 }
 
 #[test]
 fn drive_dialog_letter_jumps_and_highlights_current() {
     // Windows-style: drive letters present, current drive highlighted.
-    let mut d = DriveDialog::new(0, vec!['A', 'C', 'D', 'Z'], Some('C'), false);
+    let mut d = DriveDialog::new(0, vec!['A', 'C', 'D', 'Z'], Some('C'), None, vec![], true);
     // A drive letter jumps straight to that drive.
     match d.handle_key(key(KeyCode::Char('z'))) {
         DialogResult::Submit(Submit::SetDrive(0, c)) => assert_eq!(c, 'Z'),
         _ => panic!("expected SetDrive Z"),
     }
     // Enter activates the highlighted (current) drive C.
-    let mut d = DriveDialog::new(0, vec!['A', 'C', 'D', 'Z'], Some('C'), false);
+    let mut d = DriveDialog::new(0, vec!['A', 'C', 'D', 'Z'], Some('C'), None, vec![], true);
     assert!(matches!(
         d.handle_key(key(KeyCode::Enter)),
         DialogResult::Submit(Submit::SetDrive(0, 'C'))

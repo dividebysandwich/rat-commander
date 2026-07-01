@@ -46,6 +46,12 @@ impl VfsPath {
         self.container.is_some()
     }
 
+    /// True for a non-local backend (an `sftp-`/`ftp-`/`scp-` session scheme).
+    /// The local disk (`file`) and archives (`archive`) both count as local.
+    pub fn is_remote(&self) -> bool {
+        self.scheme != "file" && self.scheme != "archive"
+    }
+
     /// True when this points at the root of an archive.
     pub fn is_archive_root(&self) -> bool {
         self.is_archive() && (self.path == Path::new("/") || self.path.as_os_str().is_empty())

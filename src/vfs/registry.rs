@@ -30,6 +30,12 @@ impl Registry {
         self.backends.insert(scheme.into(), backend);
     }
 
+    /// Drop the backend for a scheme (e.g. when a remote session disconnects).
+    /// The always-present `file`/`archive` schemes should never be passed here.
+    pub fn unregister(&mut self, scheme: &str) {
+        self.backends.remove(scheme);
+    }
+
     /// Resolve the backend that owns this path.
     pub fn resolve(&self, path: &VfsPath) -> Result<Arc<dyn Vfs>> {
         self.backends

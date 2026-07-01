@@ -8,7 +8,7 @@ impl AppState {
         let local = registry.local();
         let cwd = VfsPath::local_cwd();
         let left = Panel::new(local.clone(), cwd.clone());
-        let right = Panel::new(local, cwd);
+        let right = Panel::new(local, cwd.clone());
         let config = Config::load();
         let truecolor = config.truecolor.unwrap_or_else(detect_truecolor);
         let theme = Theme::by_name(&config.theme, truecolor);
@@ -32,6 +32,8 @@ impl AppState {
             theme,
             config,
             registry,
+            sessions: Vec::new(),
+            last_local_cwd: [cwd.clone(), cwd],
             tasks: HashMap::new(),
             next_task_id: 1,
             next_session_id: 0,

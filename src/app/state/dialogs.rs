@@ -292,7 +292,10 @@ impl AppState {
                     self.config.recent_remotes.clone(),
                 )));
             }
-            Submit::DisconnectPanel(side) => self.disconnect(side).await,
+            Submit::GoLocal(side) => self.go_local(side).await,
+            Submit::SwitchSession(side, id) => self.switch_to_session(side, id).await,
+            Submit::AskDisconnectSession(id) => self.ask_disconnect_session(id),
+            Submit::DisconnectSession(id) => self.disconnect_session(id).await,
         }
     }
 

@@ -129,6 +129,176 @@ fn split_scheme_recognizes_only_real_schemes() {
     assert_eq!(split_scheme("://nope"), None);
 }
 
+// A minimal in-memory VFS used to stand in for a remote backend: it lists an
+// empty directory (so navigation/reload succeeds) and refuses everything else.
+struct StubVfs;
+
+#[async_trait::async_trait]
+impl crate::vfs::Vfs for StubVfs {
+    fn scheme(&self) -> &str {
+        "sftp"
+    }
+    fn capabilities(&self) -> crate::vfs::Capabilities {
+        crate::vfs::Capabilities::local()
+    }
+    async fn read_dir(&self, _dir: &VfsPath) -> crate::util::Result<Vec<VfsEntry>> {
+        Ok(vec![])
+    }
+    async fn stat(&self, path: &VfsPath) -> crate::util::Result<VfsEntry> {
+        Ok(VfsEntry {
+            name: path.file_name(),
+            kind: VfsKind::Dir,
+            size: 0,
+            mtime: None,
+            atime: None,
+            ctime: None,
+            inode: None,
+            mode: None,
+            uid: None,
+            gid: None,
+            symlink_target: None,
+            symlink_broken: false,
+        })
+    }
+    async fn open_read(&self, _p: &VfsPath) -> crate::util::Result<crate::vfs::BoxRead> {
+        Err(crate::util::Error::Unsupported)
+    }
+    async fn open_write(
+        &self,
+        _p: &VfsPath,
+        _m: crate::vfs::WriteMeta,
+    ) -> crate::util::Result<crate::vfs::BoxWrite> {
+        Err(crate::util::Error::Unsupported)
+    }
+    async fn mkdir(&self, _p: &VfsPath) -> crate::util::Result<()> {
+        Err(crate::util::Error::Unsupported)
+    }
+    async fn remove_file(&self, _p: &VfsPath) -> crate::util::Result<()> {
+        Err(crate::util::Error::Unsupported)
+    }
+    async fn remove_dir(&self, _p: &VfsPath) -> crate::util::Result<()> {
+        Err(crate::util::Error::Unsupported)
+    }
+    async fn rename(&self, _f: &VfsPath, _t: &VfsPath) -> crate::util::Result<()> {
+        Err(crate::util::Error::Unsupported)
+    }
+}
+
+/// Register a stub remote backend under `scheme` and record a session for it,
+/// placing panel `side` on `path` within that session. Returns the session id.
+fn setup_remote_panel(st: &mut AppState, side: usize, scheme: &str, path: &str) -> usize {
+    let id = st.next_session_id;
+    st.next_session_id += 1;
+    st.registry.register(scheme.to_string(), std::sync::Arc::new(StubVfs));
+    let root = VfsPath { scheme: scheme.to_string(), path: "/".into(), container: None };
+    st.sessions.push(RemoteSession {
+        id,
+        scheme: scheme.to_string(),
+        label: format!("sftp://u@{scheme}"),
+        cwd: root,
+    });
+    let cwd = VfsPath { scheme: scheme.to_string(), path: path.into(), container: None };
+    let backend = st.registry.resolve(&cwd).unwrap();
+    st.panels[side].cwd = cwd;
+    st.panels[side].backend = backend;
+    id
+}
+
+fn creds() -> RemoteCreds {
+    RemoteCreds {
+        protocol: crate::vfs::remote::Protocol::Sftp,
+        host: "example.invalid".into(),
+        port: 22,
+        user: "u".into(),
+        password: "p".into(),
+        path: String::new(),
+    }
+}
+
+#[tokio::test]
+async fn session_persists_and_switch_restores_last_dir() {
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    let local = VfsPath::local_cwd();
+    st.last_local_cwd[0] = local.clone();
+    let id = setup_remote_panel(&mut st, 0, "sftp-0", "/home/user/work");
+
+    // Return to Local: the session must survive and remember /home/user/work.
+    st.go_local(0).await;
+    assert!(!st.panels[0].cwd.is_remote(), "panel is local again");
+    assert_eq!(st.panels[0].cwd, local, "restored the last local dir");
+    assert_eq!(st.sessions.len(), 1, "session stays open after go_local");
+    assert_eq!(st.sessions[0].cwd.path, std::path::PathBuf::from("/home/user/work"));
+
+    // Switch back: land on the remembered directory, not the session root.
+    st.switch_to_session(0, id).await;
+    assert_eq!(st.panels[0].cwd.scheme, "sftp-0");
+    assert_eq!(st.panels[0].cwd.path, std::path::PathBuf::from("/home/user/work"));
+}
+
+#[tokio::test]
+async fn one_remote_guard_blocks_second_remote_panel() {
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    let id = setup_remote_panel(&mut st, 0, "sftp-0", "/srv");
+
+    // Panel 1 is local; trying to connect it while panel 0 is remote is refused
+    // (guard runs before any network I/O).
+    st.connect_remote(1, creds()).await;
+    assert!(!st.panels[1].cwd.is_remote(), "panel 1 stays local");
+    assert!(matches!(st.dialog, Some(Dialog::Message(_))), "an error was shown");
+
+    // Switching panel 1 to the existing session is likewise refused.
+    st.dialog = None;
+    st.switch_to_session(1, id).await;
+    assert!(!st.panels[1].cwd.is_remote(), "panel 1 still local");
+    assert!(matches!(st.dialog, Some(Dialog::Message(_))));
+}
+
+#[tokio::test]
+async fn disconnect_session_tears_down_and_frees_panel() {
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    let remote_path =
+        VfsPath { scheme: "sftp-0".into(), path: "/srv".into(), container: None };
+    let id = setup_remote_panel(&mut st, 0, "sftp-0", "/srv");
+
+    st.disconnect_session(id).await;
+    assert!(st.sessions.is_empty(), "session record dropped");
+    assert!(st.registry.resolve(&remote_path).is_err(), "backend unregistered");
+    assert!(!st.panels[0].cwd.is_remote(), "the panel on it went local");
+}
+
+#[tokio::test]
+async fn go_local_restores_remembered_dir_not_process_cwd() {
+    // Create a real, readable directory distinct from the process cwd.
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("rc_local_{}_{nanos}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.last_local_cwd[0] = VfsPath::local(&dir);
+    setup_remote_panel(&mut st, 0, "sftp-0", "/srv");
+
+    st.go_local(0).await;
+    assert_eq!(st.panels[0].cwd, VfsPath::local(&dir), "landed on the remembered dir");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn other_panel_is_remote_treats_archive_as_local() {
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.panels[1].cwd = VfsPath::archive("/tmp/some.zip", "/");
+    assert!(!st.panels[1].cwd.is_remote(), "archive counts as local");
+    assert!(!st.other_panel_is_remote(0), "archive on the other panel is not remote");
+}
+
 #[test]
 fn dest_override_remote_to_local() {
     use std::path::PathBuf;

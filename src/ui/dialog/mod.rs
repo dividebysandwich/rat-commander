@@ -218,8 +218,15 @@ pub enum Submit {
     SetDrive(usize, char),
     /// Open the connect form for `side` with the given protocol (drive picker).
     OpenConnect(usize, Protocol),
-    /// Return a panel (`side`) to the local filesystem (drive picker).
-    DisconnectPanel(usize),
+    /// Return a panel (`side`) to its last local directory, keeping any open
+    /// remote sessions alive (drive picker "Local" button).
+    GoLocal(usize),
+    /// Switch a panel (`side`) to an already-open remote session by id.
+    SwitchSession(usize, usize),
+    /// Ask (with a Yes/No confirm) to disconnect the remote session with this id.
+    AskDisconnectSession(usize),
+    /// Confirmed: tear down the remote session with this id.
+    DisconnectSession(usize),
     /// Apply a batch rename: each `(source, new name)` pair renames the source
     /// to the new name in its own directory.
     MultiRename(Vec<(VfsPath, String)>),
