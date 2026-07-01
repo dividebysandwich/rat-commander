@@ -46,9 +46,11 @@ The installed executable is named **`rc`** for quick typing.
 - **Look & feel** — many color themes (fully customizable via `themes.toml`),
   truecolor animated gradients, an optional CPU/memory status widget, and a
   configurable **F2 user menu**.
-- **Localization** — the UI language is selectable in Settings (English and
-  German included); translations live in editable `lang/*.toml` files and new
-  languages can be dropped in.
+- **Localization** — the UI language is selectable in Settings, with 18
+  languages built in (English, German, French, Spanish, Portuguese, Dutch,
+  Czech, Slovak, Hungarian, Serbian, Ukrainian, Russian, Japanese, Chinese
+  traditional & simplified, Hindi, Persian, Arabic); translations live in
+  editable `lang/*.toml` files and new languages can be dropped in.
 
 For a full, feature-by-feature walkthrough see the **[user manual](doc/MANUAL.md)** —
 also available in-program by pressing **F1**.

@@ -1,0 +1,111 @@
+# rat-commander localization — Русский (Russian)
+name = "Русский"
+code = "ru"
+
+[strings]
+
+# -- Menu bar titles --
+"Left" = "Лево"
+"File" = "Файл"
+"Command" = "Команды"
+"Options" = "Опции"
+"Right" = "Право"
+
+# -- Left/Right panel menus --
+"&Full view" = "Полный вид (&F)"
+"&Brief view" = "Краткий вид (&B)"
+"&Details view" = "Подробный вид (&D)"
+"Sort: &Name" = "Сортировка: Имя (&N)"
+"Sort: &Extension" = "Сортировка: Расширение (&E)"
+"Sort: &Size" = "Сортировка: Размер (&S)"
+"Sort: &Modify time" = "Сортировка: Время изменения (&M)"
+"Sort: &Unsorted" = "Сортировка: Без сортировки (&U)"
+"&Reverse order" = "Обратный порядок (&R)"
+"SFT&P connection..." = "Соединение SFTP… (&P)"
+"F&TP connection..." = "Соединение FTP… (&T)"
+"S&CP connection..." = "Соединение SCP… (&C)"
+"Disconnect (&local)" = "Отключить (&L)"
+
+# -- File menu --
+"&View" = "Просмотр (&V)"
+"&Edit" = "Правка (&E)"
+"&Copy" = "Копировать (&C)"
+"&Rename/Move" = "Переименовать/Переместить (&R)"
+"M&ulti rename" = "Групповое переименование (&U)"
+"&Make directory" = "Создать папку (&M)"
+"&Delete" = "Удалить (&D)"
+"C&hmod" = "Chmod (&H)"
+"Cho&wn" = "Chown (&W)"
+"&Symlink" = "Символическая ссылка (&S)"
+"Com&press..." = "Сжать… (&P)"
+"Select &group" = "Выбрать группу (&G)"
+"U&nselect group" = "Снять выбор группы (&N)"
+"&Invert selection" = "Инвертировать выбор (&I)"
+"&Quit" = "Выход (&Q)"
+
+# -- Command menu --
+"&Find file..." = "Найти файл… (&F)"
+"Find d&uplicates..." = "Найти дубликаты… (&U)"
+"Compare &directories..." = "Сравнить папки… (&D)"
+"Compare fi&les..." = "Сравнить файлы… (&L)"
+"&Process explorer..." = "Просмотр процессов… (&P)"
+"Disk &explorer..." = "Просмотр диска… (&E)"
+"Disk &manager..." = "Управление дисками… (&M)"
+"S&wap panels" = "Поменять панели (&W)"
+"&Re-read directories" = "Перечитать папки (&R)"
+"&Toggle split V/H" = "Переключить разделение В/Г (&T)"
+
+# -- Options menu --
+"&Settings..." = "Настройки… (&S)"
+"&Confirmations..." = "Подтверждения… (&C)"
+"&Edit themes..." = "Изменить темы… (&E)"
+
+# -- Function-key bar --
+"Help" = "Помощь"
+"Menu" = "Меню"
+"View" = "Просм"
+"Edit" = "Правка"
+"Copy" = "Копия"
+"RenMov" = "ПерПер"
+"Mkdir" = "Папка"
+"Delete" = "Удал"
+"PullDn" = "Меню↓"
+"Quit" = "Выход"
+
+# -- Editor / hex-editor --
+"Save" = "Сохр"
+"Mark" = "Отм"
+"Replac" = "Замена"
+"Move" = "Перем"
+"Search" = "Поиск"
+"Hex" = "Hex"
+"Save as" = "Сохр.к"
+"Wrap" = "Перен"
+"Text" = "Текст"
+
+# -- Settings dialog --
+"Settings" = "Настройки"
+"Theme" = "Тема"
+"Language" = "Язык"
+"Truecolor (gradients)" = "Truecolor (градиенты)"
+"Animations" = "Анимации"
+"System status widget" = "Виджет состояния системы"
+"External editor" = "Внешний редактор"
+"External viewer" = "Внешний просмотрщик"
+"Use internal viewer" = "Использовать встроенный просмотрщик"
+"Use internal editor" = "Использовать встроенный редактор"
+
+# -- Confirmations dialog --
+"Confirmations" = "Подтверждения"
+"Confirm delete" = "Подтверждать удаление"
+"Confirm overwrite" = "Подтверждать перезапись"
+"Confirm execute" = "Подтверждать выполнение"
+"Confirm unmount" = "Подтверждать отмонтирование"
+"Confirm exit" = "Подтверждать выход"
+
+# -- Common buttons --
+"OK" = "ОК"
+"Cancel" = "Отмена"
+"Yes" = "Да"
+"No" = "Нет"
+"Execute" = "Выполнить"

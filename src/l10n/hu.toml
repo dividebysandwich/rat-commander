@@ -1,0 +1,111 @@
+# rat-commander localization — Magyar (Hungarian)
+name = "Magyar"
+code = "hu"
+
+[strings]
+
+# -- Menu bar titles --
+"Left" = "Bal"
+"File" = "Fájl"
+"Command" = "Parancs"
+"Options" = "Opciók"
+"Right" = "Jobb"
+
+# -- Left/Right panel menus --
+"&Full view" = "Teljes nézet (&F)"
+"&Brief view" = "Rövid nézet (&B)"
+"&Details view" = "Részletes nézet (&D)"
+"Sort: &Name" = "Rendezés: Név (&N)"
+"Sort: &Extension" = "Rendezés: Kiterjesztés (&E)"
+"Sort: &Size" = "Rendezés: Méret (&S)"
+"Sort: &Modify time" = "Rendezés: Módosítás ideje (&M)"
+"Sort: &Unsorted" = "Rendezés: Rendezetlen (&U)"
+"&Reverse order" = "Fordított sorrend (&R)"
+"SFT&P connection..." = "SFTP-kapcsolat… (&P)"
+"F&TP connection..." = "FTP-kapcsolat… (&T)"
+"S&CP connection..." = "SCP-kapcsolat… (&C)"
+"Disconnect (&local)" = "Kapcsolat bontása (&L)"
+
+# -- File menu --
+"&View" = "Megtekintés (&V)"
+"&Edit" = "Szerkesztés (&E)"
+"&Copy" = "Másolás (&C)"
+"&Rename/Move" = "Átnevezés/Áthelyezés (&R)"
+"M&ulti rename" = "Többszörös átnevezés (&U)"
+"&Make directory" = "Mappa létrehozása (&M)"
+"&Delete" = "Törlés (&D)"
+"C&hmod" = "Chmod (&H)"
+"Cho&wn" = "Chown (&W)"
+"&Symlink" = "Szimbolikus link (&S)"
+"Com&press..." = "Tömörítés… (&P)"
+"Select &group" = "Csoport kijelölése (&G)"
+"U&nselect group" = "Csoport kijelölésének megszüntetése (&N)"
+"&Invert selection" = "Kijelölés megfordítása (&I)"
+"&Quit" = "Kilépés (&Q)"
+
+# -- Command menu --
+"&Find file..." = "Fájl keresése… (&F)"
+"Find d&uplicates..." = "Duplikátumok keresése… (&U)"
+"Compare &directories..." = "Mappák összehasonlítása… (&D)"
+"Compare fi&les..." = "Fájlok összehasonlítása… (&L)"
+"&Process explorer..." = "Folyamatkezelő… (&P)"
+"Disk &explorer..." = "Lemezböngésző… (&E)"
+"Disk &manager..." = "Lemezkezelő… (&M)"
+"S&wap panels" = "Panelek felcserélése (&W)"
+"&Re-read directories" = "Mappák újraolvasása (&R)"
+"&Toggle split V/H" = "Felosztás váltása F/V (&T)"
+
+# -- Options menu --
+"&Settings..." = "Beállítások… (&S)"
+"&Confirmations..." = "Megerősítések… (&C)"
+"&Edit themes..." = "Témák szerkesztése… (&E)"
+
+# -- Function-key bar --
+"Help" = "Súgó"
+"Menu" = "Menü"
+"View" = "Néz"
+"Edit" = "Szerk"
+"Copy" = "Másol"
+"RenMov" = "ÁtnÁth"
+"Mkdir" = "ÚjMap"
+"Delete" = "Törl"
+"PullDn" = "Menü↓"
+"Quit" = "Kilép"
+
+# -- Editor / hex-editor --
+"Save" = "Ment"
+"Mark" = "Jelöl"
+"Replac" = "Csere"
+"Move" = "Áthel"
+"Search" = "Keres"
+"Hex" = "Hex"
+"Save as" = "Ment.m"
+"Wrap" = "Tördel"
+"Text" = "Szöveg"
+
+# -- Settings dialog --
+"Settings" = "Beállítások"
+"Theme" = "Téma"
+"Language" = "Nyelv"
+"Truecolor (gradients)" = "Truecolor (átmenetek)"
+"Animations" = "Animációk"
+"System status widget" = "Rendszerállapot-widget"
+"External editor" = "Külső szerkesztő"
+"External viewer" = "Külső megjelenítő"
+"Use internal viewer" = "Belső megjelenítő használata"
+"Use internal editor" = "Belső szerkesztő használata"
+
+# -- Confirmations dialog --
+"Confirmations" = "Megerősítések"
+"Confirm delete" = "Törlés megerősítése"
+"Confirm overwrite" = "Felülírás megerősítése"
+"Confirm execute" = "Végrehajtás megerősítése"
+"Confirm unmount" = "Leválasztás megerősítése"
+"Confirm exit" = "Kilépés megerősítése"
+
+# -- Common buttons --
+"OK" = "OK"
+"Cancel" = "Mégse"
+"Yes" = "Igen"
+"No" = "Nem"
+"Execute" = "Végrehajtás"

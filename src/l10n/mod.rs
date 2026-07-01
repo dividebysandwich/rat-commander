@@ -16,9 +16,29 @@ use std::collections::HashMap;
 use std::sync::{LazyLock, RwLock};
 
 /// Built-in catalogs, embedded so the files can be (re)generated and used as a
-/// fallback even without a writable config directory.
-const EN_TOML: &str = include_str!("en.toml");
-const DE_TOML: &str = include_str!("de.toml");
+/// fallback even without a writable config directory. Each entry is the file
+/// name written into `lang/` and its embedded contents. English comes first so
+/// it is the default / listed first.
+const BUILTIN_FILES: &[(&str, &str)] = &[
+    ("en.toml", include_str!("en.toml")),
+    ("de.toml", include_str!("de.toml")),
+    ("fr.toml", include_str!("fr.toml")),
+    ("es.toml", include_str!("es.toml")),
+    ("pt.toml", include_str!("pt.toml")),
+    ("nl.toml", include_str!("nl.toml")),
+    ("cs.toml", include_str!("cs.toml")),
+    ("sk.toml", include_str!("sk.toml")),
+    ("hu.toml", include_str!("hu.toml")),
+    ("sr.toml", include_str!("sr.toml")),
+    ("uk.toml", include_str!("uk.toml")),
+    ("ru.toml", include_str!("ru.toml")),
+    ("ja.toml", include_str!("ja.toml")),
+    ("zh-Hant.toml", include_str!("zh-Hant.toml")),
+    ("zh-Hans.toml", include_str!("zh-Hans.toml")),
+    ("hi.toml", include_str!("hi.toml")),
+    ("fa.toml", include_str!("fa.toml")),
+    ("ar.toml", include_str!("ar.toml")),
+];
 
 /// One language's translation table.
 #[derive(Debug, Clone, Deserialize)]
@@ -39,9 +59,9 @@ impl Catalog {
 }
 
 fn builtin_catalogs() -> Vec<Catalog> {
-    [EN_TOML, DE_TOML]
+    BUILTIN_FILES
         .iter()
-        .filter_map(|s| toml::from_str::<Catalog>(s).ok())
+        .filter_map(|(_, s)| toml::from_str::<Catalog>(s).ok())
         .collect()
 }
 
@@ -117,7 +137,7 @@ fn ensure_and_discover() -> Vec<Catalog> {
     };
     let _ = std::fs::create_dir_all(&dir);
     // Write the built-in files if absent (never clobber a user's edits).
-    for (fname, body) in [("en.toml", EN_TOML), ("de.toml", DE_TOML)] {
+    for (fname, body) in BUILTIN_FILES {
         let p = dir.join(fname);
         if !p.exists() {
             let _ = std::fs::write(&p, body);

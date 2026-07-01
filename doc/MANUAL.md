@@ -665,14 +665,19 @@ and **Esc** (closing the dialog) reverts to what you started with.
 ### Language
 
 The UI language is chosen in Settings and applied immediately. Translations live
-in the **`lang/`** directory of the config folder, one file per language;
-**English** and **Deutsch** are written there on first run. Each file starts with
-a `name` (what the language is called in the chooser) and a `[strings]` table
-mapping the English source text to its translation — any missing entry falls back
-to English, so a partial translation still works. To **add a language**, copy an
-existing file (e.g. `en.toml`) to a new name, change its `name`/`code`, translate
-the values, and it appears in the Settings chooser automatically. In menu labels,
-the `&` marks the keyboard-accelerator letter.
+in the **`lang/`** directory of the config folder, one file per language.
+**18 languages** are written there on first run — English, German, French,
+Spanish, Portuguese, Dutch, Czech, Slovak, Hungarian, Serbian, Ukrainian,
+Russian, Japanese, Chinese (traditional and simplified), Hindi, Persian and
+Arabic. Each file starts with a `name` (what the language is called in the
+chooser) and a `[strings]` table mapping the English source text to its
+translation — any missing entry falls back to English, so a partial translation
+still works. To **add a language**, copy an existing file (e.g. `en.toml`) to a
+new name, change its `name`/`code`, translate the values, and it appears in the
+Settings chooser automatically. In menu labels the `&` marks the keyboard-
+accelerator letter (the non-Latin catalogs put it in a trailing `(&X)` so the
+accelerators stay typeable; right-to-left scripts such as Arabic and Persian are
+translated but the terminal lays them out left-to-right).
 
 ### Confirmations (Options → Confirmations…)
 

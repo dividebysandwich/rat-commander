@@ -1,0 +1,111 @@
+# rat-commander localization — Slovenčina (Slovak)
+name = "Slovenčina"
+code = "sk"
+
+[strings]
+
+# -- Menu bar titles --
+"Left" = "Ľavý"
+"File" = "Súbor"
+"Command" = "Akcie"
+"Options" = "Možnosti"
+"Right" = "Pravý"
+
+# -- Left/Right panel menus --
+"&Full view" = "Úplné zobrazenie (&F)"
+"&Brief view" = "Stručné zobrazenie (&B)"
+"&Details view" = "Podrobné zobrazenie (&D)"
+"Sort: &Name" = "Zoradiť: Názov (&N)"
+"Sort: &Extension" = "Zoradiť: Prípona (&E)"
+"Sort: &Size" = "Zoradiť: Veľkosť (&S)"
+"Sort: &Modify time" = "Zoradiť: Čas zmeny (&M)"
+"Sort: &Unsorted" = "Zoradiť: Nezoradené (&U)"
+"&Reverse order" = "Obrátené poradie (&R)"
+"SFT&P connection..." = "Pripojenie SFTP… (&P)"
+"F&TP connection..." = "Pripojenie FTP… (&T)"
+"S&CP connection..." = "Pripojenie SCP… (&C)"
+"Disconnect (&local)" = "Odpojiť (&L)"
+
+# -- File menu --
+"&View" = "Zobraziť (&V)"
+"&Edit" = "Upraviť (&E)"
+"&Copy" = "Kopírovať (&C)"
+"&Rename/Move" = "Premenovať/Presunúť (&R)"
+"M&ulti rename" = "Hromadné premenovanie (&U)"
+"&Make directory" = "Vytvoriť priečinok (&M)"
+"&Delete" = "Odstrániť (&D)"
+"C&hmod" = "Chmod (&H)"
+"Cho&wn" = "Chown (&W)"
+"&Symlink" = "Symbolický odkaz (&S)"
+"Com&press..." = "Komprimovať… (&P)"
+"Select &group" = "Vybrať skupinu (&G)"
+"U&nselect group" = "Zrušiť výber skupiny (&N)"
+"&Invert selection" = "Invertovať výber (&I)"
+"&Quit" = "Koniec (&Q)"
+
+# -- Command menu --
+"&Find file..." = "Nájsť súbor… (&F)"
+"Find d&uplicates..." = "Nájsť duplikáty… (&U)"
+"Compare &directories..." = "Porovnať priečinky… (&D)"
+"Compare fi&les..." = "Porovnať súbory… (&L)"
+"&Process explorer..." = "Prehliadač procesov… (&P)"
+"Disk &explorer..." = "Prehliadač disku… (&E)"
+"Disk &manager..." = "Správca diskov… (&M)"
+"S&wap panels" = "Prehodiť panely (&W)"
+"&Re-read directories" = "Znovu načítať priečinky (&R)"
+"&Toggle split V/H" = "Prepnúť rozdelenie V/H (&T)"
+
+# -- Options menu --
+"&Settings..." = "Nastavenia… (&S)"
+"&Confirmations..." = "Potvrdenia… (&C)"
+"&Edit themes..." = "Upraviť motívy… (&E)"
+
+# -- Function-key bar --
+"Help" = "Pomoc"
+"Menu" = "Menu"
+"View" = "Zobr"
+"Edit" = "Uprav"
+"Copy" = "Kópia"
+"RenMov" = "PremPr"
+"Mkdir" = "Prieč"
+"Delete" = "Odstr"
+"PullDn" = "Menu↓"
+"Quit" = "Koniec"
+
+# -- Editor / hex-editor --
+"Save" = "Ulož"
+"Mark" = "Ozn"
+"Replac" = "Nahr"
+"Move" = "Pres"
+"Search" = "Hľadať"
+"Hex" = "Hex"
+"Save as" = "Ul.ako"
+"Wrap" = "Zalom"
+"Text" = "Text"
+
+# -- Settings dialog --
+"Settings" = "Nastavenia"
+"Theme" = "Motív"
+"Language" = "Jazyk"
+"Truecolor (gradients)" = "Truecolor (prechody)"
+"Animations" = "Animácie"
+"System status widget" = "Widget stavu systému"
+"External editor" = "Externý editor"
+"External viewer" = "Externý prehliadač"
+"Use internal viewer" = "Použiť interný prehliadač"
+"Use internal editor" = "Použiť interný editor"
+
+# -- Confirmations dialog --
+"Confirmations" = "Potvrdenia"
+"Confirm delete" = "Potvrdiť odstránenie"
+"Confirm overwrite" = "Potvrdiť prepísanie"
+"Confirm execute" = "Potvrdiť spustenie"
+"Confirm unmount" = "Potvrdiť odpojenie"
+"Confirm exit" = "Potvrdiť ukončenie"
+
+# -- Common buttons --
+"OK" = "OK"
+"Cancel" = "Zrušiť"
+"Yes" = "Áno"
+"No" = "Nie"
+"Execute" = "Spustiť"

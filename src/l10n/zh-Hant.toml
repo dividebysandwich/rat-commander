@@ -1,0 +1,111 @@
+# rat-commander localization — 中文（繁體） (Chinese, Traditional)
+name = "中文（繁體）"
+code = "zh-Hant"
+
+[strings]
+
+# -- Menu bar titles --
+"Left" = "左"
+"File" = "檔案"
+"Command" = "命令"
+"Options" = "選項"
+"Right" = "右"
+
+# -- Left/Right panel menus --
+"&Full view" = "完整檢視(&F)"
+"&Brief view" = "簡略檢視(&B)"
+"&Details view" = "詳細檢視(&D)"
+"Sort: &Name" = "排序：名稱(&N)"
+"Sort: &Extension" = "排序：副檔名(&E)"
+"Sort: &Size" = "排序：大小(&S)"
+"Sort: &Modify time" = "排序：修改時間(&M)"
+"Sort: &Unsorted" = "排序：未排序(&U)"
+"&Reverse order" = "反向排序(&R)"
+"SFT&P connection..." = "SFTP 連線…(&P)"
+"F&TP connection..." = "FTP 連線…(&T)"
+"S&CP connection..." = "SCP 連線…(&C)"
+"Disconnect (&local)" = "中斷連線(&L)"
+
+# -- File menu --
+"&View" = "檢視(&V)"
+"&Edit" = "編輯(&E)"
+"&Copy" = "複製(&C)"
+"&Rename/Move" = "重新命名/移動(&R)"
+"M&ulti rename" = "批次重新命名(&U)"
+"&Make directory" = "建立資料夾(&M)"
+"&Delete" = "刪除(&D)"
+"C&hmod" = "Chmod(&H)"
+"Cho&wn" = "Chown(&W)"
+"&Symlink" = "符號連結(&S)"
+"Com&press..." = "壓縮…(&P)"
+"Select &group" = "選取群組(&G)"
+"U&nselect group" = "取消選取群組(&N)"
+"&Invert selection" = "反轉選取(&I)"
+"&Quit" = "結束(&Q)"
+
+# -- Command menu --
+"&Find file..." = "尋找檔案…(&F)"
+"Find d&uplicates..." = "尋找重複檔案…(&U)"
+"Compare &directories..." = "比較資料夾…(&D)"
+"Compare fi&les..." = "比較檔案…(&L)"
+"&Process explorer..." = "程序總管…(&P)"
+"Disk &explorer..." = "磁碟用量…(&E)"
+"Disk &manager..." = "磁碟管理…(&M)"
+"S&wap panels" = "交換面板(&W)"
+"&Re-read directories" = "重新讀取資料夾(&R)"
+"&Toggle split V/H" = "切換分割 直/橫(&T)"
+
+# -- Options menu --
+"&Settings..." = "設定…(&S)"
+"&Confirmations..." = "確認…(&C)"
+"&Edit themes..." = "編輯佈景主題…(&E)"
+
+# -- Function-key bar --
+"Help" = "說明"
+"Menu" = "選單"
+"View" = "檢視"
+"Edit" = "編輯"
+"Copy" = "複製"
+"RenMov" = "改名移"
+"Mkdir" = "建夾"
+"Delete" = "刪除"
+"PullDn" = "選單"
+"Quit" = "結束"
+
+# -- Editor / hex-editor --
+"Save" = "儲存"
+"Mark" = "標記"
+"Replac" = "取代"
+"Move" = "移動"
+"Search" = "搜尋"
+"Hex" = "Hex"
+"Save as" = "另存"
+"Wrap" = "換行"
+"Text" = "文字"
+
+# -- Settings dialog --
+"Settings" = "設定"
+"Theme" = "佈景主題"
+"Language" = "語言"
+"Truecolor (gradients)" = "Truecolor（漸層）"
+"Animations" = "動畫"
+"System status widget" = "系統狀態小工具"
+"External editor" = "外部編輯器"
+"External viewer" = "外部檢視器"
+"Use internal viewer" = "使用內建檢視器"
+"Use internal editor" = "使用內建編輯器"
+
+# -- Confirmations dialog --
+"Confirmations" = "確認"
+"Confirm delete" = "確認刪除"
+"Confirm overwrite" = "確認覆寫"
+"Confirm execute" = "確認執行"
+"Confirm unmount" = "確認卸載"
+"Confirm exit" = "確認結束"
+
+# -- Common buttons --
+"OK" = "確定"
+"Cancel" = "取消"
+"Yes" = "是"
+"No" = "否"
+"Execute" = "執行"

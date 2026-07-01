@@ -1,0 +1,111 @@
+# rat-commander localization — हिन्दी (Hindi)
+name = "हिन्दी"
+code = "hi"
+
+[strings]
+
+# -- Menu bar titles --
+"Left" = "बायाँ"
+"File" = "फ़ाइल"
+"Command" = "कमांड"
+"Options" = "विकल्प"
+"Right" = "दायाँ"
+
+# -- Left/Right panel menus --
+"&Full view" = "पूर्ण दृश्य (&F)"
+"&Brief view" = "संक्षिप्त दृश्य (&B)"
+"&Details view" = "विवरण दृश्य (&D)"
+"Sort: &Name" = "क्रम: नाम (&N)"
+"Sort: &Extension" = "क्रम: एक्सटेंशन (&E)"
+"Sort: &Size" = "क्रम: आकार (&S)"
+"Sort: &Modify time" = "क्रम: बदलाव समय (&M)"
+"Sort: &Unsorted" = "क्रम: अवर्गीकृत (&U)"
+"&Reverse order" = "उल्टा क्रम (&R)"
+"SFT&P connection..." = "SFTP कनेक्शन… (&P)"
+"F&TP connection..." = "FTP कनेक्शन… (&T)"
+"S&CP connection..." = "SCP कनेक्शन… (&C)"
+"Disconnect (&local)" = "डिस्कनेक्ट करें (&L)"
+
+# -- File menu --
+"&View" = "देखें (&V)"
+"&Edit" = "संपादित करें (&E)"
+"&Copy" = "कॉपी करें (&C)"
+"&Rename/Move" = "नाम बदलें/ले जाएँ (&R)"
+"M&ulti rename" = "एकाधिक नाम बदलें (&U)"
+"&Make directory" = "फ़ोल्डर बनाएँ (&M)"
+"&Delete" = "मिटाएँ (&D)"
+"C&hmod" = "Chmod (&H)"
+"Cho&wn" = "Chown (&W)"
+"&Symlink" = "सिमलिंक (&S)"
+"Com&press..." = "संपीड़ित करें… (&P)"
+"Select &group" = "समूह चुनें (&G)"
+"U&nselect group" = "समूह चयन हटाएँ (&N)"
+"&Invert selection" = "चयन उलटें (&I)"
+"&Quit" = "बाहर निकलें (&Q)"
+
+# -- Command menu --
+"&Find file..." = "फ़ाइल खोजें… (&F)"
+"Find d&uplicates..." = "डुप्लिकेट खोजें… (&U)"
+"Compare &directories..." = "फ़ोल्डर तुलना करें… (&D)"
+"Compare fi&les..." = "फ़ाइल तुलना करें… (&L)"
+"&Process explorer..." = "प्रोसेस एक्सप्लोरर… (&P)"
+"Disk &explorer..." = "डिस्क एक्सप्लोरर… (&E)"
+"Disk &manager..." = "डिस्क प्रबंधक… (&M)"
+"S&wap panels" = "पैनल बदलें (&W)"
+"&Re-read directories" = "फ़ोल्डर पुनः पढ़ें (&R)"
+"&Toggle split V/H" = "विभाजन बदलें ल/क्षि (&T)"
+
+# -- Options menu --
+"&Settings..." = "सेटिंग्स… (&S)"
+"&Confirmations..." = "पुष्टिकरण… (&C)"
+"&Edit themes..." = "थीम संपादित करें… (&E)"
+
+# -- Function-key bar --
+"Help" = "मदद"
+"Menu" = "मेन्यू"
+"View" = "देखें"
+"Edit" = "संपा"
+"Copy" = "कॉपी"
+"RenMov" = "नाम/ले"
+"Mkdir" = "बनाएँ"
+"Delete" = "मिटा"
+"PullDn" = "मेन्यू"
+"Quit" = "बाहर"
+
+# -- Editor / hex-editor --
+"Save" = "सहेज"
+"Mark" = "चिह्न"
+"Replac" = "बदलें"
+"Move" = "ले जा"
+"Search" = "खोज"
+"Hex" = "Hex"
+"Save as" = "नामसे"
+"Wrap" = "लपेट"
+"Text" = "पाठ"
+
+# -- Settings dialog --
+"Settings" = "सेटिंग्स"
+"Theme" = "थीम"
+"Language" = "भाषा"
+"Truecolor (gradients)" = "Truecolor (ग्रेडिएंट)"
+"Animations" = "एनिमेशन"
+"System status widget" = "सिस्टम स्थिति विजेट"
+"External editor" = "बाहरी संपादक"
+"External viewer" = "बाहरी व्यूअर"
+"Use internal viewer" = "आंतरिक व्यूअर उपयोग करें"
+"Use internal editor" = "आंतरिक संपादक उपयोग करें"
+
+# -- Confirmations dialog --
+"Confirmations" = "पुष्टिकरण"
+"Confirm delete" = "मिटाने की पुष्टि करें"
+"Confirm overwrite" = "अधिलेखन की पुष्टि करें"
+"Confirm execute" = "निष्पादन की पुष्टि करें"
+"Confirm unmount" = "अनमाउंट की पुष्टि करें"
+"Confirm exit" = "निकास की पुष्टि करें"
+
+# -- Common buttons --
+"OK" = "ठीक है"
+"Cancel" = "रद्द करें"
+"Yes" = "हाँ"
+"No" = "नहीं"
+"Execute" = "चलाएँ"

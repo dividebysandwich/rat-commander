@@ -1,0 +1,111 @@
+# rat-commander localization — Srpski (Serbian, Latin script)
+name = "Srpski"
+code = "sr"
+
+[strings]
+
+# -- Menu bar titles --
+"Left" = "Levo"
+"File" = "Fajl"
+"Command" = "Komanda"
+"Options" = "Opcije"
+"Right" = "Desno"
+
+# -- Left/Right panel menus --
+"&Full view" = "Pun prikaz (&F)"
+"&Brief view" = "Kratak prikaz (&B)"
+"&Details view" = "Detaljan prikaz (&D)"
+"Sort: &Name" = "Sortiranje: Ime (&N)"
+"Sort: &Extension" = "Sortiranje: Ekstenzija (&E)"
+"Sort: &Size" = "Sortiranje: Veličina (&S)"
+"Sort: &Modify time" = "Sortiranje: Vreme izmene (&M)"
+"Sort: &Unsorted" = "Sortiranje: Nesortirano (&U)"
+"&Reverse order" = "Obrnut redosled (&R)"
+"SFT&P connection..." = "SFTP veza… (&P)"
+"F&TP connection..." = "FTP veza… (&T)"
+"S&CP connection..." = "SCP veza… (&C)"
+"Disconnect (&local)" = "Prekini vezu (&L)"
+
+# -- File menu --
+"&View" = "Prikaži (&V)"
+"&Edit" = "Uredi (&E)"
+"&Copy" = "Kopiraj (&C)"
+"&Rename/Move" = "Preimenuj/Premesti (&R)"
+"M&ulti rename" = "Grupno preimenovanje (&U)"
+"&Make directory" = "Napravi fasciklu (&M)"
+"&Delete" = "Obriši (&D)"
+"C&hmod" = "Chmod (&H)"
+"Cho&wn" = "Chown (&W)"
+"&Symlink" = "Simbolička veza (&S)"
+"Com&press..." = "Kompresuj… (&P)"
+"Select &group" = "Izaberi grupu (&G)"
+"U&nselect group" = "Poništi izbor grupe (&N)"
+"&Invert selection" = "Obrni izbor (&I)"
+"&Quit" = "Izlaz (&Q)"
+
+# -- Command menu --
+"&Find file..." = "Nađi fajl… (&F)"
+"Find d&uplicates..." = "Nađi duplikate… (&U)"
+"Compare &directories..." = "Uporedi fascikle… (&D)"
+"Compare fi&les..." = "Uporedi fajlove… (&L)"
+"&Process explorer..." = "Pregled procesa… (&P)"
+"Disk &explorer..." = "Pregled diska… (&E)"
+"Disk &manager..." = "Upravljanje diskovima… (&M)"
+"S&wap panels" = "Zameni panele (&W)"
+"&Re-read directories" = "Ponovo učitaj fascikle (&R)"
+"&Toggle split V/H" = "Promeni podelu V/H (&T)"
+
+# -- Options menu --
+"&Settings..." = "Podešavanja… (&S)"
+"&Confirmations..." = "Potvrde… (&C)"
+"&Edit themes..." = "Uredi teme… (&E)"
+
+# -- Function-key bar --
+"Help" = "Pomoć"
+"Menu" = "Meni"
+"View" = "Prikaz"
+"Edit" = "Uredi"
+"Copy" = "Kopir"
+"RenMov" = "PreimP"
+"Mkdir" = "Fasc"
+"Delete" = "Obriši"
+"PullDn" = "Meni↓"
+"Quit" = "Izlaz"
+
+# -- Editor / hex-editor --
+"Save" = "Sačuv"
+"Mark" = "Ozn"
+"Replac" = "Zameni"
+"Move" = "Premes"
+"Search" = "Traži"
+"Hex" = "Hex"
+"Save as" = "Sač.ka"
+"Wrap" = "Prelom"
+"Text" = "Tekst"
+
+# -- Settings dialog --
+"Settings" = "Podešavanja"
+"Theme" = "Tema"
+"Language" = "Jezik"
+"Truecolor (gradients)" = "Truecolor (prelivi)"
+"Animations" = "Animacije"
+"System status widget" = "Vidžet stanja sistema"
+"External editor" = "Spoljni uređivač"
+"External viewer" = "Spoljni pregledač"
+"Use internal viewer" = "Koristi interni pregledač"
+"Use internal editor" = "Koristi interni uređivač"
+
+# -- Confirmations dialog --
+"Confirmations" = "Potvrde"
+"Confirm delete" = "Potvrdi brisanje"
+"Confirm overwrite" = "Potvrdi prepisivanje"
+"Confirm execute" = "Potvrdi izvršavanje"
+"Confirm unmount" = "Potvrdi demontiranje"
+"Confirm exit" = "Potvrdi izlaz"
+
+# -- Common buttons --
+"OK" = "U redu"
+"Cancel" = "Otkaži"
+"Yes" = "Da"
+"No" = "Ne"
+"Execute" = "Izvrši"

@@ -1,0 +1,111 @@
+# rat-commander localization — Español (Spanish)
+name = "Español"
+code = "es"
+
+[strings]
+
+# -- Menu bar titles --
+"Left" = "Izquierda"
+"File" = "Archivo"
+"Command" = "Comando"
+"Options" = "Opciones"
+"Right" = "Derecha"
+
+# -- Left/Right panel menus --
+"&Full view" = "Vista completa (&F)"
+"&Brief view" = "Vista breve (&B)"
+"&Details view" = "Vista detallada (&D)"
+"Sort: &Name" = "Orden: Nombre (&N)"
+"Sort: &Extension" = "Orden: Extensión (&E)"
+"Sort: &Size" = "Orden: Tamaño (&S)"
+"Sort: &Modify time" = "Orden: Fecha de modificación (&M)"
+"Sort: &Unsorted" = "Orden: Sin ordenar (&U)"
+"&Reverse order" = "Orden inverso (&R)"
+"SFT&P connection..." = "Conexión SFTP… (&P)"
+"F&TP connection..." = "Conexión FTP… (&T)"
+"S&CP connection..." = "Conexión SCP… (&C)"
+"Disconnect (&local)" = "Desconectar (&L)"
+
+# -- File menu --
+"&View" = "Ver (&V)"
+"&Edit" = "Editar (&E)"
+"&Copy" = "Copiar (&C)"
+"&Rename/Move" = "Renombrar/Mover (&R)"
+"M&ulti rename" = "Renombrado múltiple (&U)"
+"&Make directory" = "Crear carpeta (&M)"
+"&Delete" = "Eliminar (&D)"
+"C&hmod" = "Chmod (&H)"
+"Cho&wn" = "Chown (&W)"
+"&Symlink" = "Enlace simbólico (&S)"
+"Com&press..." = "Comprimir… (&P)"
+"Select &group" = "Seleccionar grupo (&G)"
+"U&nselect group" = "Deseleccionar grupo (&N)"
+"&Invert selection" = "Invertir la selección (&I)"
+"&Quit" = "Salir (&Q)"
+
+# -- Command menu --
+"&Find file..." = "Buscar archivo… (&F)"
+"Find d&uplicates..." = "Buscar duplicados… (&U)"
+"Compare &directories..." = "Comparar carpetas… (&D)"
+"Compare fi&les..." = "Comparar archivos… (&L)"
+"&Process explorer..." = "Explorador de procesos… (&P)"
+"Disk &explorer..." = "Explorador de disco… (&E)"
+"Disk &manager..." = "Administrador de discos… (&M)"
+"S&wap panels" = "Intercambiar paneles (&W)"
+"&Re-read directories" = "Releer carpetas (&R)"
+"&Toggle split V/H" = "Alternar división V/H (&T)"
+
+# -- Options menu --
+"&Settings..." = "Configuración… (&S)"
+"&Confirmations..." = "Confirmaciones… (&C)"
+"&Edit themes..." = "Editar temas… (&E)"
+
+# -- Function-key bar --
+"Help" = "Ayuda"
+"Menu" = "Menú"
+"View" = "Ver"
+"Edit" = "Edit"
+"Copy" = "Copia"
+"RenMov" = "RenMov"
+"Mkdir" = "Crear"
+"Delete" = "Borrar"
+"PullDn" = "Menú↓"
+"Quit" = "Salir"
+
+# -- Editor / hex-editor --
+"Save" = "Guar"
+"Mark" = "Marca"
+"Replac" = "Reemp"
+"Move" = "Mover"
+"Search" = "Buscar"
+"Hex" = "Hex"
+"Save as" = "Gu.como"
+"Wrap" = "Ajuste"
+"Text" = "Texto"
+
+# -- Settings dialog --
+"Settings" = "Configuración"
+"Theme" = "Tema"
+"Language" = "Idioma"
+"Truecolor (gradients)" = "Truecolor (degradados)"
+"Animations" = "Animaciones"
+"System status widget" = "Widget de estado del sistema"
+"External editor" = "Editor externo"
+"External viewer" = "Visor externo"
+"Use internal viewer" = "Usar el visor interno"
+"Use internal editor" = "Usar el editor interno"
+
+# -- Confirmations dialog --
+"Confirmations" = "Confirmaciones"
+"Confirm delete" = "Confirmar eliminación"
+"Confirm overwrite" = "Confirmar sobrescritura"
+"Confirm execute" = "Confirmar ejecución"
+"Confirm unmount" = "Confirmar desmontaje"
+"Confirm exit" = "Confirmar salida"
+
+# -- Common buttons --
+"OK" = "Aceptar"
+"Cancel" = "Cancelar"
+"Yes" = "Sí"
+"No" = "No"
+"Execute" = "Ejecutar"

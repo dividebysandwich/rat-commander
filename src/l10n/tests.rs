@@ -1,12 +1,19 @@
 use super::*;
 
 #[test]
-fn builtin_catalogs_parse_and_include_english_and_german() {
+fn all_builtin_catalogs_parse_with_unique_names() {
+    // Every embedded file must parse (a TOML typo would silently drop it).
     let cats = builtin_catalogs();
-    assert!(cats.len() >= 2, "at least English + German are built in");
-    let names: Vec<&str> = cats.iter().map(|c| c.name.as_str()).collect();
-    assert!(names.contains(&"English"));
-    assert!(names.contains(&"Deutsch"));
+    assert_eq!(cats.len(), super::BUILTIN_FILES.len(), "every built-in file parsed");
+    for expected in ["English", "Deutsch", "Français", "Русский", "日本語", "العربية"] {
+        assert!(cats.iter().any(|c| c.name == expected), "missing language: {expected}");
+    }
+    // Language display names must be distinct so the chooser is unambiguous.
+    let mut names: Vec<&str> = cats.iter().map(|c| c.name.as_str()).collect();
+    names.sort_unstable();
+    let unique = names.len();
+    names.dedup();
+    assert_eq!(names.len(), unique, "duplicate language display name");
 }
 
 #[test]
@@ -26,17 +33,18 @@ fn german_catalog_translates_across_categories() {
 }
 
 #[test]
-fn german_covers_every_english_key() {
+fn every_language_covers_every_english_key() {
     let cats = builtin_catalogs();
     let en = cats.iter().find(|c| c.name == "English").expect("English");
-    let de = cats.iter().find(|c| c.name == "Deutsch").expect("Deutsch");
-    let missing: Vec<&str> = en
-        .strings
-        .keys()
-        .filter(|k| !de.strings.contains_key(*k))
-        .map(|s| s.as_str())
-        .collect();
-    assert!(missing.is_empty(), "German is missing translations for: {missing:?}");
+    for cat in cats.iter().filter(|c| c.name != "English") {
+        let missing: Vec<&str> = en
+            .strings
+            .keys()
+            .filter(|k| !cat.strings.contains_key(*k))
+            .map(|s| s.as_str())
+            .collect();
+        assert!(missing.is_empty(), "{} is missing translations for: {missing:?}", cat.name);
+    }
 }
 
 #[test]
@@ -53,13 +61,9 @@ fn set_active_finds_known_and_rejects_unknown_languages() {
 }
 
 #[test]
-fn german_menu_accelerators_are_unique_per_menu() {
-    let de = builtin_catalogs()
-        .into_iter()
-        .find(|c| c.name == "Deutsch")
-        .expect("German");
+fn menu_accelerators_are_unique_per_menu_in_every_language() {
     // The item label keys of each menu (mirroring `ui::menu`). The `&`
-    // accelerator letter must be unique within a menu.
+    // accelerator letter must be unique within a menu, in every language.
     let menus: &[&[&str]] = &[
         &[
             "&View", "&Edit", "&Copy", "&Rename/Move", "M&ulti rename", "&Make directory",
@@ -83,12 +87,18 @@ fn german_menu_accelerators_are_unique_per_menu() {
             .and_then(|b| s[b + 1..].chars().next())
             .map(|c| c.to_ascii_lowercase())
     };
-    for (mi, keys) in menus.iter().enumerate() {
-        let mut seen = std::collections::HashSet::new();
-        for k in *keys {
-            let label = de.get(k).unwrap_or(k);
-            if let Some(a) = accel(label) {
-                assert!(seen.insert(a), "duplicate German accelerator '{a}' in menu {mi} ({label})");
+    for cat in builtin_catalogs() {
+        for (mi, keys) in menus.iter().enumerate() {
+            let mut seen = std::collections::HashSet::new();
+            for k in *keys {
+                let label = cat.get(k).unwrap_or(k);
+                if let Some(a) = accel(label) {
+                    assert!(
+                        seen.insert(a),
+                        "duplicate accelerator '{a}' in menu {mi} of {} ({label})",
+                        cat.name
+                    );
+                }
             }
         }
     }

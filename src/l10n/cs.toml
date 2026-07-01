@@ -1,0 +1,111 @@
+# rat-commander localization — Čeština (Czech)
+name = "Čeština"
+code = "cs"
+
+[strings]
+
+# -- Menu bar titles --
+"Left" = "Levý"
+"File" = "Soubor"
+"Command" = "Akce"
+"Options" = "Možnosti"
+"Right" = "Pravý"
+
+# -- Left/Right panel menus --
+"&Full view" = "Úplné zobrazení (&F)"
+"&Brief view" = "Stručné zobrazení (&B)"
+"&Details view" = "Podrobné zobrazení (&D)"
+"Sort: &Name" = "Řazení: Název (&N)"
+"Sort: &Extension" = "Řazení: Přípona (&E)"
+"Sort: &Size" = "Řazení: Velikost (&S)"
+"Sort: &Modify time" = "Řazení: Čas změny (&M)"
+"Sort: &Unsorted" = "Řazení: Neseřazeno (&U)"
+"&Reverse order" = "Obrácené pořadí (&R)"
+"SFT&P connection..." = "Připojení SFTP… (&P)"
+"F&TP connection..." = "Připojení FTP… (&T)"
+"S&CP connection..." = "Připojení SCP… (&C)"
+"Disconnect (&local)" = "Odpojit (&L)"
+
+# -- File menu --
+"&View" = "Zobrazit (&V)"
+"&Edit" = "Upravit (&E)"
+"&Copy" = "Kopírovat (&C)"
+"&Rename/Move" = "Přejmenovat/Přesunout (&R)"
+"M&ulti rename" = "Hromadné přejmenování (&U)"
+"&Make directory" = "Vytvořit složku (&M)"
+"&Delete" = "Smazat (&D)"
+"C&hmod" = "Chmod (&H)"
+"Cho&wn" = "Chown (&W)"
+"&Symlink" = "Symbolický odkaz (&S)"
+"Com&press..." = "Komprimovat… (&P)"
+"Select &group" = "Vybrat skupinu (&G)"
+"U&nselect group" = "Zrušit výběr skupiny (&N)"
+"&Invert selection" = "Invertovat výběr (&I)"
+"&Quit" = "Konec (&Q)"
+
+# -- Command menu --
+"&Find file..." = "Najít soubor… (&F)"
+"Find d&uplicates..." = "Najít duplikáty… (&U)"
+"Compare &directories..." = "Porovnat složky… (&D)"
+"Compare fi&les..." = "Porovnat soubory… (&L)"
+"&Process explorer..." = "Prohlížeč procesů… (&P)"
+"Disk &explorer..." = "Prohlížeč disku… (&E)"
+"Disk &manager..." = "Správce disků… (&M)"
+"S&wap panels" = "Prohodit panely (&W)"
+"&Re-read directories" = "Znovu načíst složky (&R)"
+"&Toggle split V/H" = "Přepnout rozdělení V/H (&T)"
+
+# -- Options menu --
+"&Settings..." = "Nastavení… (&S)"
+"&Confirmations..." = "Potvrzení… (&C)"
+"&Edit themes..." = "Upravit motivy… (&E)"
+
+# -- Function-key bar --
+"Help" = "Nápov"
+"Menu" = "Menu"
+"View" = "Zobr"
+"Edit" = "Uprav"
+"Copy" = "Kopie"
+"RenMov" = "PřejPř"
+"Mkdir" = "Složka"
+"Delete" = "Smaz"
+"PullDn" = "Menu↓"
+"Quit" = "Konec"
+
+# -- Editor / hex-editor --
+"Save" = "Ulož"
+"Mark" = "Ozn"
+"Replac" = "Nahr"
+"Move" = "Přes"
+"Search" = "Hledat"
+"Hex" = "Hex"
+"Save as" = "Ul.jak"
+"Wrap" = "Zalom"
+"Text" = "Text"
+
+# -- Settings dialog --
+"Settings" = "Nastavení"
+"Theme" = "Motiv"
+"Language" = "Jazyk"
+"Truecolor (gradients)" = "Truecolor (přechody)"
+"Animations" = "Animace"
+"System status widget" = "Widget stavu systému"
+"External editor" = "Externí editor"
+"External viewer" = "Externí prohlížeč"
+"Use internal viewer" = "Použít interní prohlížeč"
+"Use internal editor" = "Použít interní editor"
+
+# -- Confirmations dialog --
+"Confirmations" = "Potvrzení"
+"Confirm delete" = "Potvrdit smazání"
+"Confirm overwrite" = "Potvrdit přepsání"
+"Confirm execute" = "Potvrdit spuštění"
+"Confirm unmount" = "Potvrdit odpojení"
+"Confirm exit" = "Potvrdit ukončení"
+
+# -- Common buttons --
+"OK" = "OK"
+"Cancel" = "Zrušit"
+"Yes" = "Ano"
+"No" = "Ne"
+"Execute" = "Spustit"

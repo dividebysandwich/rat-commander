@@ -1,0 +1,111 @@
+# rat-commander localization — Українська (Ukrainian)
+name = "Українська"
+code = "uk"
+
+[strings]
+
+# -- Menu bar titles --
+"Left" = "Ліворуч"
+"File" = "Файл"
+"Command" = "Команди"
+"Options" = "Опції"
+"Right" = "Праворуч"
+
+# -- Left/Right panel menus --
+"&Full view" = "Повний вигляд (&F)"
+"&Brief view" = "Стислий вигляд (&B)"
+"&Details view" = "Детальний вигляд (&D)"
+"Sort: &Name" = "Сортування: Ім'я (&N)"
+"Sort: &Extension" = "Сортування: Розширення (&E)"
+"Sort: &Size" = "Сортування: Розмір (&S)"
+"Sort: &Modify time" = "Сортування: Час зміни (&M)"
+"Sort: &Unsorted" = "Сортування: Без сортування (&U)"
+"&Reverse order" = "Зворотний порядок (&R)"
+"SFT&P connection..." = "З'єднання SFTP… (&P)"
+"F&TP connection..." = "З'єднання FTP… (&T)"
+"S&CP connection..." = "З'єднання SCP… (&C)"
+"Disconnect (&local)" = "Відключити (&L)"
+
+# -- File menu --
+"&View" = "Переглянути (&V)"
+"&Edit" = "Редагувати (&E)"
+"&Copy" = "Копіювати (&C)"
+"&Rename/Move" = "Перейменувати/Перемістити (&R)"
+"M&ulti rename" = "Групове перейменування (&U)"
+"&Make directory" = "Створити теку (&M)"
+"&Delete" = "Видалити (&D)"
+"C&hmod" = "Chmod (&H)"
+"Cho&wn" = "Chown (&W)"
+"&Symlink" = "Символьне посилання (&S)"
+"Com&press..." = "Стиснути… (&P)"
+"Select &group" = "Вибрати групу (&G)"
+"U&nselect group" = "Скасувати вибір групи (&N)"
+"&Invert selection" = "Інвертувати вибір (&I)"
+"&Quit" = "Вихід (&Q)"
+
+# -- Command menu --
+"&Find file..." = "Знайти файл… (&F)"
+"Find d&uplicates..." = "Знайти дублікати… (&U)"
+"Compare &directories..." = "Порівняти теки… (&D)"
+"Compare fi&les..." = "Порівняти файли… (&L)"
+"&Process explorer..." = "Перегляд процесів… (&P)"
+"Disk &explorer..." = "Перегляд диска… (&E)"
+"Disk &manager..." = "Керування дисками… (&M)"
+"S&wap panels" = "Поміняти панелі (&W)"
+"&Re-read directories" = "Перечитати теки (&R)"
+"&Toggle split V/H" = "Перемкнути поділ В/Г (&T)"
+
+# -- Options menu --
+"&Settings..." = "Налаштування… (&S)"
+"&Confirmations..." = "Підтвердження… (&C)"
+"&Edit themes..." = "Редагувати теми… (&E)"
+
+# -- Function-key bar --
+"Help" = "Довід"
+"Menu" = "Меню"
+"View" = "Перег"
+"Edit" = "Ред"
+"Copy" = "Копія"
+"RenMov" = "ПерПер"
+"Mkdir" = "Тека"
+"Delete" = "Видал"
+"PullDn" = "Меню↓"
+"Quit" = "Вихід"
+
+# -- Editor / hex-editor --
+"Save" = "Збер"
+"Mark" = "Позн"
+"Replac" = "Заміна"
+"Move" = "Перем"
+"Search" = "Пошук"
+"Hex" = "Hex"
+"Save as" = "Збер.я"
+"Wrap" = "Перен"
+"Text" = "Текст"
+
+# -- Settings dialog --
+"Settings" = "Налаштування"
+"Theme" = "Тема"
+"Language" = "Мова"
+"Truecolor (gradients)" = "Truecolor (градієнти)"
+"Animations" = "Анімації"
+"System status widget" = "Віджет стану системи"
+"External editor" = "Зовнішній редактор"
+"External viewer" = "Зовнішній переглядач"
+"Use internal viewer" = "Використовувати внутрішній переглядач"
+"Use internal editor" = "Використовувати внутрішній редактор"
+
+# -- Confirmations dialog --
+"Confirmations" = "Підтвердження"
+"Confirm delete" = "Підтверджувати видалення"
+"Confirm overwrite" = "Підтверджувати перезапис"
+"Confirm execute" = "Підтверджувати виконання"
+"Confirm unmount" = "Підтверджувати відмонтування"
+"Confirm exit" = "Підтверджувати вихід"
+
+# -- Common buttons --
+"OK" = "Гаразд"
+"Cancel" = "Скасувати"
+"Yes" = "Так"
+"No" = "Ні"
+"Execute" = "Виконати"

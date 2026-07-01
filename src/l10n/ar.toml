@@ -1,0 +1,114 @@
+# rat-commander localization — العربية (Arabic)
+#
+# Note: the terminal UI is left-to-right, so right-to-left text may not lay out
+# ideally, but the translations are complete.
+name = "العربية"
+code = "ar"
+
+[strings]
+
+# -- Menu bar titles --
+"Left" = "يسار"
+"File" = "ملف"
+"Command" = "أمر"
+"Options" = "خيارات"
+"Right" = "يمين"
+
+# -- Left/Right panel menus --
+"&Full view" = "عرض كامل (&F)"
+"&Brief view" = "عرض موجز (&B)"
+"&Details view" = "عرض التفاصيل (&D)"
+"Sort: &Name" = "الفرز: الاسم (&N)"
+"Sort: &Extension" = "الفرز: الامتداد (&E)"
+"Sort: &Size" = "الفرز: الحجم (&S)"
+"Sort: &Modify time" = "الفرز: وقت التعديل (&M)"
+"Sort: &Unsorted" = "الفرز: غير مفروز (&U)"
+"&Reverse order" = "ترتيب عكسي (&R)"
+"SFT&P connection..." = "اتصال SFTP… (&P)"
+"F&TP connection..." = "اتصال FTP… (&T)"
+"S&CP connection..." = "اتصال SCP… (&C)"
+"Disconnect (&local)" = "قطع الاتصال (&L)"
+
+# -- File menu --
+"&View" = "عرض (&V)"
+"&Edit" = "تحرير (&E)"
+"&Copy" = "نسخ (&C)"
+"&Rename/Move" = "إعادة تسمية/نقل (&R)"
+"M&ulti rename" = "إعادة تسمية متعددة (&U)"
+"&Make directory" = "إنشاء مجلد (&M)"
+"&Delete" = "حذف (&D)"
+"C&hmod" = "Chmod (&H)"
+"Cho&wn" = "Chown (&W)"
+"&Symlink" = "رابط رمزي (&S)"
+"Com&press..." = "ضغط… (&P)"
+"Select &group" = "تحديد مجموعة (&G)"
+"U&nselect group" = "إلغاء تحديد المجموعة (&N)"
+"&Invert selection" = "عكس التحديد (&I)"
+"&Quit" = "خروج (&Q)"
+
+# -- Command menu --
+"&Find file..." = "بحث عن ملف… (&F)"
+"Find d&uplicates..." = "البحث عن التكرارات… (&U)"
+"Compare &directories..." = "مقارنة المجلدات… (&D)"
+"Compare fi&les..." = "مقارنة الملفات… (&L)"
+"&Process explorer..." = "مستكشف العمليات… (&P)"
+"Disk &explorer..." = "مستكشف القرص… (&E)"
+"Disk &manager..." = "مدير الأقراص… (&M)"
+"S&wap panels" = "تبديل اللوحات (&W)"
+"&Re-read directories" = "إعادة قراءة المجلدات (&R)"
+"&Toggle split V/H" = "تبديل التقسيم ع/أ (&T)"
+
+# -- Options menu --
+"&Settings..." = "الإعدادات… (&S)"
+"&Confirmations..." = "التأكيدات… (&C)"
+"&Edit themes..." = "تحرير السمات… (&E)"
+
+# -- Function-key bar --
+"Help" = "مساعدة"
+"Menu" = "قائمة"
+"View" = "عرض"
+"Edit" = "تحرير"
+"Copy" = "نسخ"
+"RenMov" = "تسم/نقل"
+"Mkdir" = "مجلد"
+"Delete" = "حذف"
+"PullDn" = "قائمة"
+"Quit" = "خروج"
+
+# -- Editor / hex-editor --
+"Save" = "حفظ"
+"Mark" = "تحديد"
+"Replac" = "استبدال"
+"Move" = "نقل"
+"Search" = "بحث"
+"Hex" = "Hex"
+"Save as" = "حفظ.ك"
+"Wrap" = "التفاف"
+"Text" = "نص"
+
+# -- Settings dialog --
+"Settings" = "الإعدادات"
+"Theme" = "السمة"
+"Language" = "اللغة"
+"Truecolor (gradients)" = "Truecolor (تدرجات)"
+"Animations" = "الرسوم المتحركة"
+"System status widget" = "أداة حالة النظام"
+"External editor" = "محرر خارجي"
+"External viewer" = "عارض خارجي"
+"Use internal viewer" = "استخدام العارض الداخلي"
+"Use internal editor" = "استخدام المحرر الداخلي"
+
+# -- Confirmations dialog --
+"Confirmations" = "التأكيدات"
+"Confirm delete" = "تأكيد الحذف"
+"Confirm overwrite" = "تأكيد الاستبدال"
+"Confirm execute" = "تأكيد التنفيذ"
+"Confirm unmount" = "تأكيد الفصل"
+"Confirm exit" = "تأكيد الخروج"
+
+# -- Common buttons --
+"OK" = "موافق"
+"Cancel" = "إلغاء"
+"Yes" = "نعم"
+"No" = "لا"
+"Execute" = "تنفيذ"

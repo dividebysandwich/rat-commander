@@ -1,0 +1,111 @@
+# rat-commander localization — 中文（简体） (Chinese, Simplified)
+name = "中文（简体）"
+code = "zh-Hans"
+
+[strings]
+
+# -- Menu bar titles --
+"Left" = "左"
+"File" = "文件"
+"Command" = "命令"
+"Options" = "选项"
+"Right" = "右"
+
+# -- Left/Right panel menus --
+"&Full view" = "完整视图(&F)"
+"&Brief view" = "简略视图(&B)"
+"&Details view" = "详细视图(&D)"
+"Sort: &Name" = "排序：名称(&N)"
+"Sort: &Extension" = "排序：扩展名(&E)"
+"Sort: &Size" = "排序：大小(&S)"
+"Sort: &Modify time" = "排序：修改时间(&M)"
+"Sort: &Unsorted" = "排序：未排序(&U)"
+"&Reverse order" = "反向排序(&R)"
+"SFT&P connection..." = "SFTP 连接…(&P)"
+"F&TP connection..." = "FTP 连接…(&T)"
+"S&CP connection..." = "SCP 连接…(&C)"
+"Disconnect (&local)" = "断开连接(&L)"
+
+# -- File menu --
+"&View" = "查看(&V)"
+"&Edit" = "编辑(&E)"
+"&Copy" = "复制(&C)"
+"&Rename/Move" = "重命名/移动(&R)"
+"M&ulti rename" = "批量重命名(&U)"
+"&Make directory" = "新建文件夹(&M)"
+"&Delete" = "删除(&D)"
+"C&hmod" = "Chmod(&H)"
+"Cho&wn" = "Chown(&W)"
+"&Symlink" = "符号链接(&S)"
+"Com&press..." = "压缩…(&P)"
+"Select &group" = "选择组(&G)"
+"U&nselect group" = "取消选择组(&N)"
+"&Invert selection" = "反转选择(&I)"
+"&Quit" = "退出(&Q)"
+
+# -- Command menu --
+"&Find file..." = "查找文件…(&F)"
+"Find d&uplicates..." = "查找重复文件…(&U)"
+"Compare &directories..." = "比较文件夹…(&D)"
+"Compare fi&les..." = "比较文件…(&L)"
+"&Process explorer..." = "进程浏览器…(&P)"
+"Disk &explorer..." = "磁盘用量…(&E)"
+"Disk &manager..." = "磁盘管理…(&M)"
+"S&wap panels" = "交换面板(&W)"
+"&Re-read directories" = "重新读取文件夹(&R)"
+"&Toggle split V/H" = "切换分割 竖/横(&T)"
+
+# -- Options menu --
+"&Settings..." = "设置…(&S)"
+"&Confirmations..." = "确认…(&C)"
+"&Edit themes..." = "编辑主题…(&E)"
+
+# -- Function-key bar --
+"Help" = "帮助"
+"Menu" = "菜单"
+"View" = "查看"
+"Edit" = "编辑"
+"Copy" = "复制"
+"RenMov" = "改名移"
+"Mkdir" = "新建"
+"Delete" = "删除"
+"PullDn" = "菜单"
+"Quit" = "退出"
+
+# -- Editor / hex-editor --
+"Save" = "保存"
+"Mark" = "标记"
+"Replac" = "替换"
+"Move" = "移动"
+"Search" = "搜索"
+"Hex" = "Hex"
+"Save as" = "另存"
+"Wrap" = "换行"
+"Text" = "文本"
+
+# -- Settings dialog --
+"Settings" = "设置"
+"Theme" = "主题"
+"Language" = "语言"
+"Truecolor (gradients)" = "Truecolor（渐变）"
+"Animations" = "动画"
+"System status widget" = "系统状态小组件"
+"External editor" = "外部编辑器"
+"External viewer" = "外部查看器"
+"Use internal viewer" = "使用内置查看器"
+"Use internal editor" = "使用内置编辑器"
+
+# -- Confirmations dialog --
+"Confirmations" = "确认"
+"Confirm delete" = "确认删除"
+"Confirm overwrite" = "确认覆盖"
+"Confirm execute" = "确认执行"
+"Confirm unmount" = "确认卸载"
+"Confirm exit" = "确认退出"
+
+# -- Common buttons --
+"OK" = "确定"
+"Cancel" = "取消"
+"Yes" = "是"
+"No" = "否"
+"Execute" = "执行"

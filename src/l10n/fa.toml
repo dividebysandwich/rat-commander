@@ -1,0 +1,114 @@
+# rat-commander localization — فارسی (Persian)
+#
+# Note: the terminal UI is left-to-right, so right-to-left text may not lay out
+# ideally, but the translations are complete.
+name = "فارسی"
+code = "fa"
+
+[strings]
+
+# -- Menu bar titles --
+"Left" = "چپ"
+"File" = "پرونده"
+"Command" = "فرمان"
+"Options" = "گزینه‌ها"
+"Right" = "راست"
+
+# -- Left/Right panel menus --
+"&Full view" = "نمای کامل (&F)"
+"&Brief view" = "نمای مختصر (&B)"
+"&Details view" = "نمای جزئیات (&D)"
+"Sort: &Name" = "مرتب‌سازی: نام (&N)"
+"Sort: &Extension" = "مرتب‌سازی: پسوند (&E)"
+"Sort: &Size" = "مرتب‌سازی: اندازه (&S)"
+"Sort: &Modify time" = "مرتب‌سازی: زمان تغییر (&M)"
+"Sort: &Unsorted" = "مرتب‌سازی: نامرتب (&U)"
+"&Reverse order" = "ترتیب معکوس (&R)"
+"SFT&P connection..." = "اتصال SFTP… (&P)"
+"F&TP connection..." = "اتصال FTP… (&T)"
+"S&CP connection..." = "اتصال SCP… (&C)"
+"Disconnect (&local)" = "قطع اتصال (&L)"
+
+# -- File menu --
+"&View" = "نمایش (&V)"
+"&Edit" = "ویرایش (&E)"
+"&Copy" = "کپی (&C)"
+"&Rename/Move" = "تغییر نام/انتقال (&R)"
+"M&ulti rename" = "تغییر نام گروهی (&U)"
+"&Make directory" = "ساخت پوشه (&M)"
+"&Delete" = "حذف (&D)"
+"C&hmod" = "Chmod (&H)"
+"Cho&wn" = "Chown (&W)"
+"&Symlink" = "پیوند نمادین (&S)"
+"Com&press..." = "فشرده‌سازی… (&P)"
+"Select &group" = "انتخاب گروه (&G)"
+"U&nselect group" = "لغو انتخاب گروه (&N)"
+"&Invert selection" = "معکوس کردن انتخاب (&I)"
+"&Quit" = "خروج (&Q)"
+
+# -- Command menu --
+"&Find file..." = "یافتن پرونده… (&F)"
+"Find d&uplicates..." = "یافتن تکراری‌ها… (&U)"
+"Compare &directories..." = "مقایسه پوشه‌ها… (&D)"
+"Compare fi&les..." = "مقایسه پرونده‌ها… (&L)"
+"&Process explorer..." = "کاوشگر فرایندها… (&P)"
+"Disk &explorer..." = "کاوشگر دیسک… (&E)"
+"Disk &manager..." = "مدیریت دیسک… (&M)"
+"S&wap panels" = "جابجایی پنل‌ها (&W)"
+"&Re-read directories" = "بازخوانی پوشه‌ها (&R)"
+"&Toggle split V/H" = "تغییر تقسیم ع/ا (&T)"
+
+# -- Options menu --
+"&Settings..." = "تنظیمات… (&S)"
+"&Confirmations..." = "تأییدها… (&C)"
+"&Edit themes..." = "ویرایش پوسته‌ها… (&E)"
+
+# -- Function-key bar --
+"Help" = "راهنما"
+"Menu" = "منو"
+"View" = "نمایش"
+"Edit" = "ویرا"
+"Copy" = "کپی"
+"RenMov" = "تغنام"
+"Mkdir" = "پوشه"
+"Delete" = "حذف"
+"PullDn" = "منو"
+"Quit" = "خروج"
+
+# -- Editor / hex-editor --
+"Save" = "ذخیره"
+"Mark" = "نشان"
+"Replac" = "جایگز"
+"Move" = "انتقال"
+"Search" = "جستجو"
+"Hex" = "Hex"
+"Save as" = "ذخ.با"
+"Wrap" = "شکست"
+"Text" = "متن"
+
+# -- Settings dialog --
+"Settings" = "تنظیمات"
+"Theme" = "پوسته"
+"Language" = "زبان"
+"Truecolor (gradients)" = "Truecolor (گرادیان‌ها)"
+"Animations" = "انیمیشن‌ها"
+"System status widget" = "ابزارک وضعیت سیستم"
+"External editor" = "ویرایشگر خارجی"
+"External viewer" = "نمایشگر خارجی"
+"Use internal viewer" = "استفاده از نمایشگر داخلی"
+"Use internal editor" = "استفاده از ویرایشگر داخلی"
+
+# -- Confirmations dialog --
+"Confirmations" = "تأییدها"
+"Confirm delete" = "تأیید حذف"
+"Confirm overwrite" = "تأیید بازنویسی"
+"Confirm execute" = "تأیید اجرا"
+"Confirm unmount" = "تأیید جدا کردن"
+"Confirm exit" = "تأیید خروج"
+
+# -- Common buttons --
+"OK" = "تأیید"
+"Cancel" = "لغو"
+"Yes" = "بله"
+"No" = "خیر"
+"Execute" = "اجرا"

@@ -1,0 +1,111 @@
+# rat-commander localization — Nederlands (Dutch)
+name = "Nederlands"
+code = "nl"
+
+[strings]
+
+# -- Menu bar titles --
+"Left" = "Links"
+"File" = "Bestand"
+"Command" = "Commando"
+"Options" = "Opties"
+"Right" = "Rechts"
+
+# -- Left/Right panel menus --
+"&Full view" = "Volledige weergave (&F)"
+"&Brief view" = "Beknopte weergave (&B)"
+"&Details view" = "Detailweergave (&D)"
+"Sort: &Name" = "Sorteren: Naam (&N)"
+"Sort: &Extension" = "Sorteren: Extensie (&E)"
+"Sort: &Size" = "Sorteren: Grootte (&S)"
+"Sort: &Modify time" = "Sorteren: Wijzigingsdatum (&M)"
+"Sort: &Unsorted" = "Sorteren: Ongesorteerd (&U)"
+"&Reverse order" = "Omgekeerde volgorde (&R)"
+"SFT&P connection..." = "SFTP-verbinding… (&P)"
+"F&TP connection..." = "FTP-verbinding… (&T)"
+"S&CP connection..." = "SCP-verbinding… (&C)"
+"Disconnect (&local)" = "Verbinding verbreken (&L)"
+
+# -- File menu --
+"&View" = "Weergeven (&V)"
+"&Edit" = "Bewerken (&E)"
+"&Copy" = "Kopiëren (&C)"
+"&Rename/Move" = "Hernoemen/Verplaatsen (&R)"
+"M&ulti rename" = "Meervoudig hernoemen (&U)"
+"&Make directory" = "Map maken (&M)"
+"&Delete" = "Verwijderen (&D)"
+"C&hmod" = "Chmod (&H)"
+"Cho&wn" = "Chown (&W)"
+"&Symlink" = "Symbolische link (&S)"
+"Com&press..." = "Comprimeren… (&P)"
+"Select &group" = "Groep selecteren (&G)"
+"U&nselect group" = "Groep deselecteren (&N)"
+"&Invert selection" = "Selectie omkeren (&I)"
+"&Quit" = "Afsluiten (&Q)"
+
+# -- Command menu --
+"&Find file..." = "Bestand zoeken… (&F)"
+"Find d&uplicates..." = "Duplicaten zoeken… (&U)"
+"Compare &directories..." = "Mappen vergelijken… (&D)"
+"Compare fi&les..." = "Bestanden vergelijken… (&L)"
+"&Process explorer..." = "Procesverkenner… (&P)"
+"Disk &explorer..." = "Schijfverkenner… (&E)"
+"Disk &manager..." = "Schijfbeheer… (&M)"
+"S&wap panels" = "Panelen omwisselen (&W)"
+"&Re-read directories" = "Mappen opnieuw inlezen (&R)"
+"&Toggle split V/H" = "Splitsing wisselen V/H (&T)"
+
+# -- Options menu --
+"&Settings..." = "Instellingen… (&S)"
+"&Confirmations..." = "Bevestigingen… (&C)"
+"&Edit themes..." = "Thema's bewerken… (&E)"
+
+# -- Function-key bar --
+"Help" = "Hulp"
+"Menu" = "Menu"
+"View" = "Bekijk"
+"Edit" = "Bew"
+"Copy" = "Kopie"
+"RenMov" = "HernVp"
+"Mkdir" = "NwMap"
+"Delete" = "Verw"
+"PullDn" = "Menu↓"
+"Quit" = "Sluit"
+
+# -- Editor / hex-editor --
+"Save" = "Opsl"
+"Mark" = "Mark"
+"Replac" = "Verv"
+"Move" = "Verpl"
+"Search" = "Zoek"
+"Hex" = "Hex"
+"Save as" = "Opsl.a"
+"Wrap" = "Terug"
+"Text" = "Tekst"
+
+# -- Settings dialog --
+"Settings" = "Instellingen"
+"Theme" = "Thema"
+"Language" = "Taal"
+"Truecolor (gradients)" = "Truecolor (verlopen)"
+"Animations" = "Animaties"
+"System status widget" = "Systeemstatus-widget"
+"External editor" = "Externe editor"
+"External viewer" = "Externe viewer"
+"Use internal viewer" = "Interne viewer gebruiken"
+"Use internal editor" = "Interne editor gebruiken"
+
+# -- Confirmations dialog --
+"Confirmations" = "Bevestigingen"
+"Confirm delete" = "Verwijderen bevestigen"
+"Confirm overwrite" = "Overschrijven bevestigen"
+"Confirm execute" = "Uitvoeren bevestigen"
+"Confirm unmount" = "Ontkoppelen bevestigen"
+"Confirm exit" = "Afsluiten bevestigen"
+
+# -- Common buttons --
+"OK" = "OK"
+"Cancel" = "Annuleren"
+"Yes" = "Ja"
+"No" = "Nee"
+"Execute" = "Uitvoeren"

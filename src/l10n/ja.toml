@@ -1,0 +1,111 @@
+# rat-commander localization — 日本語 (Japanese)
+name = "日本語"
+code = "ja"
+
+[strings]
+
+# -- Menu bar titles --
+"Left" = "左"
+"File" = "ファイル"
+"Command" = "コマンド"
+"Options" = "オプション"
+"Right" = "右"
+
+# -- Left/Right panel menus --
+"&Full view" = "詳細表示(&F)"
+"&Brief view" = "簡易表示(&B)"
+"&Details view" = "情報表示(&D)"
+"Sort: &Name" = "並べ替え: 名前(&N)"
+"Sort: &Extension" = "並べ替え: 拡張子(&E)"
+"Sort: &Size" = "並べ替え: サイズ(&S)"
+"Sort: &Modify time" = "並べ替え: 更新日時(&M)"
+"Sort: &Unsorted" = "並べ替え: 未整列(&U)"
+"&Reverse order" = "逆順(&R)"
+"SFT&P connection..." = "SFTP 接続…(&P)"
+"F&TP connection..." = "FTP 接続…(&T)"
+"S&CP connection..." = "SCP 接続…(&C)"
+"Disconnect (&local)" = "切断(&L)"
+
+# -- File menu --
+"&View" = "表示(&V)"
+"&Edit" = "編集(&E)"
+"&Copy" = "コピー(&C)"
+"&Rename/Move" = "名前変更/移動(&R)"
+"M&ulti rename" = "一括リネーム(&U)"
+"&Make directory" = "フォルダ作成(&M)"
+"&Delete" = "削除(&D)"
+"C&hmod" = "Chmod(&H)"
+"Cho&wn" = "Chown(&W)"
+"&Symlink" = "シンボリックリンク(&S)"
+"Com&press..." = "圧縮…(&P)"
+"Select &group" = "グループ選択(&G)"
+"U&nselect group" = "グループ選択解除(&N)"
+"&Invert selection" = "選択を反転(&I)"
+"&Quit" = "終了(&Q)"
+
+# -- Command menu --
+"&Find file..." = "ファイル検索…(&F)"
+"Find d&uplicates..." = "重複を検索…(&U)"
+"Compare &directories..." = "フォルダを比較…(&D)"
+"Compare fi&les..." = "ファイルを比較…(&L)"
+"&Process explorer..." = "プロセス一覧…(&P)"
+"Disk &explorer..." = "ディスク使用量…(&E)"
+"Disk &manager..." = "ディスク管理…(&M)"
+"S&wap panels" = "パネルを入れ替え(&W)"
+"&Re-read directories" = "フォルダを再読み込み(&R)"
+"&Toggle split V/H" = "分割を切替 縦/横(&T)"
+
+# -- Options menu --
+"&Settings..." = "設定…(&S)"
+"&Confirmations..." = "確認…(&C)"
+"&Edit themes..." = "テーマを編集…(&E)"
+
+# -- Function-key bar --
+"Help" = "ヘルプ"
+"Menu" = "メニュー"
+"View" = "表示"
+"Edit" = "編集"
+"Copy" = "コピー"
+"RenMov" = "名変移"
+"Mkdir" = "作成"
+"Delete" = "削除"
+"PullDn" = "メニュ"
+"Quit" = "終了"
+
+# -- Editor / hex-editor --
+"Save" = "保存"
+"Mark" = "選択"
+"Replac" = "置換"
+"Move" = "移動"
+"Search" = "検索"
+"Hex" = "Hex"
+"Save as" = "別名"
+"Wrap" = "折返"
+"Text" = "文字"
+
+# -- Settings dialog --
+"Settings" = "設定"
+"Theme" = "テーマ"
+"Language" = "言語"
+"Truecolor (gradients)" = "Truecolor（グラデーション）"
+"Animations" = "アニメーション"
+"System status widget" = "システム状態ウィジェット"
+"External editor" = "外部エディタ"
+"External viewer" = "外部ビューア"
+"Use internal viewer" = "内蔵ビューアを使う"
+"Use internal editor" = "内蔵エディタを使う"
+
+# -- Confirmations dialog --
+"Confirmations" = "確認"
+"Confirm delete" = "削除を確認する"
+"Confirm overwrite" = "上書きを確認する"
+"Confirm execute" = "実行を確認する"
+"Confirm unmount" = "アンマウントを確認する"
+"Confirm exit" = "終了を確認する"
+
+# -- Common buttons --
+"OK" = "OK"
+"Cancel" = "キャンセル"
+"Yes" = "はい"
+"No" = "いいえ"
+"Execute" = "実行"
