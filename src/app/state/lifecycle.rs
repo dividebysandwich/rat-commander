@@ -25,6 +25,7 @@ impl AppState {
             diskview: None,
             diffview: None,
             mountview: None,
+            netview: None,
             pending_sudo: None,
             pending_flash: None,
             pending_image: None,
@@ -107,6 +108,17 @@ impl AppState {
             b.tick();
             dirty = true;
         }
+        // Periodically re-scan the network explorer (live traffic counts), but not
+        // while a dialog is open over it (e.g. the password prompt).
+        if self.dialog.is_none() {
+            let due = self.netview.as_mut().is_some_and(|nv| nv.tick_due());
+            if due {
+                self.start_network_scan();
+            }
+            if self.netview.is_some() {
+                dirty = true;
+            }
+        }
         dirty
     }
 
@@ -117,6 +129,7 @@ impl AppState {
             || self.pending_esc.is_some()
             || self.procview.is_some()
             || self.mountview.is_some()
+            || self.netview.is_some()
             || !self.tasks.is_empty()
             || matches!(self.dialog, Some(Dialog::Busy(_)))
             || self.diskview.as_ref().is_some_and(|d| d.scanning)
@@ -282,6 +295,9 @@ impl AppState {
                     dv.scan_done = done;
                     dv.scan_total = total;
                 }
+            }
+            AppEvent::NetworkScanned { generation, result } => {
+                self.apply_network_scanned(generation, result);
             }
             AppEvent::DiskScanned { generation, entries } => {
                 if let Some(dv) = self.diskview.as_mut()

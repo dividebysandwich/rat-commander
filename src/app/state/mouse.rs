@@ -97,6 +97,22 @@ impl AppState {
             return Flow::Continue;
         }
 
+        // Network explorer: the wheel scrolls the focused pane; other events are
+        // swallowed so they can't reach the hidden panels underneath.
+        if let Some(nv) = self.netview.as_mut() {
+            let code = match ev.kind {
+                MouseEventKind::ScrollDown => Some(KeyCode::Down),
+                MouseEventKind::ScrollUp => Some(KeyCode::Up),
+                _ => None,
+            };
+            if let Some(code) = code {
+                for _ in 0..3 {
+                    let _ = nv.handle_key(KeyEvent::new(code, KeyModifiers::NONE));
+                }
+            }
+            return Flow::Continue;
+        }
+
         // The remaining full-screen overlays don't use the mouse yet; swallow the
         // event so it can't move the hidden file-panel cursor underneath them.
         if self.procview.is_some() || self.diffview.is_some() {

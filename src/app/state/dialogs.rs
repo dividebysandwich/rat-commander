@@ -220,6 +220,7 @@ impl AppState {
             }
             Submit::MountCreate { device, path } => self.do_mount(device, path, true).await,
             Submit::SudoPassword(password) => self.run_pending_sudo(password).await,
+            Submit::NetworkPassword(password) => self.open_network(password),
             Submit::MountDevice(device) => self.prompt_mount_path(device),
             Submit::FormatDevice(device) => {
                 self.dialog = Some(Dialog::Form(FormDialog::format(device)));

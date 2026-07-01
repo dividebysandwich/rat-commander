@@ -669,6 +669,31 @@ non-interactively where possible, otherwise prompting for a password. Passwords
 are never stored.
 
 
+## Network connections (Linux)
+
+*Command menu → Network connections…*
+
+A full-screen view of the machine's sockets, split into two lists: **Listening
+ports** (every open port with its owning program) on top, and active
+**Connections** below — each with its **type** (`tcp`/`tcp6`/`udp`/`udp6`),
+state, local and peer address, program, and the **incoming/outgoing traffic** it
+has carried (cumulative bytes, where the kernel reports them).
+
+**Useful for** seeing what is listening on the machine, what it's talking to, and
+which programs are moving the most data.
+
+**Operation.** On opening it asks for a **root password**. Enter one to see
+*every* socket's owning program (full visibility); leave it **blank** to run in
+**user mode**, where the connection lists are still complete but a program name
+is shown only for your own sockets. **Tab** switches the focused list, **↑↓ /
+PgUp/PgDn / Home/End** (and the mouse wheel) scroll it, **`r`** refreshes now,
+**`+`/`-`** change the auto-refresh interval, and **Esc** closes.
+
+Data comes from `ss` (iproute2); the tool is offered only on Linux. The root
+password, if given, is held in memory for the session so periodic refreshes can
+re-run `sudo` without re-prompting, and is discarded when the view closes.
+
+
 ## Flash and image a disk (Linux)
 
 **Flash an image to a disk.** Press **Enter** on a raw image file (`.iso`,

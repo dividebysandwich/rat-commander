@@ -9,6 +9,7 @@ use crate::ops::{OpKind, OpRequest, TaskHandle, TaskId, spawn_op};
 use crate::diff::{DiffSignal, DiffView};
 use crate::disk::{DiskSignal, DiskView};
 use crate::mount::{MountSignal, MountView};
+use crate::net::{NetSignal, NetView};
 use crate::panel::sort::SortKey;
 use crate::panel::{Panel, ViewFormat};
 use crate::proc::{ProcSignal, ProcView};
@@ -114,6 +115,8 @@ pub struct AppState {
     pub diffview: Option<DiffView>,
     /// The full-screen disk-mounter tool, when open.
     pub mountview: Option<MountView>,
+    /// The full-screen network-connections explorer, when open (Linux).
+    pub netview: Option<NetView>,
     /// A privileged command queued while prompting for a sudo password.
     pending_sudo: Option<PendingPriv>,
     /// A flash queued while prompting for a sudo password.
@@ -402,6 +405,7 @@ mod dialogs;
 mod fileops;
 mod checksum;
 mod disk;
+mod net;
 mod remote;
 mod find;
 mod duplicates;

@@ -73,6 +73,13 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
         }
         return;
     }
+    if let Some(nv) = state.netview.as_mut() {
+        crate::net::render::render(f, area, nv, &theme);
+        if let Some(d) = &mut state.dialog {
+            d.render(f, area, &theme, state.gfx.as_mut());
+        }
+        return;
+    }
 
     let rows = Layout::default()
         .direction(Direction::Vertical)

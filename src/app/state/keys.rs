@@ -64,6 +64,7 @@ impl AppState {
             && self.diskview.is_none()
             && self.diffview.is_none()
             && self.mountview.is_none()
+            && self.netview.is_none()
     }
 
     /// Deliver a held Esc once its function-key window has elapsed without a
@@ -109,6 +110,14 @@ impl AppState {
         if self.diskview.is_some() {
             let sig = self.diskview.as_mut().unwrap().handle_key(key);
             self.apply_disk_signal(sig).await;
+            return Flow::Continue;
+        }
+        if let Some(nv) = self.netview.as_mut() {
+            match nv.handle_key(key) {
+                NetSignal::Stay => {}
+                NetSignal::Close => self.netview = None,
+                NetSignal::Refresh => self.start_network_scan(),
+            }
             return Flow::Continue;
         }
         if self.diffview.is_some() {
@@ -187,6 +196,7 @@ impl AppState {
             MenuAction::ProcExplorer => self.open_proc_explorer(),
             MenuAction::DiskExplorer => self.open_disk_explorer(),
             MenuAction::DiskManager => self.mountview = Some(MountView::new()),
+            MenuAction::NetworkConnections => self.open_network_prompt(),
             MenuAction::CompareDirs => self.dialog = Some(Dialog::Compare(CompareDialog::new())),
             MenuAction::CompareFiles => self.open_compare_files().await,
             MenuAction::Connect(side, proto) => {

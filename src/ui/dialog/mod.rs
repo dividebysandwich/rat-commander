@@ -178,6 +178,8 @@ pub enum Submit {
     MountCreate { device: String, path: String },
     /// A sudo password entered for a queued privileged command.
     SudoPassword(String),
+    /// A root password (possibly blank) for the network-connections explorer.
+    NetworkPassword(String),
     /// Prompt for a path and mount this device node.
     MountDevice(String),
     /// Open the formatter for this device node.

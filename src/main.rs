@@ -13,6 +13,7 @@ mod editor;
 mod flash;
 mod l10n;
 mod mount;
+mod net;
 mod ops;
 mod panel;
 mod proc;

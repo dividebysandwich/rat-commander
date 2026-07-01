@@ -45,6 +45,8 @@ pub enum MenuAction {
     ProcExplorer,
     DiskExplorer,
     DiskManager,
+    /// Open the network-connections explorer (Linux only).
+    NetworkConnections,
     CompareDirs,
     CompareFiles,
     Connect(usize, Protocol),
@@ -196,6 +198,9 @@ impl MenuBarState {
         // it isn't offered on other platforms.
         #[cfg(target_os = "linux")]
         command_items.push(item("Disk &manager...", MenuAction::DiskManager));
+        // The network explorer parses Linux `ss` output; Linux only.
+        #[cfg(target_os = "linux")]
+        command_items.push(item("Network &connections...", MenuAction::NetworkConnections));
         command_items.extend([
             sep(),
             item("S&wap panels", MenuAction::SwapPanels),

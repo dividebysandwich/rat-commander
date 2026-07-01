@@ -21,6 +21,8 @@ pub enum InputPurpose {
     FlashPassword,
     /// Enter a sudo password to start a queued device-imaging.
     ImagePassword,
+    /// Enter a root password for the network explorer (blank ⇒ user mode).
+    NetworkPassword,
 }
 
 pub struct InputDialog {
@@ -88,6 +90,10 @@ impl InputDialog {
                 if let InputPurpose::ImagePassword = self.purpose {
                     return DialogResult::Submit(Submit::ImagePassword(self.buffer.clone()));
                 }
+                // A blank network password is valid (means "user mode").
+                if let InputPurpose::NetworkPassword = self.purpose {
+                    return DialogResult::Submit(Submit::NetworkPassword(self.buffer.clone()));
+                }
                 let text = self.buffer.trim().to_string();
                 if text.is_empty() {
                     return DialogResult::Cancel;
@@ -103,7 +109,8 @@ impl InputDialog {
                     },
                     InputPurpose::SudoPassword
                     | InputPurpose::FlashPassword
-                    | InputPurpose::ImagePassword => unreachable!(),
+                    | InputPurpose::ImagePassword
+                    | InputPurpose::NetworkPassword => unreachable!(),
                 };
                 DialogResult::Submit(submit)
             }

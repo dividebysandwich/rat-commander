@@ -72,8 +72,8 @@ fn menu_accelerators_are_unique_per_menu_in_every_language() {
         ],
         &[
             "&Find file...", "Find d&uplicates...", "Compare &directories...", "Compare fi&les...",
-            "&Process explorer...", "Disk &explorer...", "Disk &manager...", "S&wap panels",
-            "&Re-read directories", "&Toggle split V/H",
+            "&Process explorer...", "Disk &explorer...", "Disk &manager...", "Network &connections...",
+            "S&wap panels", "&Re-read directories", "&Toggle split V/H",
         ],
         &["&Settings...", "&Confirmations...", "&Edit themes..."],
         &[

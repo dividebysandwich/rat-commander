@@ -4,6 +4,7 @@
 //! channel carries only asynchronous results so the loop never blocks on I/O.
 
 use crate::disk::DiskEntry;
+use crate::net::Scan;
 use crate::ops::progress::{ConflictInfo, ProgressUpdate, TaskId, TaskOutcome};
 use crate::util::checksum::ChecksumReport;
 use crate::vfs::VfsPath;
@@ -85,6 +86,12 @@ pub enum AppEvent {
     DiskScanned {
         generation: u64,
         entries: Vec<DiskEntry>,
+    },
+    /// A network-explorer `ss` scan finished; `generation` lets the view drop a
+    /// result from a scan it has already superseded.
+    NetworkScanned {
+        generation: u64,
+        result: Result<Scan, String>,
     },
     /// A view/edit fetch streamed a (remote/archive) file to a local temp file;
     /// the handler opens it (paged viewer, or editor targeting `orig_path`).
