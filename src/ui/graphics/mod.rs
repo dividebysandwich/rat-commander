@@ -36,6 +36,8 @@ pub enum Slot {
     Treemap(u16),
     /// A dialog push-button, indexed within the currently-open dialog.
     Button(u16),
+    /// The network-explorer connection-rate graph in the details popup.
+    NetRate,
 }
 
 struct Cached {

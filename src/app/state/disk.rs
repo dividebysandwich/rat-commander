@@ -371,6 +371,11 @@ impl AppState {
         if let Some(pv) = self.procview.as_mut() {
             pv.refresh();
         }
+        // The network explorer, if open, re-scans so the killed process's sockets
+        // drop out of the lists.
+        if self.netview.is_some() {
+            self.start_network_scan();
+        }
     }
 
 }

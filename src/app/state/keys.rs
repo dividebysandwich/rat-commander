@@ -117,6 +117,9 @@ impl AppState {
                 NetSignal::Stay => {}
                 NetSignal::Close => self.netview = None,
                 NetSignal::Refresh => self.start_network_scan(),
+                NetSignal::Kill { pid, program, force } => {
+                    self.dialog = Some(Dialog::Confirm(ConfirmDialog::kill(pid, &program, force)));
+                }
             }
             return Flow::Continue;
         }

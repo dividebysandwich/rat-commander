@@ -674,20 +674,37 @@ are never stored.
 *Command menu → Network connections…*
 
 A full-screen view of the machine's sockets, split into two lists: **Listening
-ports** (every open port with its owning program) on top, and active
-**Connections** below — each with its **type** (`tcp`/`tcp6`/`udp`/`udp6`),
-state, local and peer address, program, and the **incoming/outgoing traffic** it
-has carried (cumulative bytes, where the kernel reports them).
+ports** (every open port with its owning program and **service name**) on top,
+and active **Connections** below — each with its **type**
+(`tcp`/`tcp6`/`udp`/`udp6`), state, local and peer address (with the peer's
+service), program, the **incoming/outgoing traffic** it has carried (cumulative
+bytes), the **live in/out rate** (bytes/sec), and a **per-connection rate
+sparkline** of its recent throughput. The header shows totals and the current
+overall down/up rate.
 
-**Useful for** seeing what is listening on the machine, what it's talking to, and
-which programs are moving the most data.
+**Useful for** seeing what is listening on the machine, what it's talking to,
+which programs are moving the most data, and spotting a busy or unexpected
+connection at a glance.
 
 **Operation.** On opening it asks for a **root password**. Enter one to see
 *every* socket's owning program (full visibility); leave it **blank** to run in
 **user mode**, where the connection lists are still complete but a program name
-is shown only for your own sockets. **Tab** switches the focused list, **↑↓ /
-PgUp/PgDn / Home/End** (and the mouse wheel) scroll it, **`r`** refreshes now,
-**`+`/`-`** change the auto-refresh interval, and **Esc** closes.
+is shown only for your own sockets.
+
+- **Tab** / **←→** switch the focused list; **↑↓ / PgUp/PgDn / Home/End** (and
+  the mouse wheel) scroll it.
+- **`/`** starts a live **filter** — type to narrow both lists by program,
+  address, port, state or service; **Enter** keeps it, **Esc** clears it.
+- **`s`** cycles the focused list's **sort** column, **`S`** reverses it.
+- **`p`** cycles the protocol filter (all → tcp → udp), **`e`** toggles
+  established-only, **`h`** toggles hiding loopback sockets.
+- **Enter** opens a **details** popup for the selected socket (full command line,
+  user, cumulative + live traffic, a rate graph, and the raw `ss` counters);
+  any key closes it.
+- **`k`** terminates the selected socket's owning process (SIGTERM), **`K`**
+  force-kills it (SIGKILL) — both ask to confirm.
+- **`r`** refreshes now, **`+`/`-`** change the auto-refresh interval, **Esc**
+  closes the view.
 
 Data comes from `ss` (iproute2); the tool is offered only on Linux. The root
 password, if given, is held in memory for the session so periodic refreshes can

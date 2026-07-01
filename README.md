@@ -46,8 +46,9 @@ The installed executable is named **`rc`** for quick typing.
   system monitor), and a **disk manager** (Linux) to mount/unmount/format/sync
   drives and **flash or image** raw disk images.
 - **Network connections** (Linux) — listening ports with their programs and all
-  active connections with their type and per-connection traffic; optional root
-  password for full visibility.
+  active connections with their type, service, live per-connection traffic rate
+  (with a sparkline) and a details view; filter, sort, kill the owning process,
+  and an optional root password for full visibility.
 - **Look & feel** — many color themes (fully customizable via `themes.toml`),
   truecolor animated gradients, an optional CPU/memory status widget, and a
   configurable **F2 user menu**.
