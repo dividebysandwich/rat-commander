@@ -92,13 +92,13 @@ also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1
 | `↑ ↓ / PgUp PgDn / Home End` | Move the cursor |
 | `Enter` | Open dir / enter archive / open file / run command line |
 | `cd <dir>` + `Enter` | Change the active panel's directory |
-| `Insert` | Tag file and advance |
+| `Insert` / `Ctrl-T` | Tag file and advance |
 | `+` / `-` / `*` | Select / unselect group (wildcard) / invert selection |
 | `Ctrl-O` | Toggle the persistent subshell |
 | `Ctrl-R` | Re-read the active panel |
 | `Ctrl-S` / `Ctrl-E` | Cycle sort key / toggle reverse |
 | `Ctrl-W` | Cycle view format (full / brief / details) |
-| `Ctrl-T` | Toggle vertical / horizontal split |
+| `Ctrl-X` | Toggle vertical / horizontal split |
 | `Ctrl-U` | Swap the two panels |
 | `Alt-F1` / `Alt-F2` | Drive / connection picker (left / right panel) |
 

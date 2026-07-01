@@ -89,14 +89,14 @@ A quick **Alt** + digit does the same.
 - `↑ ↓` / `PgUp PgDn` / `Home End` — Move the cursor
 - `Enter` — Open dir / enter archive / open file / run the command line
 - `cd <dir>` + `Enter` — Change the active panel's directory
-- `Insert` — Tag the file and advance
+- `Insert` / `Ctrl-T` — Tag the file and advance
 - `+` / `-` / `*` — Select / unselect a group (by wildcard) / invert the selection
 - `← →` — Move within the command line
 - `Ctrl-O` — Toggle the persistent subshell (press again to return)
 - `Ctrl-R` — Re-read (refresh) the active panel
 - `Ctrl-S` / `Ctrl-E` — Cycle the sort key / toggle reverse order
 - `Ctrl-W` — Cycle the view format (full → brief → details)
-- `Ctrl-T` — Toggle vertical / horizontal split
+- `Ctrl-X` — Toggle vertical / horizontal split
 - `Ctrl-U` — Swap the two panels
 - `Alt-F1` / `Alt-F2` — Drive / connection picker for the left / right panel
 
