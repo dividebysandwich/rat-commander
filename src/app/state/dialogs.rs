@@ -25,6 +25,12 @@ impl AppState {
         {
             crate::l10n::set_reshape_rtl(on);
         }
+        if let Some(Dialog::Form(fd)) = &self.dialog
+            && let Some(pref) = fd.graphics_choice()
+            && let Some(g) = self.gfx.as_mut()
+        {
+            g.apply_pref(&pref);
+        }
     }
 
     pub(in crate::app::state) async fn handle_dialog_result(&mut self, res: DialogResult) -> Flow {
@@ -42,6 +48,11 @@ impl AppState {
                 if let Some(on) = self.reshape_backup.take() {
                     crate::l10n::set_reshape_rtl(on);
                 }
+                if let Some(pref) = self.graphics_backup.take()
+                    && let Some(g) = self.gfx.as_mut()
+                {
+                    g.apply_pref(&pref);
+                }
                 Flow::Continue
             }
             DialogResult::Submit(s) => {
@@ -49,6 +60,7 @@ impl AppState {
                 self.theme_backup = None; // keep any previewed theme
                 self.lang_backup = None; // keep any previewed language
                 self.reshape_backup = None; // keep any previewed reshape toggle
+                self.graphics_backup = None; // keep any previewed graphics mode
                 self.handle_submit(s).await;
                 if self.pending_quit {
                     Flow::Quit
@@ -173,6 +185,10 @@ impl AppState {
                 };
                 self.config.reshape_rtl = v.reshape_rtl;
                 crate::l10n::set_reshape_rtl(v.reshape_rtl);
+                self.config.graphics = v.graphics;
+                if let Some(g) = self.gfx.as_mut() {
+                    g.apply_pref(&self.config.graphics);
+                }
                 // Re-theme the running UI immediately.
                 self.theme = Theme::by_name(&self.config.theme, self.truecolor);
                 if let Err(e) = self.config.save() {
@@ -435,6 +451,7 @@ impl AppState {
         self.theme_backup = Some(self.config.theme.clone());
         self.lang_backup = Some(crate::l10n::active_name());
         self.reshape_backup = Some(crate::l10n::reshape_rtl_enabled());
+        self.graphics_backup = Some(self.config.graphics.clone());
         self.dialog = Some(Dialog::Form(FormDialog::settings(&self.config, self.truecolor)));
     }
 

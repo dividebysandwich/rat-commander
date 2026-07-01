@@ -3,6 +3,7 @@
 pub mod cmdline;
 pub mod dialog;
 pub mod fkeys;
+pub mod graphics;
 pub mod hexcolor;
 pub mod layout;
 pub mod menu;
@@ -29,14 +30,14 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
     if let Some(ed) = state.editor.as_mut() {
         crate::editor::render::render(f, area, ed, &theme);
         if let Some(d) = &mut state.dialog {
-            d.render(f, area, &theme);
+            d.render(f, area, &theme, state.gfx.as_mut());
         }
         return;
     }
     if let Some(v) = state.viewer.as_mut() {
         crate::viewer::render::render(f, area, v, &theme);
         if let Some(d) = &mut state.dialog {
-            d.render(f, area, &theme);
+            d.render(f, area, &theme, state.gfx.as_mut());
         }
         return;
     }
@@ -45,30 +46,30 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
         // regardless of the global animation toggle.
         let mut th = theme.clone();
         th.animated = state.truecolor;
-        crate::proc::render::render(f, area, pv, &th);
+        crate::proc::render::render(f, area, pv, &th, state.gfx.as_mut());
         if let Some(d) = &mut state.dialog {
-            d.render(f, area, &theme);
+            d.render(f, area, &theme, state.gfx.as_mut());
         }
         return;
     }
     if let Some(dv) = state.diskview.as_mut() {
-        crate::disk::render::render(f, area, dv, &theme);
+        crate::disk::render::render(f, area, dv, &theme, state.gfx.as_mut());
         if let Some(d) = &mut state.dialog {
-            d.render(f, area, &theme);
+            d.render(f, area, &theme, state.gfx.as_mut());
         }
         return;
     }
     if let Some(dv) = state.diffview.as_mut() {
         crate::diff::render::render(f, area, dv, &theme);
         if let Some(d) = &mut state.dialog {
-            d.render(f, area, &theme);
+            d.render(f, area, &theme, state.gfx.as_mut());
         }
         return;
     }
     if let Some(mv) = state.mountview.as_mut() {
         crate::mount::render::render(f, area, mv, &theme);
         if let Some(d) = &mut state.dialog {
-            d.render(f, area, &theme);
+            d.render(f, area, &theme, state.gfx.as_mut());
         }
         return;
     }
@@ -121,7 +122,7 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
             Some(1) => right_area,
             _ => area,
         };
-        d.render(f, darea, &theme);
+        d.render(f, darea, &theme, state.gfx.as_mut());
     } else if state.menu.is_none() {
         f.set_cursor_position(caret);
     }
@@ -349,7 +350,7 @@ mod feature_tests {
         let mut dlg = Dialog::Overwrite(OverwriteDialog::new(info));
         let mut t = Terminal::new(TestBackend::new(80, 24)).unwrap();
         let theme = crate::ui::theme::Theme::mc();
-        t.draw(|f| dlg.render(f, f.area(), &theme)).unwrap();
+        t.draw(|f| dlg.render(f, f.area(), &theme, None)).unwrap();
         let text = text_of(&t);
         for needle in [
             "File exists",
@@ -384,7 +385,7 @@ mod feature_tests {
         let mut t = Terminal::new(TestBackend::new(100, 24)).unwrap();
 
         // Default mask "[N].[E]" reproduces the original names.
-        t.draw(|f| dlg.render(f, f.area(), &theme)).unwrap();
+        t.draw(|f| dlg.render(f, f.area(), &theme, None)).unwrap();
         let text = text_of(&t);
         for needle in ["Multi rename", "Original name", "New name", "photo.jpg", "note.txt", "Execute"] {
             assert!(text.contains(needle), "multi-rename dialog should show {needle:?}");
@@ -399,7 +400,7 @@ mod feature_tests {
         for c in ['[', 'N', ']', '_', '[', 'C', ']'] {
             key(KeyCode::Char(c));
         }
-        t.draw(|f| dlg.render(f, f.area(), &theme)).unwrap();
+        t.draw(|f| dlg.render(f, f.area(), &theme, None)).unwrap();
         let text = text_of(&t);
         assert!(text.contains("photo_1"), "first file gets counter 1");
         assert!(text.contains("note_2"), "second file gets counter 2");

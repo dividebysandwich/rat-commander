@@ -652,15 +652,37 @@ Configuration files live in your platform config directory
 ### Settings (Options → Settings…)
 
 Choose the **theme** and **language**, toggle **truecolor**, **animations**, the
-**system-status widget** and **Reshape RTL text** (see *Language*), set an
-**external editor / viewer** command (used instead of the built-in ones), and
-choose whether to use the internal viewer/editor.
+**system-status widget** and **Reshape RTL text** (see *Language*), pick the
+**Graphics** mode (see *Terminal graphics* below), set an **external editor /
+viewer** command (used instead of the built-in ones), and choose whether to use
+the internal viewer/editor.
 
-The **Theme** and **Language** fields are dropdowns: press **Enter** to open the
-scrollable list, **↑/↓** (or the mouse wheel) to move through it, **Enter** to
-pick, **Esc** to close. Both **preview live** as you move the highlight — the UI
-re-colors / re-translates immediately — so **Enter** keeps the highlighted one
-and **Esc** (closing the dialog) reverts to what you started with.
+The **Theme**, **Language** and **Graphics** fields are dropdowns: press
+**Enter** to open the scrollable list, **↑/↓** (or the mouse wheel) to move
+through it, **Enter** to pick, **Esc** to close. They **preview live** as you
+move the highlight — the UI re-colors / re-translates / re-draws immediately — so
+**Enter** keeps the highlighted one and **Esc** (closing the dialog) reverts to
+what you started with. In every dialog the **OK** and **Cancel** buttons are part
+of the keyboard focus ring: **Tab** / **↑↓** move onto them and **Enter** or
+**Space** activates the highlighted one (**Enter** still submits from a field and
+**Esc** always cancels).
+
+### Terminal graphics
+
+Where the terminal supports a graphics protocol, the **progress bars**, the
+**process-explorer graphs** (CPU, per-core, memory, disk and network) and the
+file-transfer **speed graph** are drawn as true-pixel images with smooth
+gradients instead of block characters. It uses the **Kitty**, **Sixel** or
+**iTerm2** protocol — so Kitty, Ghostty, WezTerm, Konsole, foot, recent
+xterm/VTE, iTerm2 and similar all get the richer rendering — and falls back
+automatically to the classic cell rendering everywhere else, so nothing is lost
+on a plain terminal.
+
+The **Graphics** setting controls this: **Auto** (default — use pixel graphics if
+the terminal supports them, else cells), **Off** (always use cells), or a forced
+**Kitty** / **Sixel** / **iTerm2**. Turn it **Off** if your terminal mis-renders
+the images. The setting previews live and reverts on **Esc**, exactly like the
+theme. (In `config.toml` the key is `graphics = "auto"`.)
 
 ### Language
 

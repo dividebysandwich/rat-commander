@@ -46,6 +46,10 @@ pub async fn run(edit_file: Option<std::path::PathBuf>) -> Result<()> {
 
     let (mut term, kbd) = setup_terminal()?;
     state.kbd_enhanced = kbd;
+    // Detect terminal pixel-graphics support once, in raw mode + alternate
+    // screen, before the event stream starts consuming stdin (the probe reads
+    // the terminal's query responses directly).
+    state.gfx = crate::ui::graphics::Gfx::detect(&state.config.graphics);
     let mut events = EventStream::new();
 
     let result = run_loop(&mut term, &mut state, &mut rx, &mut events).await;
@@ -191,6 +195,9 @@ async fn run_command(term: &mut Term, state: &mut AppState, cmd: &str) -> Result
     *term = t;
     state.kbd_enhanced = k;
     term.clear()?;
+    if let Some(g) = state.gfx.as_mut() {
+        g.invalidate();
+    }
     state.reload_all().await;
     Ok(())
 }
@@ -219,6 +226,9 @@ async fn run_external(
     *term = t;
     state.kbd_enhanced = k;
     term.clear()?;
+    if let Some(g) = state.gfx.as_mut() {
+        g.invalidate();
+    }
     state.reload_all().await;
     Ok(())
 }
@@ -290,6 +300,9 @@ async fn toggle_subshell(
     }
     term.hide_cursor()?;
     term.clear()?;
+    if let Some(g) = state.gfx.as_mut() {
+        g.invalidate();
+    }
 
     // Follow the shell's directory change back into the active panel (Linux).
     if let Some(dir) = sh.child_cwd() {
@@ -313,6 +326,9 @@ async fn run_oneshot_shell(term: &mut Term, state: &mut AppState, cwd: &std::pat
     *term = t;
     state.kbd_enhanced = k;
     term.clear()?;
+    if let Some(g) = state.gfx.as_mut() {
+        g.invalidate();
+    }
     state.reload_all().await;
     Ok(())
 }

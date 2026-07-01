@@ -4,6 +4,29 @@ use super::widgets::*;
 use super::{ConfirmValues, DialogResult, DupCriteria, SettingsValues, Submit};
 use crate::vfs::remote::{Protocol, RemoteCreds};
 
+/// The display label for a `graphics` config preference, for the settings chooser.
+fn graphics_label(pref: &str) -> &'static str {
+    match pref.trim().to_ascii_lowercase().as_str() {
+        "off" => "Off",
+        "kitty" => "Kitty",
+        "sixel" => "Sixel",
+        "iterm" | "iterm2" => "iTerm2",
+        _ => "Auto",
+    }
+}
+
+/// The canonical `graphics` config value for a chooser display label.
+fn graphics_pref(label: &str) -> String {
+    match label.trim().to_ascii_lowercase().as_str() {
+        "off" => "off",
+        "kitty" => "kitty",
+        "sixel" => "sixel",
+        "iterm2" | "iterm" => "iterm",
+        _ => "auto",
+    }
+    .to_string()
+}
+
 // ---------------------------------------------------------------------------
 // Form dialog (settings, chmod, chown, symlink)
 // ---------------------------------------------------------------------------
@@ -106,16 +129,34 @@ impl Form {
         self.fields.len()
     }
 
+    // The focus cycles over the fields plus two trailing "slots" for the OK and
+    // Cancel buttons, so they can be reached and activated with the keyboard.
+    fn slots(&self) -> usize {
+        self.fields.len() + 2
+    }
+    fn ok_slot(&self) -> usize {
+        self.fields.len()
+    }
+    fn cancel_slot(&self) -> usize {
+        self.fields.len() + 1
+    }
+    /// Whether focus is on the OK or Cancel button (not a field).
+    fn on_button(&self) -> bool {
+        self.focus >= self.fields.len()
+    }
+    fn on_ok(&self) -> bool {
+        self.focus == self.ok_slot()
+    }
+    fn on_cancel(&self) -> bool {
+        self.focus == self.cancel_slot()
+    }
+
     fn focus_next(&mut self) {
-        if !self.fields.is_empty() {
-            self.focus = (self.focus + 1) % self.fields.len();
-        }
+        self.focus = (self.focus + 1) % self.slots();
     }
 
     fn focus_prev(&mut self) {
-        if !self.fields.is_empty() {
-            self.focus = (self.focus + self.fields.len() - 1) % self.fields.len();
-        }
+        self.focus = (self.focus + self.slots() - 1) % self.slots();
     }
 
     /// Handle a key for the focused field. Returns true if Enter (submit) was
@@ -201,6 +242,17 @@ impl FormDialog {
             Field::check("Use internal viewer", cfg.use_internal_viewer),
             Field::check("Use internal editor", cfg.use_internal_editor),
             Field::check("Reshape RTL text", cfg.reshape_rtl),
+            Field::choice(
+                "Graphics",
+                vec![
+                    "Auto".into(),
+                    "Off".into(),
+                    "Kitty".into(),
+                    "Sixel".into(),
+                    "iTerm2".into(),
+                ],
+                graphics_label(&cfg.graphics),
+            ),
         ]);
         FormDialog {
             title: "Settings".to_string(),
@@ -324,6 +376,12 @@ impl FormDialog {
     /// preview), or `None` if this isn't the settings form.
     pub fn lang_choice(&self) -> Option<&str> {
         self.choice_value("Language")
+    }
+
+    /// The currently-selected graphics preference (`auto|off|kitty|sixel|iterm`)
+    /// in the settings form (for live preview), or `None` if not the settings form.
+    pub fn graphics_choice(&self) -> Option<String> {
+        self.choice_value("Graphics").map(graphics_pref)
     }
 
     /// The value of the settings `Check` field labelled `label_key` (for live
@@ -514,10 +572,36 @@ impl FormDialog {
         if let KeyCode::Esc = key.code {
             return DialogResult::Cancel;
         }
-        if !self.form.handle_key(key) {
+
+        // Focus on the OK / Cancel buttons (the two slots after the fields):
+        // arrows move between them and back to the fields; Enter/Space activates.
+        if self.form.on_button() {
+            match key.code {
+                KeyCode::Left | KeyCode::Right => {
+                    self.form.focus =
+                        if self.form.on_cancel() { self.form.ok_slot() } else { self.form.cancel_slot() };
+                    return DialogResult::None;
+                }
+                KeyCode::Up | KeyCode::BackTab => {
+                    self.form.focus_prev();
+                    return DialogResult::None;
+                }
+                KeyCode::Down | KeyCode::Tab => {
+                    self.form.focus_next();
+                    return DialogResult::None;
+                }
+                KeyCode::Enter | KeyCode::Char(' ') => {
+                    if self.form.on_cancel() {
+                        return DialogResult::Cancel;
+                    }
+                    // OK: fall through to build the submit payload below.
+                }
+                _ => return DialogResult::None,
+            }
+        } else if !self.form.handle_key(key) {
             return DialogResult::None;
         }
-        // Enter pressed → build the submit payload.
+        // Enter (on a field or OK) → build the submit payload.
         let fields = &self.form.fields;
         let submit = match &self.purpose {
             FormPurpose::Settings => Submit::Settings(SettingsValues {
@@ -531,6 +615,7 @@ impl FormDialog {
                 use_internal_viewer: fields[7].as_bool(),
                 use_internal_editor: fields[8].as_bool(),
                 reshape_rtl: fields[9].as_bool(),
+                graphics: graphics_pref(fields[10].as_text()),
             }),
             FormPurpose::Confirmations => Submit::Confirmations(ConfirmValues {
                 delete: fields[0].as_bool(),
@@ -734,10 +819,25 @@ impl FormDialog {
             FormPurpose::Chmod(_) => format!("  octal {:03o}", self.chmod_mode()),
             _ => String::new(),
         };
+        // OK / Cancel buttons highlight when focused (reachable via ↑↓/Tab).
+        let ok_txt = crate::l10n::trd("OK");
+        let cancel_txt = crate::l10n::trd("Cancel");
+        let ok = if self.form.on_ok() {
+            Span::styled(format!("[< {ok_txt} >]"), theme.button_focused)
+        } else {
+            Span::styled(format!("[  {ok_txt}  ]"), theme.button)
+        };
+        let cancel = if self.form.on_cancel() {
+            Span::styled(format!("[< {cancel_txt} >]"), theme.button_focused)
+        } else {
+            Span::styled(format!("[  {cancel_txt}  ]"), theme.button)
+        };
         f.render_widget(
-            Paragraph::new(Line::from(format!(
-                "[ OK ]  Tab/↑↓ Space toggle  Enter opens a list  [ Cancel ]{extra}"
-            )))
+            Paragraph::new(Line::from(vec![
+                ok,
+                Span::styled(format!("  Tab/↑↓ move  Space toggle{extra}  "), base),
+                cancel,
+            ]))
             .style(base),
             hint,
         );
@@ -777,9 +877,8 @@ impl FormDialog {
             .position(|f| matches!(f, Field::Choice { open: true, .. }))
         {
             if let Some(Field::Choice { options, idx, open, sel, top, .. }) = self.form.fields.get_mut(fi) {
-                let visible = choice_visible_rows(inner, fi, options.len());
-                let dtop = inner.y + fi as u16 + 1;
-                let (list_x, list_y, list_w) = (inner.x + 1, dtop + 1, inner.width.saturating_sub(2));
+                let (rect, visible) = choice_dropdown_geom(inner, fi, options.len());
+                let (list_x, list_y, list_w) = (rect.x + 1, rect.y + 1, rect.width.saturating_sub(2));
                 if row >= list_y
                     && row < list_y + visible as u16
                     && col >= list_x
@@ -895,11 +994,27 @@ impl FormDialog {
     }
 }
 
-/// Number of option rows visible in a Choice dropdown opened below field `fi`.
+/// Geometry of a Choice field's dropdown box: its rect and how many option rows
+/// are visible. The dropdown normally drops *below* the field, but opens *above*
+/// it when there isn't enough room below (so the last fields in a tall dialog
+/// still show their list on screen).
+fn choice_dropdown_geom(inner: Rect, fi: usize, options_len: usize) -> (Rect, usize) {
+    let field_y = inner.y + fi as u16;
+    let below = (inner.y + inner.height).saturating_sub(field_y + 1) as usize; // rows under the field
+    let above = fi; // rows over the field, within the dialog interior
+    let want = options_len + 2; // options + top/bottom border
+    // Prefer dropping down; flip up only when down can't fit and up has more room.
+    let open_up = below < want && above > below;
+    let room = if open_up { above } else { below };
+    let visible = options_len.min(room.saturating_sub(2).max(1)).max(1);
+    let box_h = (visible + 2) as u16;
+    let y = if open_up { field_y.saturating_sub(box_h) } else { field_y + 1 };
+    (Rect { x: inner.x, y, width: inner.width, height: box_h }, visible)
+}
+
+/// Number of option rows visible in a Choice dropdown for field `fi`.
 fn choice_visible_rows(inner: Rect, fi: usize, options_len: usize) -> usize {
-    let dtop = inner.y + fi as u16 + 1;
-    let avail = (inner.y + inner.height).saturating_sub(dtop) as usize;
-    options_len.min(avail.saturating_sub(2).max(1)).max(1)
+    choice_dropdown_geom(inner, fi, options_len).1
 }
 
 /// Draw a Choice field's scrollable dropdown just below its row (field `fi`),
@@ -913,13 +1028,10 @@ fn render_choice_dropdown(
     top: usize,
     theme: &Theme,
 ) {
-    let dtop = inner.y + fi as u16 + 1;
-    let avail = (inner.y + inner.height).saturating_sub(dtop) as usize;
-    if avail < 3 || options.is_empty() {
+    if options.is_empty() {
         return;
     }
-    let visible = choice_visible_rows(inner, fi, options.len());
-    let rect = Rect { x: inner.x, y: dtop, width: inner.width, height: (visible + 2) as u16 };
+    let (rect, visible) = choice_dropdown_geom(inner, fi, options.len());
     f.render_widget(Clear, rect);
     let block = Block::default()
         .borders(Borders::ALL)

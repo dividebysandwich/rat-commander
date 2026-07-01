@@ -46,6 +46,11 @@ The installed executable is named **`rc`** for quick typing.
 - **Look & feel** — many color themes (fully customizable via `themes.toml`),
   truecolor animated gradients, an optional CPU/memory status widget, and a
   configurable **F2 user menu**.
+- **Terminal graphics** — on terminals with a **Kitty**, **Sixel** or **iTerm2**
+  graphics protocol, the progress bars, process-explorer graphs and transfer
+  speed graph are drawn as true-pixel gradient images, falling back
+  automatically to block-character rendering elsewhere (a **Graphics** setting
+  forces or disables it).
 - **Localization** — the UI language is selectable in Settings, with 18
   languages built in (English, German, French, Spanish, Portuguese, Dutch,
   Czech, Slovak, Hungarian, Serbian, Ukrainian, Russian, Japanese, Chinese
@@ -126,9 +131,9 @@ also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1
 
 ### Dialogs
 
-`Tab`/arrows move between fields, `Space` toggles checkboxes and cycles choices,
-`Enter` confirms, `Esc` cancels (and aborts progress dialogs). The OK/Cancel and
-Yes/No buttons are also clickable.
+`Tab`/arrows move between fields **and onto the OK/Cancel buttons**, `Space`
+toggles checkboxes and cycles choices, `Enter` confirms, `Esc` cancels (and
+aborts progress dialogs). The OK/Cancel and Yes/No buttons are also clickable.
 
 See the **[user manual](doc/MANUAL.md)** for the process-explorer,
 disk-explorer and hex-editor key tables, and for what every feature does.

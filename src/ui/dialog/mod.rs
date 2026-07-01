@@ -263,6 +263,8 @@ pub struct SettingsValues {
     pub system_status: bool,
     /// Reshape + bidi-reorder RTL text for display.
     pub reshape_rtl: bool,
+    /// Terminal pixel-graphics preference (`auto|off|kitty|sixel|iterm`).
+    pub graphics: String,
 }
 
 /// Values collected by the Confirmations form (which actions need confirming).
@@ -310,11 +312,17 @@ impl Dialog {
         }
     }
 
-    pub fn render(&mut self, f: &mut Frame, area: Rect, theme: &Theme) {
+    pub fn render(
+        &mut self,
+        f: &mut Frame,
+        area: Rect,
+        theme: &Theme,
+        gfx: Option<&mut crate::ui::graphics::Gfx>,
+    ) {
         match self {
             Dialog::Input(d) => d.render(f, area, theme),
             Dialog::Confirm(d) => d.render(f, area, theme),
-            Dialog::Progress(d) => d.render(f, area, theme),
+            Dialog::Progress(d) => d.render(f, area, theme, gfx),
             Dialog::Busy(d) => d.render(f, area, theme),
             Dialog::Goto(d) => d.render(f, area, theme),
             Dialog::FlashTarget(d) => d.render(f, area, theme),

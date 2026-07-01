@@ -1,0 +1,156 @@
+//! Terminal graphics layer: draws true-pixel images (Kitty / Sixel / iTerm2) for
+//! the data-heavy visualizations, falling back to the Ratatui cell widgets when
+//! the terminal has no graphics protocol.
+//!
+//! [`Gfx`] wraps a `ratatui-image` [`Picker`] (which knows the protocol and the
+//! terminal's cell-pixel size) plus a per-[`Slot`] cache of encoded protocols.
+//! Callers build an [`image::RgbaImage`] with the [`raster`] primitives and hand
+//! it to [`Gfx::draw`]; the cache re-transmits only when a slot's content
+//! actually changes, so a live graph doesn't churn Kitty image IDs every frame.
+
+pub mod raster;
+
+use image::{DynamicImage, RgbaImage};
+use ratatui::Frame;
+use ratatui::layout::Rect;
+use ratatui_image::picker::{Picker, ProtocolType};
+use ratatui_image::protocol::StatefulProtocol;
+use ratatui_image::{Resize, StatefulImage};
+use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
+
+/// A distinct on-screen graphics target; keys the protocol cache so each region
+/// keeps its own encoded image across frames.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Slot {
+    TransferFileBar,
+    TransferTotalBar,
+    TransferSpeed,
+    Indeterminate,
+    DiskScanBar,
+    ProcCpu,
+    ProcMem,
+    ProcDisk,
+    ProcNet,
+    ProcCore(u16),
+}
+
+struct Cached {
+    sig: u64,
+    proto: StatefulProtocol,
+}
+
+/// The active terminal-graphics capability. Absent (`None` on [`crate::app::state::AppState`])
+/// when no protocol was detected or graphics are configured off.
+pub struct Gfx {
+    picker: Picker,
+    /// The protocol chosen at startup, restored when the user picks "auto".
+    detected: ProtocolType,
+    enabled: bool,
+    cache: HashMap<Slot, Cached>,
+}
+
+impl Gfx {
+    /// Detect graphics support honoring the `graphics` config preference
+    /// (`auto|off|kitty|sixel|iterm`). Must be called **after** entering the
+    /// alternate screen in raw mode (the query reads terminal responses).
+    /// Returns `None` when disabled or when no real graphics protocol is present.
+    pub fn detect(pref: &str) -> Option<Gfx> {
+        let pref = pref.trim().to_ascii_lowercase();
+        if pref == "off" {
+            return None;
+        }
+        let mut picker = Picker::from_query_stdio().ok()?;
+        match forced_protocol(&pref) {
+            Some(p) => picker.set_protocol_type(p),
+            // "auto" (or unrecognized): trust the query, but a halfblocks-only
+            // result is treated as no graphics — our tuned cell widgets read
+            // better than half-block mosaics.
+            None if picker.protocol_type() == ProtocolType::Halfblocks => return None,
+            None => {}
+        }
+        let detected = picker.protocol_type();
+        Some(Gfx { picker, detected, enabled: true, cache: HashMap::new() })
+    }
+
+    /// Whether graphics rendering is currently active (the runtime `Off` toggle
+    /// flips this without discarding the detected capability).
+    pub fn available(&self) -> bool {
+        self.enabled
+    }
+
+    /// Apply a `graphics` preference at runtime (Settings live preview): `off`
+    /// disables, `auto` restores the detected protocol, and `kitty|sixel|iterm`
+    /// force one. Clears the cache so images re-transmit under the new scheme.
+    pub fn apply_pref(&mut self, pref: &str) {
+        self.cache.clear();
+        match forced_protocol(pref) {
+            Some(p) => {
+                self.picker.set_protocol_type(p);
+                self.enabled = true;
+            }
+            None if pref.trim().eq_ignore_ascii_case("off") => self.enabled = false,
+            None => {
+                self.picker.set_protocol_type(self.detected);
+                self.enabled = true;
+            }
+        }
+    }
+
+    /// Drop all cached encodings so images re-transmit on the next frame — called
+    /// after the TUI is suspended (and the screen cleared) for a subshell or
+    /// external program.
+    pub fn invalidate(&mut self) {
+        self.cache.clear();
+    }
+
+    /// Cell size in pixels (width, height).
+    pub fn cell(&self) -> (u32, u32) {
+        let fs = self.picker.font_size();
+        (fs.width.max(1) as u32, fs.height.max(1) as u32)
+    }
+
+    /// Pixel dimensions of a cell `area`.
+    pub fn px_size(&self, area: Rect) -> (u32, u32) {
+        let (cw, ch) = self.cell();
+        (area.width as u32 * cw, area.height as u32 * ch)
+    }
+
+    /// Draw `img` into the cell `area` for `slot`, reusing the cached encoding
+    /// when the content is unchanged (so Kitty doesn't re-transmit every frame).
+    pub fn draw(&mut self, f: &mut Frame, area: Rect, slot: Slot, img: RgbaImage) {
+        if !self.enabled || area.width == 0 || area.height == 0 {
+            return;
+        }
+        let sig = sig_of(&img);
+        let fresh = match self.cache.get(&slot) {
+            Some(c) => c.sig != sig,
+            None => true,
+        };
+        if fresh {
+            let proto = self.picker.new_resize_protocol(DynamicImage::ImageRgba8(img));
+            self.cache.insert(slot, Cached { sig, proto });
+        }
+        if let Some(c) = self.cache.get_mut(&slot) {
+            f.render_stateful_widget(StatefulImage::default().resize(Resize::Fit(None)), area, &mut c.proto);
+        }
+    }
+}
+
+fn sig_of(img: &RgbaImage) -> u64 {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    img.width().hash(&mut h);
+    img.height().hash(&mut h);
+    img.as_raw().hash(&mut h);
+    h.finish()
+}
+
+/// Map a `graphics` config string to a forced protocol, or `None` for auto.
+pub fn forced_protocol(pref: &str) -> Option<ProtocolType> {
+    match pref.trim().to_ascii_lowercase().as_str() {
+        "kitty" => Some(ProtocolType::Kitty),
+        "sixel" => Some(ProtocolType::Sixel),
+        "iterm" | "iterm2" => Some(ProtocolType::Iterm2),
+        _ => None,
+    }
+}

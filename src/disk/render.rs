@@ -1,6 +1,7 @@
 //! Rendering of the [`DiskView`] treemap.
 
 use super::{human_gb, DiskEntry, DiskView};
+use crate::ui::graphics::{raster, Gfx, Slot};
 use crate::ui::theme::Theme;
 use crate::util::text::{ellipsize, pad_right};
 use ratatui::Frame;
@@ -9,7 +10,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
 
-pub fn render(f: &mut Frame, area: Rect, dv: &mut DiskView, theme: &Theme) {
+pub fn render(f: &mut Frame, area: Rect, dv: &mut DiskView, theme: &Theme, gfx: Option<&mut Gfx>) {
     let title = format!(
         " Disk Explorer — {}  ({}) ",
         dv.cwd.display(),
@@ -48,7 +49,7 @@ pub fn render(f: &mut Frame, area: Rect, dv: &mut DiskView, theme: &Theme) {
     dv.rects.clear();
     if dv.scanning {
         render_header(f, header, None, 0, theme);
-        render_scanning(f, body, dv.scan_done, dv.scan_total, theme);
+        render_scanning(f, body, dv.scan_done, dv.scan_total, theme, gfx);
         return;
     }
     if dv.entries.is_empty() {
@@ -120,7 +121,14 @@ fn render_footer(f: &mut Frame, area: Rect, theme: &Theme) {
 /// Show scanning progress: a centered label and a horizontal progress bar. The
 /// bar is determinate once the subdirectory count is known, indeterminate (just
 /// a label) before that.
-fn render_scanning(f: &mut Frame, area: Rect, done: usize, total: usize, theme: &Theme) {
+fn render_scanning(
+    f: &mut Frame,
+    area: Rect,
+    done: usize,
+    total: usize,
+    theme: &Theme,
+    gfx: Option<&mut Gfx>,
+) {
     let label = if total > 0 {
         format!("Scanning… {done} / {total} directories")
     } else {
@@ -141,6 +149,32 @@ fn render_scanning(f: &mut Frame, area: Rect, done: usize, total: usize, theme: 
     let bar_w = (area.width as usize * 3 / 5).clamp(10, area.width as usize);
     let bar_x = area.x + (area.width as usize - bar_w) as u16 / 2;
     let ratio = (done as f32 / total as f32).clamp(0.0, 1.0);
+
+    // Graphics path: a gradient pill in the panel accent color.
+    if let Some(g) = gfx
+        && g.available() {
+            let bar_area = Rect { x: bar_x, y: mid + 1, height: 1, width: bar_w as u16 };
+            let (pw, ph) = g.px_size(bar_area);
+            let base = raster::rgb(theme.panel_border_active);
+            let dark = raster::over((0, 0, 0), base, 0.55);
+            let bright = raster::over(base, (255, 255, 255), 0.30);
+            let img = raster::gradient_bar(
+                pw,
+                ph,
+                ratio as f64,
+                |t| raster::over(dark, bright, t),
+                raster::rgb(theme.panel_border),
+                raster::rgb(theme.panel_bg),
+            );
+            g.draw(f, bar_area, Slot::DiskScanBar, img);
+            f.render_widget(
+                Paragraph::new(Line::from(format!("{:.0}%", ratio * 100.0)))
+                    .style(theme.panel_base()),
+                Rect { x: bar_x + bar_w as u16 + 1, y: mid + 1, height: 1, width: 5 },
+            );
+            return;
+        }
+
     let filled = (ratio * bar_w as f32).round() as usize;
     let mut spans = Vec::with_capacity(bar_w + 1);
     for i in 0..bar_w {
@@ -444,7 +478,7 @@ mod tests {
         dv.scan_total = 12;
         let theme = crate::ui::theme::Theme::mc();
         let mut t = Terminal::new(TestBackend::new(80, 20)).unwrap();
-        t.draw(|f| render(f, f.area(), &mut dv, &theme)).unwrap();
+        t.draw(|f| render(f, f.area(), &mut dv, &theme, None)).unwrap();
         let b = t.backend().buffer();
         let mut s = String::new();
         for y in 0..b.area.height {
@@ -475,7 +509,7 @@ mod tests {
         }];
         let theme = crate::ui::theme::Theme::mc();
         let mut t = Terminal::new(TestBackend::new(100, 30)).unwrap();
-        t.draw(|f| render(f, f.area(), &mut dv, &theme)).unwrap();
+        t.draw(|f| render(f, f.area(), &mut dv, &theme, None)).unwrap();
         let b = t.backend().buffer();
         let mut s = String::new();
         for y in 0..b.area.height {
@@ -498,7 +532,7 @@ mod tests {
         dv.entries = vec![e("big", 9_000_000), e("small", 100_000)];
         let theme = crate::ui::theme::Theme::mc();
         let mut t = Terminal::new(TestBackend::new(100, 30)).unwrap();
-        t.draw(|f| render(f, f.area(), &mut dv, &theme)).unwrap();
+        t.draw(|f| render(f, f.area(), &mut dv, &theme, None)).unwrap();
         let b = t.backend().buffer();
         let mut s = String::new();
         for y in 0..b.area.height {

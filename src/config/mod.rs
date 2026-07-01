@@ -74,6 +74,12 @@ pub struct Config {
     /// Turn off on terminals that do their own bidi (mlterm, modern VTE, …).
     /// (Missing from an old config → the struct default, `true`.)
     pub reshape_rtl: bool,
+    /// Terminal pixel-graphics for the progress bars, process-explorer graphs and
+    /// disk-explorer treemap: `auto` (use Kitty/Sixel/iTerm2 if the terminal
+    /// supports it, else fall back to cell rendering), `off`, or a forced
+    /// `kitty` / `sixel` / `iterm`. (Missing from an old config → the struct
+    /// default, `"auto"`.)
+    pub graphics: String,
     /// 24-bit color override; `None` = auto-detect from the terminal.
     pub truecolor: Option<bool>,
     /// Enable animations (gradient motion, CPU histogram).
@@ -101,6 +107,7 @@ impl Default for Config {
             theme: "Midnight Commander".to_string(),
             language: None,
             reshape_rtl: true,
+            graphics: "auto".to_string(),
             truecolor: None,
             animation: true,
             system_status: true,

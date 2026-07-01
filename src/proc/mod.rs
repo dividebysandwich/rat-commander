@@ -548,7 +548,7 @@ mod tests {
         let mut pv = super::ProcView::new();
         let theme = crate::ui::theme::Theme::mc();
         let mut t = Terminal::new(TestBackend::new(120, 30)).unwrap();
-        t.draw(|f| super::render::render(f, f.area(), &mut pv, &theme))
+        t.draw(|f| super::render::render(f, f.area(), &mut pv, &theme, None))
             .unwrap();
         let buf = t.backend().buffer();
         let mut s = String::new();

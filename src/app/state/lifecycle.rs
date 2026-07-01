@@ -43,6 +43,8 @@ impl AppState {
             theme_backup: None,
             lang_backup: None,
             reshape_backup: None,
+            gfx: None,
+            graphics_backup: None,
             user_menu: usermenu::load_or_create(),
             pending_run: None,
             pending_quit: false,

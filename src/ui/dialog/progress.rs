@@ -3,6 +3,8 @@
 use super::widgets::*;
 use super::DialogResult;
 use crate::ops::progress::{ProgressUpdate, TaskId};
+use crate::ui::graphics::{raster, Gfx, Slot};
+use ratatui::style::Color;
 
 // ---------------------------------------------------------------------------
 // Progress dialog
@@ -150,9 +152,9 @@ impl ProgressDialog {
         }
     }
 
-    pub(crate) fn render(&mut self, f: &mut Frame, area: Rect, theme: &Theme) {
+    pub(crate) fn render(&mut self, f: &mut Frame, area: Rect, theme: &Theme, mut gfx: Option<&mut Gfx>) {
         if self.indeterminate {
-            return self.render_indeterminate(f, area, theme);
+            return self.render_indeterminate(f, area, theme, gfx);
         }
         let w = 64u16.min(area.width.saturating_sub(4));
         let rect = centered(area, w, 16);
@@ -179,9 +181,11 @@ impl ProgressDialog {
         let name = crate::util::text::ellipsize(&self.current_name, inner.width as usize);
         f.render_widget(Paragraph::new(Line::from(name)).style(base), rows[0]);
 
-        pulse_gauge(
+        gauge(
             f,
+            gfx.as_deref_mut(),
             rows[1],
+            Slot::TransferFileBar,
             Self::ratio(self.file_done, self.file_total),
             &format!("{} / {}", human_size(self.file_done), human_size(self.file_total)),
             theme.exec_fg,
@@ -201,9 +205,11 @@ impl ProgressDialog {
         );
 
         let total_ratio = Self::ratio(self.total_done, self.total_total);
-        pulse_gauge(
+        gauge(
             f,
+            gfx.as_deref_mut(),
             rows[3],
+            Slot::TransferTotalBar,
             total_ratio,
             &format!("{:.0}%", total_ratio * 100.0),
             theme.panel_border_active,
@@ -220,7 +226,7 @@ impl ProgressDialog {
             .style(base),
             rows[4],
         );
-        self.render_speed_chart(f, rows[5], theme);
+        self.render_speed_chart(f, rows[5], theme, gfx);
 
         f.render_widget(
             Paragraph::new(Line::from(button("[ Abort ]", true, theme)))
@@ -233,7 +239,7 @@ impl ProgressDialog {
     /// A sparkline of transfer speed over bytes transferred. Each column is a
     /// vertical bar of partial-block glyphs, colored with a gradient that
     /// brightens towards the top of the graph.
-    fn render_speed_chart(&self, f: &mut Frame, area: Rect, theme: &Theme) {
+    fn render_speed_chart(&self, f: &mut Frame, area: Rect, theme: &Theme, gfx: Option<&mut Gfx>) {
         let base = Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg);
         if self.samples.len() < 2 {
             f.render_widget(Paragraph::new(Line::from("  measuring…")).style(base), area);
@@ -292,6 +298,16 @@ impl ProgressDialog {
             }
         }
 
+        // Graphics path: a smooth filled line graph in the same accent color.
+        if let Some(g) = gfx
+            && g.available() {
+                let (pw, ph) = g.px_size(area);
+                let line = raster::rgb(intense);
+                let img = raster::line_graph(pw, ph, &bars, y_max, |_| line, raster::rgb(theme.dialog_bg));
+                g.draw(f, area, Slot::TransferSpeed, img);
+                return;
+            }
+
         let buf = f.buffer_mut();
         for (col, &bar) in bars.iter().enumerate() {
             let filled = (((bar.max(0.0) / y_max) * levels as f64).round() as usize).min(levels);
@@ -311,7 +327,7 @@ impl ProgressDialog {
     }
 
     /// Render an indeterminate scanning dialog (current path + sweep + count).
-    fn render_indeterminate(&mut self, f: &mut Frame, area: Rect, theme: &Theme) {
+    fn render_indeterminate(&mut self, f: &mut Frame, area: Rect, theme: &Theme, gfx: Option<&mut Gfx>) {
         let w = 64u16.min(area.width.saturating_sub(4));
         let rect = centered(area, w, 8);
         draw_shadow(f, rect, theme);
@@ -332,22 +348,46 @@ impl ProgressDialog {
         f.render_widget(Paragraph::new(Line::from(name)).style(base), line_at(inner.y + 1));
 
         // A bouncing block sweeps based on the update counter (files_done).
+        let bar_area = line_at(inner.y + 3);
         let bar_w = inner.width as usize;
         let block_w = (bar_w / 5).max(1);
         let span = bar_w.saturating_sub(block_w).max(1);
         let phase = (self.files_done as usize) % (2 * span);
         let pos = if phase < span { phase } else { 2 * span - phase };
-        let mut bar = String::with_capacity(bar_w);
-        for i in 0..bar_w {
-            bar.push(if i >= pos && i < pos + block_w { '█' } else { '░' });
+        let drawn = if let Some(g) = gfx {
+            if g.available() && bar_w > 0 {
+                let (pw, ph) = g.px_size(bar_area);
+                let pos_frac = (pos + block_w / 2) as f64 / bar_w as f64;
+                let img = raster::sweep_bar(
+                    pw,
+                    ph,
+                    pos_frac,
+                    0.2,
+                    raster::rgb(theme.panel_border_active),
+                    raster::rgb(theme.panel_border),
+                    raster::rgb(theme.dialog_bg),
+                );
+                g.draw(f, bar_area, Slot::Indeterminate, img);
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        if !drawn {
+            let mut bar = String::with_capacity(bar_w);
+            for i in 0..bar_w {
+                bar.push(if i >= pos && i < pos + block_w { '█' } else { '░' });
+            }
+            f.render_widget(
+                Paragraph::new(Line::from(Span::styled(
+                    bar,
+                    Style::default().fg(theme.input_bg).bg(theme.dialog_bg),
+                ))),
+                bar_area,
+            );
         }
-        f.render_widget(
-            Paragraph::new(Line::from(Span::styled(
-                bar,
-                Style::default().fg(theme.input_bg).bg(theme.dialog_bg),
-            ))),
-            line_at(inner.y + 3),
-        );
 
         // Centered, clickable Abort button (rect recorded for hit-testing).
         let label = "[ Abort ]";
@@ -361,6 +401,72 @@ impl ProgressDialog {
         f.render_widget(Paragraph::new(Line::from(button(label, true, theme))).style(base), arect);
         self.abort_rect = arect;
     }
+}
+
+/// Draw a progress bar as a gradient pixel "pill" via `gfx`, falling back to the
+/// cell [`pulse_gauge`]. The filled portion runs a gradient tinted from `base`,
+/// with an animated highlight sweep when the theme is animated; `label` is
+/// centered over the bar either way.
+#[allow(clippy::too_many_arguments)]
+fn gauge(
+    f: &mut Frame,
+    gfx: Option<&mut Gfx>,
+    area: Rect,
+    slot: Slot,
+    ratio: f64,
+    label: &str,
+    base: Color,
+    theme: &Theme,
+) {
+    if let Some(g) = gfx
+        && g.available() && area.width > 0 && area.height > 0 {
+            let (w, h) = g.px_size(area);
+            let base_rgb = raster::rgb(base);
+            let dark = raster::over((0, 0, 0), base_rgb, 0.55);
+            let bright = raster::over(base_rgb, (255, 255, 255), 0.30);
+            let animated = theme.animated;
+            let anim = theme.anim as f64;
+            let fill = move |t: f64| {
+                let mut c = raster::over(dark, bright, t);
+                if animated {
+                    // A soft highlight band sweeps left→right as anim advances.
+                    let pos = (anim * 0.02).rem_euclid(1.0);
+                    let d = (t - pos)
+                        .abs()
+                        .min((t - pos + 1.0).abs())
+                        .min((t - pos - 1.0).abs());
+                    let hi = (1.0 - d / 0.22).clamp(0.0, 1.0);
+                    c = raster::over(c, (255, 255, 255), 0.4 * hi);
+                }
+                c
+            };
+            let img = raster::gradient_bar(
+                w,
+                h,
+                ratio,
+                fill,
+                raster::rgb(theme.panel_border),
+                raster::rgb(theme.dialog_bg),
+            );
+            g.draw(f, area, slot, img);
+            overlay_label(f, area, label, theme);
+            return;
+        }
+    pulse_gauge(f, area, ratio, label, base, theme);
+}
+
+/// Center `label` on a graphics bar (a small readable plate over the pixels).
+fn overlay_label(f: &mut Frame, area: Rect, label: &str, theme: &Theme) {
+    let w = area.width as usize;
+    let chars: Vec<char> = label.chars().take(w).collect();
+    if chars.is_empty() {
+        return;
+    }
+    let lstart = area.x + ((w - chars.len()) / 2) as u16;
+    let midy = area.y + area.height / 2;
+    let s: String = chars.into_iter().collect();
+    f.buffer_mut()
+        .set_string(lstart, midy, s, Style::default().fg(theme.bar_fg).bg(theme.dialog_bg));
 }
 
 // ---------------------------------------------------------------------------

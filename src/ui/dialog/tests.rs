@@ -328,7 +328,7 @@ fn indeterminate_progress_abort_is_clickable_but_determinate_is_not() {
     // row of the 64x8 centered box) is hit-testable.
     let mut d = Dialog::Progress(ProgressDialog::scan(7, "Find duplicates", "duplicates"));
     let mut t = Terminal::new(TestBackend::new(80, 24)).unwrap();
-    t.draw(|f| d.render(f, area, &theme)).unwrap();
+    t.draw(|f| d.render(f, area, &theme, None)).unwrap();
     // Box centered(80x24, 64, 8): origin (8,8); inner (9,9,62,6); button row 14.
     assert!(
         matches!(d.handle_click(area, 40, 14), DialogResult::Abort(7)),
@@ -338,7 +338,7 @@ fn indeterminate_progress_abort_is_clickable_but_determinate_is_not() {
 
     // A determinate (copy) progress dialog ignores clicks entirely.
     let mut c = Dialog::Progress(ProgressDialog::new(8, "Copying"));
-    t.draw(|f| c.render(f, area, &theme)).unwrap();
+    t.draw(|f| c.render(f, area, &theme, None)).unwrap();
     for row in 0..24 {
         assert!(matches!(c.handle_click(area, 40, row), DialogResult::None));
     }
@@ -690,4 +690,55 @@ fn compare_dialog_selects_mode() {
         DialogResult::Submit(Submit::CompareDirs(CompareMode::Content))
     ));
     assert!(matches!(d.handle_key(key(KeyCode::Esc)), DialogResult::Cancel));
+}
+
+
+
+
+#[test]
+fn form_ok_cancel_buttons_are_keyboard_navigable() {
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    use ratatui::crossterm::event::{KeyCode, KeyEvent};
+    let cfg = crate::config::Config::default();
+    let theme = crate::ui::theme::Theme::mc();
+    let area = ratatui::layout::Rect::new(0, 0, 80, 24);
+
+    // Confirmations form has 5 fields; slot 5 = OK, slot 6 = Cancel.
+    let render_has = |d: &mut FormDialog, needle: &str| {
+        let mut t = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        t.draw(|f| d.render(f, area, &theme)).unwrap();
+        let buf = t.backend().buffer();
+        let mut s = String::new();
+        for y in 0..buf.area.height {
+            for x in 0..buf.area.width { s.push_str(buf[(x, y)].symbol()); }
+        }
+        s.contains(needle)
+    };
+
+    // Tab down onto OK → it renders highlighted, and Enter submits.
+    let mut d = FormDialog::confirmations(&cfg);
+    for _ in 0..5 { let _ = d.handle_key(KeyEvent::from(KeyCode::Tab)); }
+    assert!(render_has(&mut d, "< OK >"), "OK should highlight when focused");
+    assert!(
+        matches!(d.handle_key(KeyEvent::from(KeyCode::Enter)), DialogResult::Submit(_)),
+        "Enter on OK submits"
+    );
+
+    // Tab once more onto Cancel → Enter cancels.
+    let mut d = FormDialog::confirmations(&cfg);
+    for _ in 0..6 { let _ = d.handle_key(KeyEvent::from(KeyCode::Tab)); }
+    assert!(render_has(&mut d, "< Cancel >"), "Cancel should highlight when focused");
+    assert!(
+        matches!(d.handle_key(KeyEvent::from(KeyCode::Enter)), DialogResult::Cancel),
+        "Enter on Cancel cancels"
+    );
+
+    // Left/Right toggles between the two buttons.
+    let mut d = FormDialog::confirmations(&cfg);
+    for _ in 0..5 { let _ = d.handle_key(KeyEvent::from(KeyCode::Tab)); } // OK
+    let _ = d.handle_key(KeyEvent::from(KeyCode::Right));
+    assert!(render_has(&mut d, "< Cancel >"), "Right moves OK→Cancel");
+    let _ = d.handle_key(KeyEvent::from(KeyCode::Left));
+    assert!(render_has(&mut d, "< OK >"), "Left moves Cancel→OK");
 }

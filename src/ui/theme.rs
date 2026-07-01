@@ -611,6 +611,24 @@ impl Theme {
         let b = lerp(self.grad_a.2, self.grad_b.2, t);
         Color::Rgb(r, g, b)
     }
+
+    /// The gradient color (full RGB) at normalized position `t` in `[0, 1]`,
+    /// honoring the animation slide but **not** the `truecolor` gate — the
+    /// pixel-graphics raster always has full color available (even on a sixel
+    /// terminal that doesn't advertise truecolor cells), so it draws the real
+    /// gradient rather than falling back to a solid accent.
+    pub fn gradient_rgb(&self, t: f64) -> (u8, u8, u8) {
+        let tt = if self.animated {
+            triangle(t * 1.5 + self.anim as f64 * 0.04)
+        } else {
+            t.clamp(0.0, 1.0)
+        };
+        (
+            lerp(self.grad_a.0, self.grad_b.0, tt),
+            lerp(self.grad_a.1, self.grad_b.1, tt),
+            lerp(self.grad_a.2, self.grad_b.2, tt),
+        )
+    }
 }
 
 impl Default for Theme {

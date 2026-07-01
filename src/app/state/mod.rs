@@ -125,6 +125,12 @@ pub struct AppState {
     lang_backup: Option<String>,
     /// `reshape_rtl` value to restore if the settings dialog is cancelled.
     reshape_backup: Option<bool>,
+    /// Terminal pixel-graphics capability (Kitty/Sixel/iTerm2), or `None` when the
+    /// terminal has no graphics protocol or graphics are configured off. Every
+    /// graphics-backed widget checks this and falls back to Ratatui cells.
+    pub gfx: Option<crate::ui::graphics::Gfx>,
+    /// `graphics` preference to restore if the settings dialog is cancelled.
+    graphics_backup: Option<String>,
     /// F2 user-menu entries (loaded from the config `menu` file).
     user_menu: Vec<UserMenuEntry>,
     /// A user-menu command to run after the dialog closes (expanded).
