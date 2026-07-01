@@ -175,6 +175,7 @@ impl AppState {
             MenuAction::Chown => self.open_chown(),
             MenuAction::Symlink => self.open_symlink(),
             MenuAction::Compress => self.open_compress(),
+            MenuAction::Checksum => self.open_checksum(),
             MenuAction::SelectGroup => self.open_select_group(true),
             MenuAction::UnselectGroup => self.open_select_group(false),
             MenuAction::Invert => self.invert_selection(),

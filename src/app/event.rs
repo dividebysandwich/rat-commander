@@ -5,6 +5,7 @@
 
 use crate::disk::DiskEntry;
 use crate::ops::progress::{ConflictInfo, ProgressUpdate, TaskId, TaskOutcome};
+use crate::util::checksum::ChecksumReport;
 use crate::vfs::VfsPath;
 
 /// Why a file was fetched to a local temp (so the handler opens the right view).
@@ -38,6 +39,13 @@ pub enum AppEvent {
     ImageDone {
         id: TaskId,
         outcome: TaskOutcome,
+    },
+    /// A file-checksum task finished. `Ok(report)` on success (the report also
+    /// carries any comparison verdict); `Err(Some(msg))` on I/O failure;
+    /// `Err(None)` when the user aborted (the progress dialog just closes).
+    ChecksumDone {
+        id: TaskId,
+        result: Result<ChecksumReport, Option<String>>,
     },
     /// A find-file task finished (or was aborted); carries the matching files
     /// (path + size) collected so far so partial results can still be panelized.

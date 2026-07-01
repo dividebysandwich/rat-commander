@@ -120,6 +120,7 @@ impl AppState {
                 }
             }
             Submit::Compress(sources, name) => self.start_compress(sources, name),
+            Submit::Checksum { path, kind, expected } => self.start_checksum(path, kind, expected),
             Submit::Connect(side, creds) => self.connect_remote(side, creds).await,
             Submit::UserCommand(tpl) => self.pending_run = Some(self.expand_macros(&tpl)),
             Submit::KillProcess { pid, force } => self.kill_process(pid, force),
@@ -520,6 +521,21 @@ impl AppState {
             _ => (String::new(), String::new()),
         };
         self.dialog = Some(Dialog::Form(FormDialog::symlink(dir, target, name)));
+    }
+
+    /// Open the checksum options dialog for the file under the cursor. Works on
+    /// any backend (local, remote, or inside an archive) since the file is read
+    /// through the VFS; only a real file (not `..` or a directory) is accepted.
+    pub(in crate::app::state) fn open_checksum(&mut self) {
+        let p = &self.panels[self.active];
+        let Some(e) = p.current_entry() else {
+            return;
+        };
+        if e.name == ".." || e.kind != VfsKind::File {
+            return self.show_error("Select a file to checksum");
+        }
+        let path = p.cwd.join(&e.name);
+        self.dialog = Some(Dialog::Form(FormDialog::checksum(path)));
     }
 
     // -- Archives ----------------------------------------------------------

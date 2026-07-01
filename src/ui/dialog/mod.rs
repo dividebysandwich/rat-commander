@@ -6,6 +6,7 @@
 
 mod widgets;
 
+mod checksum;
 mod compare;
 mod confirm;
 mod drive;
@@ -35,6 +36,7 @@ pub(crate) use flash::SaveFocus;
 #[cfg(test)]
 pub(crate) use widgets::mix_rgb;
 
+pub use checksum::ChecksumResultDialog;
 pub use compare::CompareDialog;
 pub use confirm::ConfirmDialog;
 pub use drive::DriveDialog;
@@ -91,6 +93,8 @@ pub enum Dialog {
     UserMenu(UserMenuDialog),
     Overwrite(OverwriteDialog),
     Compare(CompareDialog),
+    /// The result of a File → Checksum computation (digest + pass/fail verdict).
+    ChecksumResult(ChecksumResultDialog),
 }
 
 /// What the app should do after a dialog handles a key.
@@ -230,6 +234,13 @@ pub enum Submit {
     /// Apply a batch rename: each `(source, new name)` pair renames the source
     /// to the new name in its own directory.
     MultiRename(Vec<(VfsPath, String)>),
+    /// Compute a checksum of `path` with the chosen algorithm, optionally
+    /// comparing against a user-supplied digest (`expected`, empty = none).
+    Checksum {
+        path: VfsPath,
+        kind: crate::util::checksum::ChecksumKind,
+        expected: String,
+    },
 }
 
 /// How the directory-comparison tool decides which files differ.
@@ -316,6 +327,7 @@ impl Dialog {
             Dialog::UserMenu(d) => d.handle_key(key),
             Dialog::Overwrite(d) => d.handle_key(key),
             Dialog::Compare(d) => d.handle_key(key),
+            Dialog::ChecksumResult(d) => d.handle_key(key),
         }
     }
 
@@ -346,6 +358,7 @@ impl Dialog {
             Dialog::UserMenu(d) => d.render(f, area, theme),
             Dialog::Overwrite(d) => d.render(f, area, theme),
             Dialog::Compare(d) => d.render(f, area, theme),
+            Dialog::ChecksumResult(d) => d.render(f, area, theme),
         }
     }
 
@@ -357,6 +370,7 @@ impl Dialog {
             // Precise per-button hit-testing.
             Dialog::Overwrite(d) => return d.handle_click(col, row),
             Dialog::Compare(d) => return d.handle_click(col, row),
+            Dialog::ChecksumResult(d) => return d.handle_click(col, row),
             Dialog::Confirm(d) => {
                 let rect = d.box_rect(area);
                 return d.handle_click(rect, col, row);

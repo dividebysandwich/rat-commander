@@ -14,7 +14,8 @@ use crate::panel::{Panel, ViewFormat};
 use crate::proc::{ProcSignal, ProcView};
 use crate::ui::cmdline::CommandLine;
 use crate::ui::dialog::{
-    BusyDialog, CompareDialog, CompareMode, ConfirmDialog, Dialog, DialogResult, DriveDialog,
+    BusyDialog, ChecksumResultDialog, CompareDialog, CompareMode, ConfirmDialog, Dialog,
+    DialogResult, DriveDialog,
     DupCriteria, FileBrowserDialog, FindDialog, FindParams, FlashTargetDialog, FormDialog, GotoDialog,
     ImageSaveDialog, InputDialog, InputPurpose, MessageDialog, MultiRenameDialog, OverwriteDialog,
     ProgressDialog, SaveAsDialog, SearchReplaceDialog, SearchReplaceParams, SelectDialog, Submit,
@@ -399,6 +400,7 @@ mod keys;
 mod mouse;
 mod dialogs;
 mod fileops;
+mod checksum;
 mod disk;
 mod remote;
 mod find;

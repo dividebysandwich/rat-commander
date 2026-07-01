@@ -28,6 +28,8 @@ pub enum MenuAction {
     Chown,
     Symlink,
     Compress,
+    /// Compute a checksum of the file under the cursor.
+    Checksum,
     SelectGroup,
     UnselectGroup,
     Invert,
@@ -172,6 +174,7 @@ impl MenuBarState {
                 item("&Symlink", MenuAction::Symlink),
                 sep(),
                 item("Com&press...", MenuAction::Compress),
+                item("Chec&ksum...", MenuAction::Checksum),
                 sep(),
                 item_key("Select &group", "+", MenuAction::SelectGroup),
                 item_key("U&nselect group", "-", MenuAction::UnselectGroup),
@@ -558,6 +561,8 @@ mod tests {
         assert!(matches!(hk('n'), Some(MenuAction::UnselectGroup)));
         assert!(matches!(hk('i'), Some(MenuAction::Invert)));
         assert!(matches!(hk('q'), Some(MenuAction::Quit)));
+        // The new Checksum entry is accelerated by 'k' (unique in the File menu).
+        assert!(matches!(hk('k'), Some(MenuAction::Checksum)));
     }
 
     #[test]

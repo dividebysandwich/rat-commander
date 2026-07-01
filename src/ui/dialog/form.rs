@@ -2,6 +2,7 @@
 
 use super::widgets::*;
 use super::{ConfirmValues, DialogResult, DupCriteria, SettingsValues, Submit};
+use crate::util::checksum::ChecksumKind;
 use crate::vfs::remote::{Protocol, RemoteCreds};
 
 /// The display label for a `graphics` config preference, for the settings chooser.
@@ -208,6 +209,8 @@ pub enum FormPurpose {
     Format(String),
     /// Collect the "Find duplicates" comparison criteria.
     FindDuplicates,
+    /// Checksum this file (algorithm + optional comparison digest collected here).
+    Checksum(VfsPath),
 }
 
 /// Connect-form history dropdown state (recent servers).
@@ -292,6 +295,22 @@ impl FormDialog {
             title: "Find duplicates".to_string(),
             form,
             purpose: FormPurpose::FindDuplicates,
+            connect: None,
+        }
+    }
+
+    /// Build the checksum options form for `path`: pick an algorithm and,
+    /// optionally, paste a checksum to compare the result against. The file name
+    /// is shown in the title.
+    pub fn checksum(path: VfsPath) -> Self {
+        let form = Form::new(vec![
+            Field::choice("Algorithm", ChecksumKind::labels(), ChecksumKind::Sha256.label()),
+            Field::text("Compare to (optional)", ""),
+        ]);
+        FormDialog {
+            title: format!("Checksum: {}", path.file_name()),
+            form,
+            purpose: FormPurpose::Checksum(path),
             connect: None,
         }
     }
@@ -641,6 +660,11 @@ impl FormDialog {
                 content: fields[2].as_bool(),
                 case_sensitive: fields[3].as_bool(),
             }),
+            FormPurpose::Checksum(path) => Submit::Checksum {
+                path: path.clone(),
+                kind: ChecksumKind::from_label(fields[0].as_text()).unwrap_or(ChecksumKind::Sha256),
+                expected: fields[1].as_text().trim().to_string(),
+            },
             FormPurpose::Chmod(paths) => {
                 Submit::Chmod(paths.clone(), self.chmod_mode(), self.recursive())
             }

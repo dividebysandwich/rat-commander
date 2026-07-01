@@ -270,14 +270,14 @@ From the **File** menu:
 
 *File menu → Multi rename…*, or **Shift-F6** / **Ctrl-F6**.
 
-**What it does.** Batch-renames the **tagged** files using a naming mask, with a
+Batch-renames the **tagged** files using a naming mask, with a
 live two-column preview — original names on the left, projected names on the
 right — that scroll together so you can check each result before committing.
 
 **Useful for** numbering a set of photos, normalizing extensions or case,
 stripping or inserting text across many files at once.
 
-**Typical operation.** Tag the files, open Multi rename, type a mask, watch the
+**Usage:** Tag the files, open Multi rename, type a mask, watch the
 right column update, then press **Execute**.
 
 **The mask** is plain text plus placeholders that pull pieces from each original
@@ -307,14 +307,14 @@ the batch is never overwritten.
 
 *Command menu → Find file…*
 
-**What it does.** Searches a directory tree for files matching a name pattern
+Searches a directory tree for files matching a name pattern
 (and optionally containing some text), then *panelizes* the results into the
 active panel.
 
 **Useful for** locating a file when you only remember part of its name, or
 finding every file that mentions a string.
 
-**Typical operation.** Open the dialog, set the start directory, the file-name
+**Usage:** Open the dialog, set the start directory, the file-name
 pattern, and (optionally) content to look for, then run it. A live progress
 dialog counts matches; press **Esc / Enter** to stop early — the results found
 so far are kept. The matches replace the panel listing with a flat list; a `..`
@@ -329,7 +329,7 @@ matches **file names only** (content search is local).
 
 *Command menu → Compare directories…*
 
-**What it does.** Compares the two panels' directories and **tags the files that
+Compares the two panels' directories and **tags the files that
 differ**, so you can act on just those.
 
 **Useful for** spotting what changed between two copies of a tree, or what is
@@ -347,13 +347,13 @@ missing on one side.
 
 *Command menu → Find duplicates…*
 
-**What it does.** Tags the files that are **identical between the two panel
+Tags the files that are **identical between the two panel
 directories**, by criteria you choose.
 
 **Useful for** finding copies of the same file in two places before deleting the
 redundant ones.
 
-**Typical operation.** Point the two panels at the directories to compare, open
+**Usage:** Point the two panels at the directories to compare, open
 the dialog, choose what "identical" means, and run it. A cancellable progress
 dialog runs the comparison — important for content comparison and remote
 filesystems, where it can take a while.
@@ -367,7 +367,7 @@ compared). A **Case-sensitive** name-match toggle is on by default.
 
 *Command menu → Compare files…*
 
-**What it does.** Opens a full-screen, side-by-side **diff** of the two files
+Opens a full-screen, side-by-side **diff** of the two files
 under the cursor in each panel, with changed and added blocks highlighted and
 connected by gutter guides.
 
@@ -385,9 +385,30 @@ selected changes between them.
   unsaved changes).
 
 
+## Checksum a file
+
+*File menu → Checksum…*
+
+Computes a checksum of the file under the cursor and, if you
+paste a reference checksum, tells you whether they match — handy for verifying a
+download against the digest published alongside it.
+
+**Operation.**
+
+- Pick the algorithm (**CRC32**, **MD5**, **SHA-1**, **SHA-256**, **SHA-512**),
+  optionally paste a checksum into *Compare to* to check against, and press
+  **OK**.
+- A progress bar tracks the calculation while the file is read (**Esc** aborts).
+- The result dialog shows the computed digest. When you supplied a comparison
+  value it also shows a green **✓ MATCH** or red **✗ MISMATCH** verdict (the
+  comparison ignores case and whitespace). Press **OK** to close it.
+
+Works on local files, files inside archives, and files on a remote panel.
+
+
 ## The viewer (F3)
 
-**What it does.** A read-only file viewer with text and hex modes, search,
+A read-only file viewer with text and hex modes, search,
 syntax highlighting, and a Markdown render mode.
 
 **Useful for** quickly reading a file — including very large ones — without
@@ -422,7 +443,7 @@ can abort.
 
 ## The editor (F4)
 
-**What it does.** An `mcedit`-style text editor with block operations, search
+An `mcedit`-style text editor with block operations, search
 and replace, undo/redo, syntax highlighting, and an in-place hex editor.
 
 **Useful for** quick edits without leaving the file manager.
@@ -482,7 +503,7 @@ text, **F4** replaces all (same length), **F2** saves the changed bytes.
 
 ## Archives — browsed like directories
 
-**What it does.** Lets you walk into `.zip`, `.tar`, `.tar.gz`, `.tar.bz2`,
+Lets you walk into `.zip`, `.tar`, `.tar.gz`, `.tar.bz2`,
 `.tar.xz`, `.7z` and `.rar` archives as if they were folders.
 
 **Useful for** inspecting, extracting from, or adding to an archive without
@@ -500,7 +521,7 @@ create RAR archives. (RAR support is an optional build feature, on by default.)
 
 ## Remote filesystems (SFTP / FTP / SCP)
 
-**What it does.** Mounts a remote server into a panel, so you browse and transfer
+Mounts a remote server into a panel, so you browse and transfer
 files over **SFTP** or **SCP** (SSH) or **FTP / FTPS** exactly like local files.
 
 **Useful for** managing files on a server without a separate client — copy/move/
@@ -562,7 +583,7 @@ one-key access to your own scripts and recurring tasks.
 
 *Command menu → Disk explorer…*
 
-**What it does.** Draws a full-screen **treemap** of the current directory: each
+Draws a full-screen **treemap** of the current directory: each
 box's area is proportional to a subdirectory's total on-disk size, labeled with
 the name and a human-readable size.
 
@@ -586,7 +607,7 @@ selected directory, **Esc** closes. Symlinks are never followed or counted.
 
 *Command menu → Process explorer…*
 
-**What it does.** A full-screen, btop-style system monitor with a process table
+A full-screen, btop-style system monitor with a process table
 and live graphs. It works on **Linux, Windows and macOS**.
 
 **Useful for** seeing what's running and what's using the CPU, memory, disk and
@@ -621,7 +642,7 @@ Linux and read as unavailable on other platforms.
 
 *Command menu → Disk manager…*
 
-**What it does.** A two-pane manager of block devices and mounts: a
+A two-pane manager of block devices and mounts: a
 **disk → partition tree** on the left (each partition shows its filesystem type
 and volume label) and the **current mounts** on the right. **Tab** switches panes.
 

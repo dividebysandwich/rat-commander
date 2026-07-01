@@ -237,6 +237,22 @@ impl AppState {
                     TaskOutcome::Failed(e) => self.show_error(format!("Imaging failed: {e}")),
                 }
             }
+            AppEvent::ChecksumDone { id, result } => {
+                self.tasks.remove(&id);
+                if let Some(Dialog::Progress(p)) = &self.dialog
+                    && p.id == id
+                {
+                    self.dialog = None;
+                }
+                match result {
+                    Ok(report) => {
+                        self.dialog =
+                            Some(Dialog::ChecksumResult(ChecksumResultDialog::new(report)));
+                    }
+                    Err(Some(msg)) => self.show_error(msg),
+                    Err(None) => {} // aborted: the progress dialog was closed above
+                }
+            }
             AppEvent::FindDone { id, results } => {
                 self.tasks.remove(&id);
                 if let Some(Dialog::Progress(p)) = &self.dialog

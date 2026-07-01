@@ -778,3 +778,112 @@ fn form_ok_cancel_buttons_are_keyboard_navigable() {
     let _ = d.handle_key(KeyEvent::from(KeyCode::Left));
     assert!(render_has(&mut d, "< OK >"), "Left moves Cancel→OK");
 }
+
+#[test]
+fn checksum_form_submits_algorithm_and_comparison() {
+    use crate::util::checksum::ChecksumKind;
+    // The form defaults to SHA-256 with no comparison; the file name is in the title.
+    let mut d = FormDialog::checksum(VfsPath::local("/tmp/image.iso"));
+    assert!(d.title.contains("image.iso"), "the file name is shown in the title");
+    // Choose MD5 (Algorithm is the first field): Enter opens the dropdown, Up
+    // moves from SHA-256 (idx 3) toward the top; two Ups land on MD5 (idx 1).
+    d.handle_key(key(KeyCode::Enter));
+    d.handle_key(key(KeyCode::Up));
+    d.handle_key(key(KeyCode::Up));
+    d.handle_key(key(KeyCode::Enter)); // pick MD5, closes the dropdown
+    // Tab to the comparison field and type an expected digest.
+    d.handle_key(key(KeyCode::Tab));
+    for c in "abc123".chars() {
+        d.handle_key(key(KeyCode::Char(c)));
+    }
+    match d.handle_key(key(KeyCode::Enter)) {
+        DialogResult::Submit(Submit::Checksum { path, kind, expected }) => {
+            assert_eq!(path.file_name(), "image.iso");
+            assert_eq!(kind, ChecksumKind::Md5);
+            assert_eq!(expected, "abc123");
+        }
+        _ => panic!("expected a Checksum submit"),
+    }
+}
+
+#[test]
+fn checksum_result_dialog_shows_verdict_and_digest() {
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    use crate::util::checksum::{ChecksumKind, ChecksumReport, normalize_expected};
+    let theme = crate::ui::theme::Theme::mc();
+    let area = Rect::new(0, 0, 90, 24);
+    let dump = |t: &Terminal<TestBackend>| {
+        let b = t.backend().buffer();
+        let mut s = String::new();
+        for y in 0..b.area.height {
+            for x in 0..b.area.width {
+                s.push_str(b[(x, y)].symbol());
+            }
+        }
+        s
+    };
+    let digest = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+
+    // A matching comparison → a green ✓ MATCH verdict, and the digest is shown.
+    let mut d = Dialog::ChecksumResult(ChecksumResultDialog::new(ChecksumReport {
+        kind: ChecksumKind::Sha256,
+        name: "abc.txt".into(),
+        digest: digest.into(),
+        expected: normalize_expected(&digest.to_uppercase()),
+    }));
+    let mut t = Terminal::new(TestBackend::new(90, 24)).unwrap();
+    t.draw(|f| d.render(f, area, &theme, None)).unwrap();
+    let s = dump(&t);
+    assert!(s.contains("abc.txt"), "file name shown");
+    assert!(s.contains("SHA-256"), "algorithm shown");
+    assert!(s.contains(digest), "computed digest shown");
+    assert!(s.contains("MATCH"), "match verdict shown");
+
+    // A wrong comparison → a ✗ MISMATCH verdict plus the expected value.
+    let mut d = Dialog::ChecksumResult(ChecksumResultDialog::new(ChecksumReport {
+        kind: ChecksumKind::Sha256,
+        name: "abc.txt".into(),
+        digest: digest.into(),
+        expected: normalize_expected("deadbeef"),
+    }));
+    t.draw(|f| d.render(f, area, &theme, None)).unwrap();
+    let s = dump(&t);
+    assert!(s.contains("MISMATCH"), "mismatch verdict shown");
+    assert!(s.contains("deadbeef"), "expected value shown on mismatch");
+
+    // No comparison supplied → the digest is shown but no verdict.
+    let mut d = Dialog::ChecksumResult(ChecksumResultDialog::new(ChecksumReport {
+        kind: ChecksumKind::Sha256,
+        name: "abc.txt".into(),
+        digest: digest.into(),
+        expected: None,
+    }));
+    t.draw(|f| d.render(f, area, &theme, None)).unwrap();
+    let s = dump(&t);
+    assert!(s.contains(digest), "digest shown without a comparison");
+    assert!(!s.contains("MATCH"), "no verdict without a comparison");
+
+    // The dialog is dismissed only via its OK button, not by any key or click.
+    let find = |t: &Terminal<TestBackend>, needle: &str| -> Option<(u16, u16)> {
+        let b = t.backend().buffer();
+        for y in 0..b.area.height {
+            let mut rowtext = String::new();
+            for x in 0..b.area.width {
+                rowtext.push_str(b[(x, y)].symbol());
+            }
+            if let Some(byte) = rowtext.find(needle) {
+                return Some((rowtext[..byte].chars().count() as u16, y));
+            }
+        }
+        None
+    };
+    // A non-activating key does nothing; Enter (or Esc) closes.
+    assert!(matches!(d.handle_key(key(KeyCode::Char('x'))), DialogResult::None));
+    assert!(matches!(d.handle_key(key(KeyCode::Esc)), DialogResult::Cancel));
+    assert!(matches!(d.handle_key(key(KeyCode::Enter)), DialogResult::Cancel));
+    // A click off the button is ignored; a click on it closes.
+    assert!(matches!(d.handle_click(area, 0, 0), DialogResult::None));
+    let (ok_col, ok_row) = find(&t, "OK").expect("OK button rendered");
+    assert!(matches!(d.handle_click(area, ok_col, ok_row), DialogResult::Cancel));
+}

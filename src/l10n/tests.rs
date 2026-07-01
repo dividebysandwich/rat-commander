@@ -67,8 +67,8 @@ fn menu_accelerators_are_unique_per_menu_in_every_language() {
     let menus: &[&[&str]] = &[
         &[
             "&View", "&Edit", "&Copy", "&Rename/Move", "M&ulti rename", "&Make directory",
-            "&Delete", "C&hmod", "Cho&wn", "&Symlink", "Com&press...", "Select &group",
-            "U&nselect group", "&Invert selection", "&Quit",
+            "&Delete", "C&hmod", "Cho&wn", "&Symlink", "Com&press...", "Chec&ksum...",
+            "Select &group", "U&nselect group", "&Invert selection", "&Quit",
         ],
         &[
             "&Find file...", "Find d&uplicates...", "Compare &directories...", "Compare fi&les...",

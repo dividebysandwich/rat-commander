@@ -36,6 +36,8 @@ The installed executable is named **`rc`** for quick typing.
   preview, counter, case transform and search-and-replace.
 - **Find file**, **Compare directories**, **Find duplicates**, and a
   side-by-side **Compare files** diff with in-place merging.
+- **Checksum** — compute a CRC32/MD5/SHA-1/SHA-256/SHA-512 digest of a file with
+  a progress bar, and optionally verify it against a pasted reference checksum.
 - **Archives** — browse `.zip`, `.tar(.gz/.bz2/.xz)`, `.7z` and `.rar` like
   directories; copy in/out, delete, and compress a selection.
 - **Remote filesystems** — SFTP, SCP and FTP/FTPS, each mounted into a panel;
