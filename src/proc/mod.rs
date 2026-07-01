@@ -23,6 +23,8 @@ pub const PROC_CPU_HISTORY: usize = 16;
 #[derive(Debug, Clone)]
 pub struct ProcInfo {
     pub pid: i32,
+    /// Parent PID, if known and different from `pid`. Used to build the tree.
+    pub ppid: Option<i32>,
     pub name: String,
     /// CPU usage since the last sample, normalized so one busy core ≈ 100%.
     pub cpu: f32,
@@ -32,6 +34,21 @@ pub struct ProcInfo {
     pub mem_pct: f32,
     /// Number of threads.
     pub threads: u32,
+}
+
+/// One entry in the flattened, currently-visible process tree. The cursor and
+/// scroll offset index into these rows (not directly into [`ProcInfo`]s), so
+/// only expanded subtrees contribute rows.
+#[derive(Debug, Clone, Copy)]
+pub struct ProcRow {
+    /// Index into [`ProcView::procs`] of the process shown on this row.
+    pub proc_idx: usize,
+    /// Indentation depth (0 = a top-level/root process).
+    pub depth: u16,
+    /// Whether this process has at least one child in the current set.
+    pub has_children: bool,
+    /// Whether this node is currently expanded (only meaningful with children).
+    pub expanded: bool,
 }
 
 /// Which column the list is sorted by.
@@ -53,7 +70,16 @@ pub enum ProcSignal {
 }
 
 pub struct ProcView {
+    /// All sampled processes, flat and sorted by the active column. The tree is
+    /// derived from this via parent/child links; siblings inherit this order.
     pub procs: Vec<ProcInfo>,
+    /// Flattened, currently-visible tree rows (roots + expanded descendants).
+    pub rows: Vec<ProcRow>,
+    /// PIDs whose children are hidden. The tree is *expanded by default* (empty
+    /// set ⇒ everything visible), because on Linux user processes nest many
+    /// levels deep under the systemd session and would otherwise be hidden; a
+    /// process is collapsed only once the user (or "collapse all") folds it.
+    pub collapsed: HashSet<i32>,
     pub cursor: usize,
     pub offset: usize,
     pub sort: ProcSort,
@@ -123,6 +149,8 @@ impl ProcView {
 
         let mut v = ProcView {
             procs: Vec::new(),
+            rows: Vec::new(),
+            collapsed: HashSet::new(),
             cursor: 0,
             offset: 0,
             sort: ProcSort::Cpu,
@@ -187,7 +215,27 @@ impl ProcView {
                 ProcSignal::Stay
             }
             KeyCode::End => {
-                self.cursor = self.procs.len().saturating_sub(1);
+                self.cursor = self.rows.len().saturating_sub(1);
+                ProcSignal::Stay
+            }
+            // Tree navigation: → expands (or steps into) the current node,
+            // ← collapses it (or steps out to the parent).
+            KeyCode::Right => {
+                self.expand_or_enter();
+                ProcSignal::Stay
+            }
+            KeyCode::Left => {
+                self.collapse_or_leave();
+                ProcSignal::Stay
+            }
+            // Toggle the current subtree open/closed.
+            KeyCode::Enter | KeyCode::Char(' ') => {
+                self.toggle_expand();
+                ProcSignal::Stay
+            }
+            // Collapse every subtree / expand them all again.
+            KeyCode::Char('*') => {
+                self.toggle_all();
                 ProcSignal::Stay
             }
             KeyCode::Char('c') | KeyCode::Char('C') => {
@@ -234,7 +282,7 @@ impl ProcView {
     }
 
     fn kill_request(&self, force: bool) -> ProcSignal {
-        match self.procs.get(self.cursor) {
+        match self.cursor_proc() {
             Some(p) => ProcSignal::Kill {
                 pid: p.pid,
                 name: p.name.clone(),
@@ -245,12 +293,95 @@ impl ProcView {
     }
 
     fn move_cursor(&mut self, delta: isize) {
-        if self.procs.is_empty() {
+        if self.rows.is_empty() {
             self.cursor = 0;
             return;
         }
-        let max = self.procs.len() as isize - 1;
+        let max = self.rows.len() as isize - 1;
         self.cursor = (self.cursor as isize + delta).clamp(0, max) as usize;
+    }
+
+    /// The process the cursor is currently on (via the visible tree row).
+    pub fn cursor_proc(&self) -> Option<&ProcInfo> {
+        self.rows.get(self.cursor).map(|r| &self.procs[r.proc_idx])
+    }
+
+    /// PID under the cursor, if any.
+    fn cursor_pid(&self) -> Option<i32> {
+        self.cursor_proc().map(|p| p.pid)
+    }
+
+    /// → key: expand a collapsed node, or step onto the first child if already
+    /// expanded. No-op on a leaf.
+    fn expand_or_enter(&mut self) {
+        let Some(row) = self.rows.get(self.cursor).copied() else {
+            return;
+        };
+        if !row.has_children {
+            return;
+        }
+        if row.expanded {
+            self.move_cursor(1); // step into the (immediately following) first child
+        } else {
+            let pid = self.procs[row.proc_idx].pid;
+            self.collapsed.remove(&pid);
+            self.rebuild_rows();
+            self.restore_cursor(Some(pid));
+        }
+    }
+
+    /// ← key: collapse an expanded node, or step out to the parent row.
+    fn collapse_or_leave(&mut self) {
+        let Some(row) = self.rows.get(self.cursor).copied() else {
+            return;
+        };
+        if row.has_children && row.expanded {
+            let pid = self.procs[row.proc_idx].pid;
+            self.collapsed.insert(pid);
+            self.rebuild_rows();
+            self.restore_cursor(Some(pid));
+        } else if row.depth > 0 {
+            // Walk up to the nearest shallower row (this node's parent).
+            let mut i = self.cursor;
+            while i > 0 {
+                i -= 1;
+                if self.rows[i].depth < row.depth {
+                    self.cursor = i;
+                    break;
+                }
+            }
+        }
+    }
+
+    /// Enter/Space: toggle the current node between expanded and collapsed.
+    fn toggle_expand(&mut self) {
+        let Some(row) = self.rows.get(self.cursor).copied() else {
+            return;
+        };
+        if !row.has_children {
+            return;
+        }
+        let pid = self.procs[row.proc_idx].pid;
+        if !self.collapsed.remove(&pid) {
+            self.collapsed.insert(pid);
+        }
+        self.rebuild_rows();
+        self.restore_cursor(Some(pid));
+    }
+
+    /// `*` key: collapse everything if anything is currently expanded, otherwise
+    /// expand everything back. Keeps the cursor on its process where possible.
+    fn toggle_all(&mut self) {
+        let pid = self.cursor_pid();
+        if self.collapsed.is_empty() {
+            // Fold every process (collapsing a leaf is harmless — it only takes
+            // effect once a process has children).
+            self.collapsed = self.procs.iter().map(|p| p.pid).collect();
+        } else {
+            self.collapsed.clear();
+        }
+        self.rebuild_rows();
+        self.restore_cursor(pid);
     }
 
     fn set_sort(&mut self, key: ProcSort) {
@@ -266,9 +397,74 @@ impl ProcView {
 
     /// Re-sort, keeping the cursor on the same process.
     fn resort_keep_cursor(&mut self) {
-        let pid = self.procs.get(self.cursor).map(|p| p.pid);
+        let pid = self.cursor_pid();
         self.sort_procs();
+        self.rebuild_rows();
         self.restore_cursor(pid);
+    }
+
+    /// Rebuild the flattened visible tree ([`Self::rows`]) from the current
+    /// (already-sorted) `procs` and the `collapsed` set (empty ⇒ fully expanded).
+    ///
+    /// Top-level rows are the *display roots*: every "reaper" root (a process
+    /// whose parent isn't among the sampled processes, e.g. pid 1 `init`/`systemd`
+    /// and pid 2 `kthreadd`), plus the direct children of **init** (pid 1). On
+    /// Linux almost everything descends from pid 1, so promoting init's children
+    /// is what lifts the real services and apps to the top level instead of
+    /// showing just `init` itself. Crucially, other reapers such as `kthreadd`
+    /// are *not* unwrapped, so the hundreds of kernel worker threads stay folded
+    /// inside a single collapsible `kthreadd` subtree rather than flooding the
+    /// list. Every remaining process hangs under its parent and is only emitted
+    /// once that parent is expanded. Siblings (and roots) keep `procs`' order, so
+    /// the active sort column drives the ordering at every level.
+    fn rebuild_rows(&mut self) {
+        let n = self.procs.len();
+        let mut by_pid: HashMap<i32, usize> = HashMap::with_capacity(n);
+        for (i, p) in self.procs.iter().enumerate() {
+            by_pid.insert(p.pid, i);
+        }
+        // children[parent_pid] = child indices, in sorted `procs` order. A process
+        // is a display root when it's a reaper root or a direct child of init;
+        // everything else nests under its parent.
+        let mut children: HashMap<i32, Vec<usize>> = HashMap::new();
+        let mut roots: Vec<usize> = Vec::new();
+        for (i, p) in self.procs.iter().enumerate() {
+            if is_reaper_root(&self.procs, &by_pid, i) || p.ppid == Some(INIT_PID) {
+                roots.push(i);
+            } else {
+                // Not a display root ⇒ its parent is present and isn't init.
+                children.entry(p.ppid.unwrap()).or_default().push(i);
+            }
+        }
+
+        // A parent/child cycle (A→B→A) leaves nodes with a present parent but no
+        // path to a real root. Flood the full tree from the roots, then promote
+        // any still-unreached node to a root so nothing disappears from the list.
+        let mut reachable = vec![false; n];
+        let mut stack: Vec<usize> = Vec::new();
+        for &r in &roots {
+            if !reachable[r] {
+                reachable[r] = true;
+                stack.push(r);
+            }
+        }
+        flood_reachable(&self.procs, &children, &mut reachable, &mut stack);
+        for i in 0..n {
+            if !reachable[i] {
+                roots.push(i);
+                reachable[i] = true;
+                stack.push(i);
+                flood_reachable(&self.procs, &children, &mut reachable, &mut stack);
+            }
+        }
+
+        // Emit the visible rows: each root and, unless collapsed, its descendants.
+        let mut rows: Vec<ProcRow> = Vec::with_capacity(n);
+        let mut emitted = vec![false; n];
+        for &r in &roots {
+            dfs_emit(&self.procs, &children, &self.collapsed, &mut emitted, &mut rows, r, 0);
+        }
+        self.rows = rows;
     }
 
     /// Sort the process list by the current key/direction (no cursor handling).
@@ -287,11 +483,12 @@ impl ProcView {
         }
     }
 
-    /// Put the cursor back on process `pid`; if it's gone, keep the current row
-    /// index (clamped), so the selection moves only to an adjacent entry.
+    /// Put the cursor back on process `pid`; if it's gone (or now hidden inside a
+    /// collapsed subtree), keep the current row index (clamped), so the selection
+    /// moves only to an adjacent visible entry.
     fn restore_cursor(&mut self, pid: Option<i32>) {
         if let Some(pid) = pid
-            && let Some(i) = self.procs.iter().position(|p| p.pid == pid)
+            && let Some(i) = self.rows.iter().position(|r| self.procs[r.proc_idx].pid == pid)
         {
             self.cursor = i;
             return;
@@ -300,10 +497,10 @@ impl ProcView {
     }
 
     fn clamp_cursor(&mut self) {
-        if self.procs.is_empty() {
+        if self.rows.is_empty() {
             self.cursor = 0;
-        } else if self.cursor >= self.procs.len() {
-            self.cursor = self.procs.len() - 1;
+        } else if self.cursor >= self.rows.len() {
+            self.cursor = self.rows.len() - 1;
         }
     }
 
@@ -351,6 +548,79 @@ fn push_sys(hist: &mut VecDeque<f64>, v: f64) {
     hist.push_back(v);
 }
 
+/// PID of the init process (pid 1) on Unix — the parent of the real top-level
+/// services/apps, whose children are promoted to the display's top level. On
+/// Windows there is no pid 1, so this simply never matches and the natural
+/// reaper roots stand as the top level.
+const INIT_PID: i32 = 1;
+
+/// Whether `procs[idx]` is a "reaper" root: a process with no parent among the
+/// sampled set (or that is its own parent). These are the tops of the real
+/// process forest (e.g. pid 1 `init` and pid 2 `kthreadd` on Linux) and each
+/// becomes a top-level row.
+fn is_reaper_root(procs: &[ProcInfo], by_pid: &HashMap<i32, usize>, idx: usize) -> bool {
+    match procs[idx].ppid {
+        Some(pp) => pp == procs[idx].pid || !by_pid.contains_key(&pp),
+        None => true,
+    }
+}
+
+/// Flood-fill `reachable` over the full child graph, draining `stack` (which the
+/// caller seeds with already-reachable roots). Used to find nodes stranded by a
+/// parent/child cycle so they can be promoted to roots.
+fn flood_reachable(
+    procs: &[ProcInfo],
+    children: &HashMap<i32, Vec<usize>>,
+    reachable: &mut [bool],
+    stack: &mut Vec<usize>,
+) {
+    while let Some(idx) = stack.pop() {
+        let pid = procs[idx].pid;
+        if let Some(kids) = children.get(&pid) {
+            for &c in kids {
+                if !reachable[c] {
+                    reachable[c] = true;
+                    stack.push(c);
+                }
+            }
+        }
+    }
+}
+
+/// Pre-order depth-first walk from `start`, appending a [`ProcRow`] for it and,
+/// when it's expanded, for its descendants. A node is expanded unless its PID is
+/// in `collapsed`. `emitted` guards against emitting a node twice (and against
+/// cycles). Children are pushed in reverse so they pop in `procs` (sorted) order.
+fn dfs_emit(
+    procs: &[ProcInfo],
+    children: &HashMap<i32, Vec<usize>>,
+    collapsed: &HashSet<i32>,
+    emitted: &mut [bool],
+    rows: &mut Vec<ProcRow>,
+    start: usize,
+    start_depth: u16,
+) {
+    let mut stack = vec![(start, start_depth)];
+    while let Some((idx, depth)) = stack.pop() {
+        if emitted[idx] {
+            continue;
+        }
+        emitted[idx] = true;
+        let pid = procs[idx].pid;
+        let kids = children.get(&pid);
+        let has_children = kids.is_some_and(|k| !k.is_empty());
+        let is_expanded = has_children && !collapsed.contains(&pid);
+        rows.push(ProcRow { proc_idx: idx, depth, has_children, expanded: is_expanded });
+        if is_expanded && let Some(kids) = kids {
+            for &c in kids.iter().rev() {
+                if !emitted[c] {
+                    stack.push((c, depth + 1));
+                }
+            }
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Sampling (cross-platform, via `sysinfo`)
 // ---------------------------------------------------------------------------
@@ -362,7 +632,7 @@ impl ProcView {
     pub fn refresh(&mut self) {
         // Remember which process the cursor is on so it stays put across the
         // re-sort (and only moves if that process is gone).
-        let anchor = self.procs.get(self.cursor).map(|p| p.pid);
+        let anchor = self.cursor_pid();
         // Seconds since the last sample, to turn sysinfo's bytes-since-refresh
         // disk/network counters into per-second rates.
         let now = std::time::Instant::now();
@@ -395,6 +665,7 @@ impl ProcView {
         let (mut disk_read, mut disk_write) = (0u64, 0u64);
         for (pid, p) in self.sys.processes() {
             let pid = pid.as_u32() as i32;
+            let ppid = p.parent().map(|pp| pp.as_u32() as i32);
             let name = p.name().to_string_lossy().into_owned();
             let cpu = p.cpu_usage().clamp(0.0, max_cpu);
             let rss = p.memory();
@@ -417,11 +688,12 @@ impl ProcView {
             }
             h.push_back(cpu);
 
-            procs.push(ProcInfo { pid, name, cpu, rss, mem_pct, threads });
+            procs.push(ProcInfo { pid, ppid, name, cpu, rss, mem_pct, threads });
         }
-        // Drop sparkline history for processes that have exited.
+        // Drop sparkline history and collapse state for processes that exited.
         let live: HashSet<i32> = procs.iter().map(|p| p.pid).collect();
         self.proc_cpu_history.retain(|pid, _| live.contains(pid));
+        self.collapsed.retain(|pid| live.contains(pid));
         self.procs = procs;
         self.disk_read = if dt > 0.0 { disk_read as f64 / dt } else { 0.0 };
         self.disk_write = if dt > 0.0 { disk_write as f64 / dt } else { 0.0 };
@@ -443,6 +715,7 @@ impl ProcView {
         self.sample_battery();
 
         self.sort_procs();
+        self.rebuild_rows();
         self.restore_cursor(anchor);
 
         // Advance the history graphs at a third of the refresh rate.
@@ -528,17 +801,18 @@ mod tests {
         use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
         let mut pv = ProcView::new();
         pv.procs = vec![
-            ProcInfo { pid: 1, name: "a".into(), cpu: 10.0, rss: 0, mem_pct: 0.0, threads: 1 },
-            ProcInfo { pid: 2, name: "b".into(), cpu: 50.0, rss: 0, mem_pct: 0.0, threads: 1 },
-            ProcInfo { pid: 3, name: "c".into(), cpu: 30.0, rss: 0, mem_pct: 0.0, threads: 1 },
+            ProcInfo { pid: 1, ppid: None, name: "a".into(), cpu: 10.0, rss: 0, mem_pct: 0.0, threads: 1 },
+            ProcInfo { pid: 2, ppid: None, name: "b".into(), cpu: 50.0, rss: 0, mem_pct: 0.0, threads: 1 },
+            ProcInfo { pid: 3, ppid: None, name: "c".into(), cpu: 30.0, rss: 0, mem_pct: 0.0, threads: 1 },
         ];
         pv.sort = super::ProcSort::Pid;
         pv.reverse = false;
+        pv.rebuild_rows();
         pv.cursor = 1; // on pid 2
 
         // Sort by CPU (descending): order becomes 2,3,1 — cursor must stay on pid 2.
         pv.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
-        assert_eq!(pv.procs[pv.cursor].pid, 2, "cursor stays on the same process");
+        assert_eq!(pv.cursor_pid(), Some(2), "cursor stays on the same process");
     }
 
     #[test]
@@ -598,13 +872,75 @@ mod tests {
         use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
         let mut pv = ProcView::new();
         pv.procs = vec![
-            ProcInfo { pid: 1, name: "a".into(), cpu: 0.0, rss: 0, mem_pct: 0.0, threads: 4 },
-            ProcInfo { pid: 2, name: "b".into(), cpu: 0.0, rss: 0, mem_pct: 0.0, threads: 32 },
-            ProcInfo { pid: 3, name: "c".into(), cpu: 0.0, rss: 0, mem_pct: 0.0, threads: 9 },
+            ProcInfo { pid: 1, ppid: None, name: "a".into(), cpu: 0.0, rss: 0, mem_pct: 0.0, threads: 4 },
+            ProcInfo { pid: 2, ppid: None, name: "b".into(), cpu: 0.0, rss: 0, mem_pct: 0.0, threads: 32 },
+            ProcInfo { pid: 3, ppid: None, name: "c".into(), cpu: 0.0, rss: 0, mem_pct: 0.0, threads: 9 },
         ];
+        pv.rebuild_rows();
         pv.cursor = 0;
         pv.handle_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
         let threads: Vec<u32> = pv.procs.iter().map(|p| p.threads).collect();
         assert_eq!(threads, vec![32, 9, 4], "threads sort is descending by default");
+    }
+
+    /// The tree is expanded by default (so deeply-nested processes stay visible),
+    /// init's children are lifted to the top level, `←`/`→`/`*` fold and unfold
+    /// subtrees, and the cursor follows across the changes.
+    #[test]
+    fn tree_expands_and_collapses() {
+        use super::{ProcInfo, ProcSort, ProcView};
+        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mk = |pid, ppid, name: &str, cpu| ProcInfo {
+            pid,
+            ppid,
+            name: name.into(),
+            cpu,
+            rss: 0,
+            mem_pct: 0.0,
+            threads: 1,
+        };
+        let mut pv = ProcView::new();
+        // Two reapers: pid 1 (init) and pid 2 (kthreadd). 10 is an app under
+        // init with two workers; 20 is a kernel thread under kthreadd.
+        pv.procs = vec![
+            mk(1, None, "init", 0.0),
+            mk(2, None, "kthreadd", 3.0),
+            mk(20, Some(2), "kworker/0", 1.0),
+            mk(10, Some(1), "app", 50.0),
+            mk(11, Some(10), "worker-a", 90.0),
+            mk(12, Some(10), "worker-b", 10.0),
+        ];
+        pv.sort = ProcSort::Cpu;
+        pv.reverse = true;
+        pv.sort_procs();
+        pv.rebuild_rows();
+        let visible = |pv: &ProcView| -> Vec<i32> {
+            pv.rows.iter().map(|r| pv.procs[r.proc_idx].pid).collect()
+        };
+        let row_of = |pv: &ProcView, pid: i32| pv.rows.iter().position(|r| pv.procs[r.proc_idx].pid == pid).unwrap();
+
+        // Expanded default: every process is visible. init's child (app) and the
+        // reapers are top-level (CPU-descending: app 50 > kthreadd 3 > init 0),
+        // with the app's workers and kthreadd's kernel thread nested beneath.
+        assert_eq!(visible(&pv), vec![10, 11, 12, 2, 20, 1], "all processes visible, grouped as a tree");
+        assert_eq!(pv.rows[row_of(&pv, 11)].depth, 1, "workers are indented under the app");
+        assert_eq!(pv.rows[row_of(&pv, 20)].depth, 1, "kernel thread indented under kthreadd");
+        assert!(pv.rows[0].expanded, "the app starts expanded");
+
+        // Collapse the app (←): its workers hide, the cursor stays on the app.
+        pv.cursor = row_of(&pv, 10);
+        pv.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+        assert_eq!(visible(&pv), vec![10, 2, 20, 1], "collapsing the app hides its workers");
+        assert_eq!(pv.cursor_pid(), Some(10), "cursor stays on the collapsed app");
+
+        // Re-expand it (→): the workers come back.
+        pv.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        assert_eq!(visible(&pv), vec![10, 11, 12, 2, 20, 1], "re-expanding restores the workers");
+
+        // `*` collapses everything to just the top level, then restores it all.
+        pv.handle_key(KeyEvent::new(KeyCode::Char('*'), KeyModifiers::NONE));
+        assert_eq!(visible(&pv), vec![10, 2, 1], "collapse-all leaves only the top level");
+        pv.handle_key(KeyEvent::new(KeyCode::Char('*'), KeyModifiers::NONE));
+        assert_eq!(visible(&pv), vec![10, 11, 12, 2, 20, 1], "expand-all restores every row");
     }
 }

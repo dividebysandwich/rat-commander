@@ -624,10 +624,11 @@ fn render_table(f: &mut Frame, area: Rect, pv: &mut ProcView, theme: &Theme) {
     let mut lines: Vec<Line> = Vec::with_capacity(rows);
     for i in 0..rows {
         let idx = pv.offset + i;
-        let Some(p) = pv.procs.get(idx) else {
+        let Some(row) = pv.rows.get(idx) else {
             lines.push(Line::from(""));
             continue;
         };
+        let p = &pv.procs[row.proc_idx];
         let cur = idx == pv.cursor;
         let row_style = if cur { theme.cursor } else { normal };
         let row_bg = if cur {
@@ -642,12 +643,12 @@ fn render_table(f: &mut Frame, area: Rect, pv: &mut ProcView, theme: &Theme) {
             pad_left(&p.threads.to_string(), thr_w + 1),
             pad_left(&format!("{:.1}", p.cpu), cpu_w + 1),
         );
-        // Leading separator space + right columns + name.
+        // Leading separator space + right columns + tree-decorated name.
         let right = format!(
             " {}{}  {}",
             pad_left(&human_size(p.rss), mem_w + 1),
             pad_left(&format!("{:.1}", p.mem_pct), memp_w + 1),
-            pad_right(&ellipsize(&p.name, name_w), name_w),
+            tree_name(&p.name, row.depth as usize, row.has_children, row.expanded, name_w),
         );
         let mut spans = vec![Span::styled(left, row_style)];
         spans.extend(cpu_spark_spans(pv.proc_cpu_history.get(&p.pid), SPARK_W, row_bg, theme));
@@ -655,6 +656,22 @@ fn render_table(f: &mut Frame, area: Rect, pv: &mut ProcView, theme: &Theme) {
         lines.push(Line::from(spans));
     }
     f.render_widget(Paragraph::new(lines), body);
+}
+
+/// Render the name column for a tree row: `depth` levels of indentation, an
+/// expand marker (▾ open, ▸ collapsed, blank for a leaf), then the ellipsized
+/// process name, padded to exactly `name_w` display columns.
+fn tree_name(name: &str, depth: usize, has_children: bool, expanded: bool, name_w: usize) -> String {
+    let marker = if has_children {
+        if expanded { "▾ " } else { "▸ " }
+    } else {
+        "  "
+    };
+    let indent = depth * 2;
+    // Indent + 2-column marker; the name gets whatever room is left (≥1).
+    let avail = name_w.saturating_sub(indent + 2).max(1);
+    let field = format!("{}{marker}{}", " ".repeat(indent.min(name_w)), ellipsize(name, avail));
+    pad_right(&field, name_w)
 }
 
 /// Build a `width`-cell colored CPU sparkline for one process row (newest at the
@@ -687,7 +704,7 @@ fn cpu_spark_spans(
 }
 
 fn render_footer(f: &mut Frame, area: Rect, _pv: &ProcView, theme: &Theme) {
-    let hint = "↑↓ move   c CPU  m Mem  t Thr  n Name  p PID   r reverse   +/- rate   k kill  K force   Esc close";
+    let hint = "↑↓ move   →← ⏎ expand   * all   c CPU  m Mem  t Thr  n Name  p PID   r reverse   +/- rate   k kill  K force   Esc close";
     // Highlighted bar (matching the F-key row) so the hints are clearly visible.
     let line = pad_right(&format!(" {hint}"), area.width as usize);
     f.render_widget(
@@ -702,6 +719,27 @@ mod tests {
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use ratatui::style::Color;
+
+    /// `tree_name` picks the right marker, indents by depth, and always fills
+    /// exactly `name_w` display columns so the table stays aligned.
+    #[test]
+    fn tree_name_marks_and_indents() {
+        use unicode_width::UnicodeWidthStr;
+        let root = tree_name("systemd", 0, true, false, 20);
+        assert!(root.starts_with("▸ systemd"), "collapsed parent uses ▸: {root:?}");
+        assert_eq!(root.width(), 20, "field padded to the column width");
+
+        let open = tree_name("systemd", 0, true, true, 20);
+        assert!(open.starts_with("▾ systemd"), "expanded parent uses ▾: {open:?}");
+
+        let leaf = tree_name("bash", 1, false, false, 20);
+        assert!(leaf.starts_with("    bash"), "child leaf is indented, no marker: {leaf:?}");
+        assert_eq!(leaf.width(), 20);
+
+        // Deep nesting still yields a valid, exactly-sized field (name squeezed).
+        let deep = tree_name("some-long-process-name", 6, false, false, 20);
+        assert_eq!(deep.width(), 20);
+    }
 
     /// `draw_mirror_bars` must grow the `up` series upward (top band, bar-colored
     /// foreground) and the `down` series downward (bottom band, bar-colored

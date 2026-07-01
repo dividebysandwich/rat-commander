@@ -150,6 +150,9 @@ and **F9 → Wrap** to show those alternates.
 ### Process explorer
 
 - `↑ ↓` / `PgUp PgDn` / `Home End` — Move the selection
+- `→` / `←` — Expand / collapse the selected process (or step into a child / out to the parent)
+- `Enter` / `Space` — Toggle the selected subtree open or closed
+- `*` — Collapse every subtree (top-level overview) or expand them all again
 - `c` / `m` / `n` / `p` — Sort by CPU / memory / name / PID (again to reverse)
 - `r` — Reverse the sort order
 - `+` / `-` — Adjust the refresh interval
@@ -575,9 +578,17 @@ and live graphs. It works on **Linux, Windows and macOS**.
 **Useful for** seeing what's running and what's using the CPU, memory, disk and
 network — and killing a runaway process.
 
-**Operation.** The table lists processes with CPU%, memory, thread count and a
+**Operation.** The table is a **collapsible tree**. Every process is shown by
+default (nothing is hidden), indented under its parent so multi-process apps are
+grouped; the direct children of `init`/`systemd` are lifted to the top level so
+the roots are the real services and apps rather than just pid 1. A process with
+children carries a **▾** marker when open and **▸** when folded: press **`←`** (or
+**`Enter`**/**`Space`**) to collapse a subtree and **`→`** to reopen it; **`←`**
+on an already-collapsed row jumps to the parent, and **`*`** folds every subtree
+to a top-level overview (press again to expand all). Each row shows CPU%, memory, thread count and a
 per-process CPU sparkline; sort by **name, CPU, memory, threads or PID** (the
-sort hotkey is shown in each column header). The layout adds a CPU-load line
+sort hotkey is shown in each column header) — the sort orders the top-level
+processes, and children stay grouped under their parent. The layout adds a CPU-load line
 graph and per-core meters, a memory sparkline, and two **centre-line graphs**
 that split a metric into its two directions around a drawn **horizontal axis
 line**: the **Disk** panel grows **writes upward (▲)** and **reads downward
