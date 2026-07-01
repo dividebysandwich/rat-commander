@@ -138,6 +138,38 @@ impl Gfx {
             f.render_stateful_widget(StatefulImage::default().resize(Resize::Fit(None)), area, &mut c.proto);
         }
     }
+
+    /// Like [`draw`], but the caller supplies a cheap content signature and a
+    /// closure that builds the image only when that signature changes. Use this
+    /// for large, expensive-to-build images that stay static across most frames
+    /// (e.g. the disk-explorer treemap): a cached slot skips both building and
+    /// re-encoding, so a burst of redraws costs almost nothing. `sig` must capture
+    /// every input the image depends on (size, colors, data, selection).
+    ///
+    /// [`draw`]: Gfx::draw
+    pub fn draw_cached(
+        &mut self,
+        f: &mut Frame,
+        area: Rect,
+        slot: Slot,
+        sig: u64,
+        build: impl FnOnce() -> RgbaImage,
+    ) {
+        if !self.enabled || area.width == 0 || area.height == 0 {
+            return;
+        }
+        let fresh = match self.cache.get(&slot) {
+            Some(c) => c.sig != sig,
+            None => true,
+        };
+        if fresh {
+            let proto = self.picker.new_resize_protocol(DynamicImage::ImageRgba8(build()));
+            self.cache.insert(slot, Cached { sig, proto });
+        }
+        if let Some(c) = self.cache.get_mut(&slot) {
+            f.render_stateful_widget(StatefulImage::default().resize(Resize::Fit(None)), area, &mut c.proto);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -167,5 +199,39 @@ pub fn forced_protocol(pref: &str) -> Option<ProtocolType> {
         "sixel" => Some(ProtocolType::Sixel),
         "iterm" | "iterm2" => Some(ProtocolType::Iterm2),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use image::Rgba;
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+
+    #[test]
+    fn draw_cached_builds_only_when_signature_changes() {
+        let mut gfx = Gfx::test_halfblocks();
+        let mut term = Terminal::new(TestBackend::new(20, 10)).unwrap();
+        let area = Rect::new(0, 0, 10, 4);
+        let mut builds = 0usize;
+        let mut render = |gfx: &mut Gfx, sig: u64, builds: &mut usize| {
+            term.draw(|f| {
+                gfx.draw_cached(f, area, Slot::Treemap(0), sig, || {
+                    *builds += 1;
+                    RgbaImage::from_pixel(16, 16, Rgba([10, 20, 30, 255]))
+                });
+            })
+            .unwrap();
+        };
+        // Same signature across three frames → the image is built once (a burst of
+        // redraws, e.g. on terminal refocus, no longer rebuilds the treemap).
+        render(&mut gfx, 1, &mut builds);
+        render(&mut gfx, 1, &mut builds);
+        render(&mut gfx, 1, &mut builds);
+        assert_eq!(builds, 1, "unchanged signature must not rebuild");
+        // A new signature (selection/size/data changed) rebuilds once more.
+        render(&mut gfx, 2, &mut builds);
+        assert_eq!(builds, 2, "changed signature rebuilds");
     }
 }

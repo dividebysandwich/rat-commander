@@ -347,8 +347,52 @@ fn render_treemap_graphics(
 ) {
     let (cw, ch) = g.cell();
     let (iw, ih) = g.px_size(body);
-    let mut img = raster::canvas(iw, ih, raster::rgb(theme.panel_bg));
     let accent = raster::rgb(theme.panel_border_active);
+
+    // The treemap image is expensive to build (per-pixel pillow shading + baked
+    // labels) but stays identical across frames unless its inputs change. Compute
+    // a cheap signature of those inputs so `draw_cached` rebuilds only on change —
+    // otherwise a burst of redraws (e.g. after the terminal regains focus) would
+    // rebuild the full-screen image on the main thread and peg a core for seconds.
+    let sig = {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        (iw, ih, cw, ch, selected).hash(&mut h);
+        raster::rgb(theme.panel_bg).hash(&mut h);
+        accent.hash(&mut h);
+        raster::rgb(theme.cursor_fg).hash(&mut h);
+        for (entry, rect) in entries.iter().zip(rects) {
+            entry.name.hash(&mut h);
+            entry.size.hash(&mut h);
+            (rect.x, rect.y, rect.width, rect.height).hash(&mut h);
+            for fe in entry.files.iter().take(16) {
+                fe.rel.hash(&mut h);
+                fe.size.hash(&mut h);
+            }
+        }
+        h.finish()
+    };
+
+    let build = move || build_treemap_image(body, cw, ch, entries, rects, selected, theme, accent);
+    g.draw_cached(f, body, Slot::Treemap(0), sig, build);
+}
+
+/// Build the full treemap image: one nested "pillow" box per entry with baked
+/// labels. Split out so [`render_treemap_graphics`] can skip it entirely when the
+/// cached signature is unchanged.
+#[allow(clippy::too_many_arguments)]
+fn build_treemap_image(
+    body: Rect,
+    cw: u32,
+    ch: u32,
+    entries: &[DiskEntry],
+    rects: &[Rect],
+    selected: usize,
+    theme: &Theme,
+    accent: raster::Rgb,
+) -> image::RgbaImage {
+    let (iw, ih) = (body.width as u32 * cw, body.height as u32 * ch);
+    let mut img = raster::canvas(iw, ih, raster::rgb(theme.panel_bg));
 
     for (i, (entry, rect)) in entries.iter().zip(rects).enumerate() {
         let ox = (rect.x.saturating_sub(body.x)) as u32 * cw;
@@ -403,7 +447,7 @@ fn render_treemap_graphics(
         // (cell text drawn over an image is painted over by Kitty/Sixel).
         bake_labels(&mut img, (ox, oy, bw, bh), entry, fill, &frects, i == selected, theme);
     }
-    g.draw(f, body, Slot::Treemap(0), img);
+    img
 }
 
 /// Font pixel sizes (name, size) for a box's labels, chosen from its pixel size —
