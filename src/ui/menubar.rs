@@ -16,14 +16,20 @@ pub const STATUS_WIDTH: u16 = 34;
 
 pub const TITLES: [&str; 5] = ["Left", "File", "Command", "Options", "Right"];
 
+/// The menu-bar titles in the active language (the accelerator is each title's
+/// first letter).
+pub fn titles() -> [String; 5] {
+    TITLES.map(crate::l10n::tr)
+}
+
 /// Render the top menu bar. `show_hotkeys` accents the accelerator letters
-/// (L/F/C/O/R) — shown only while the menu is active or Alt arms it.
+/// — shown only while the menu is active or Alt arms it.
 pub fn render(f: &mut Frame, area: Rect, theme: &Theme, show_hotkeys: bool) {
     let width = area.width as usize;
     let mut text = String::from(" ");
-    // Char position of each title's first letter — its hotkey (L/F/C/O/R).
+    // Char position of each title's first letter — its hotkey.
     let mut hotkeys: Vec<usize> = Vec::new();
-    for title in TITLES {
+    for title in titles() {
         hotkeys.push(text.chars().count() + 1); // +1 for the segment's leading space
         text.push_str(&format!(" {title} "));
     }

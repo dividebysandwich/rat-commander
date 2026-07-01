@@ -31,6 +31,9 @@ pub async fn run(edit_file: Option<std::path::PathBuf>) -> Result<()> {
     crate::ui::theme::load_user_themes();
     let (tx, mut rx) = async_bridge::channel();
     let mut state = AppState::new(tx);
+    // Generate/discover the `lang/` files and activate the configured language
+    // before anything renders.
+    crate::l10n::load_languages(state.config.language.as_deref());
     state.init().await;
 
     // `rc /edit <file>` (or the `rcedit` shim) opens straight into the editor;

@@ -366,12 +366,66 @@ fn unmount_danger_defaults_to_cancel_and_confirms_explicitly() {
 #[test]
 fn formatter_collects_a_format_spec() {
     let mut d = FormDialog::format("/dev/sdb1".into());
+    // The Filesystem field is now an Enter-opened dropdown; Tab past it so Enter
+    // submits with the default (FAT32) rather than opening the list.
+    d.handle_key(key(KeyCode::Tab));
     match d.handle_key(key(KeyCode::Enter)) {
         DialogResult::Submit(Submit::Format(spec)) => {
             assert_eq!(spec.dev, "/dev/sdb1");
             assert_eq!(spec.fs, crate::mount::FsType::Fat32); // default choice
         }
         _ => panic!("expected Format submit"),
+    }
+}
+
+#[test]
+fn choice_dropdown_cursor_moves_freely() {
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    let theme = crate::ui::theme::Theme::mc();
+    let mut d = FormDialog::format("/dev/sdb1".into()); // 8 filesystem options
+    let mut t = Terminal::new(TestBackend::new(60, 24)).unwrap();
+    macro_rules! render {
+        () => {
+            t.draw(|f| d.render(f, f.area(), &theme)).unwrap();
+        };
+    }
+    d.handle_key(key(KeyCode::Enter)); // open the dropdown (sel = 0)
+    render!();
+    assert_eq!(d.open_choice_state(), Some((0, 0)));
+    // Scroll to the last option so the window has scrolled (top > 0).
+    for _ in 0..7 {
+        d.handle_key(key(KeyCode::Down));
+        render!();
+    }
+    let (sel_hi, top_hi) = d.open_choice_state().unwrap();
+    assert_eq!(sel_hi, 7);
+    assert!(top_hi > 0, "the window scrolled to keep the highlight visible");
+    // Moving up moves the highlight but does NOT scroll the window (free cursor,
+    // not pinned to the bottom edge) until it reaches the top of the window.
+    d.handle_key(key(KeyCode::Up));
+    render!();
+    let (sel_up, top_up) = d.open_choice_state().unwrap();
+    assert_eq!(sel_up, 6, "the highlight moved up one");
+    assert_eq!(top_up, top_hi, "the window did not scroll — the cursor moved freely");
+}
+
+#[test]
+fn choice_dropdown_opens_navigates_and_selects() {
+    let mut d = FormDialog::format("/dev/sdb1".into());
+    // Enter on the focused Filesystem Choice opens its dropdown (does not submit).
+    assert!(matches!(d.handle_key(key(KeyCode::Enter)), DialogResult::None));
+    // Down highlights the next option, Enter confirms it (FsType::ALL = FAT32,
+    // NTFS, …, so index 1 is NTFS).
+    d.handle_key(key(KeyCode::Down));
+    assert!(matches!(d.handle_key(key(KeyCode::Enter)), DialogResult::None));
+    // Tab off the (now closed) Choice, then Enter submits with the chosen NTFS.
+    d.handle_key(key(KeyCode::Tab));
+    match d.handle_key(key(KeyCode::Enter)) {
+        DialogResult::Submit(Submit::Format(spec)) => {
+            assert_eq!(spec.fs, crate::mount::FsType::Ntfs);
+        }
+        _ => panic!("expected Format submit with the chosen filesystem"),
     }
 }
 

@@ -106,7 +106,7 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
     let cwd = state.panels[active].cwd.display();
     let caret = cmdline::render(f, rows[2], &state.cmd, &cwd, &theme);
 
-    fkeys::render(f, rows[3], &fkeys::PANEL_LABELS, &theme);
+    fkeys::render(f, rows[3], &fkeys::panel_labels(), &theme);
 
     // Pulldown menu overlays the panels (but sits below modal dialogs).
     if let Some(m) = &mut state.menu {

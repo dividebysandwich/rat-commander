@@ -25,7 +25,7 @@ pub const HEX_LABELS: [&str; 10] = [
 /// The function-key index (0-based — `i` means F`i+1`) at screen column `col`
 /// on the bar row `row`, or `None` if the click misses the row or lands on an
 /// empty (disabled) segment. Mirrors the segment layout used by [`render`].
-pub fn index_at(area: Rect, labels: &[&str], col: u16, row: u16) -> Option<usize> {
+pub fn index_at<S: AsRef<str>>(area: Rect, labels: &[S], col: u16, row: u16) -> Option<usize> {
     if row != area.y || col < area.x || col >= area.x + area.width {
         return None;
     }
@@ -40,17 +40,22 @@ pub fn index_at(area: Rect, labels: &[&str], col: u16, row: u16) -> Option<usize
             continue;
         }
         if (col as usize) >= x && (col as usize) < x + seg {
-            return (!label.is_empty()).then_some(i);
+            return (!label.as_ref().is_empty()).then_some(i);
         }
         x += seg;
     }
     None
 }
 
+/// The panel function-key bar labels in the active language.
+pub fn panel_labels() -> [String; 10] {
+    PANEL_LABELS.map(crate::l10n::tr)
+}
+
 /// Render a function-key hint row using the supplied labels. The segments are
 /// distributed so the row spans the full width of `area`. With truecolor, the
 /// bar is drawn as a horizontal gradient; otherwise the classic two-tone look.
-pub fn render(f: &mut Frame, area: Rect, labels: &[&str], theme: &Theme) {
+pub fn render<S: AsRef<str>>(f: &mut Frame, area: Rect, labels: &[S], theme: &Theme) {
     let n = labels.len().max(1);
     let total = area.width as usize;
     let base = total / n;
@@ -66,7 +71,7 @@ pub fn render(f: &mut Frame, area: Rect, labels: &[&str], theme: &Theme) {
         }
         let label_w = seg.saturating_sub(num.chars().count());
         let mut count = 0;
-        for ch in label.chars().take(label_w) {
+        for ch in label.as_ref().chars().take(label_w) {
             cells.push((ch, false));
             count += 1;
         }

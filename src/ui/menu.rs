@@ -2,7 +2,7 @@
 
 use crate::panel::sort::SortKey;
 use crate::panel::ViewFormat;
-use crate::ui::menubar::TITLES;
+use crate::ui::menubar::titles;
 use crate::vfs::remote::Protocol;
 use crate::ui::theme::Theme;
 use ratatui::Frame;
@@ -63,7 +63,8 @@ impl MenuAction {
 }
 
 struct MenuItem {
-    label: &'static str,
+    /// The item's label in the active language (translated when built).
+    label: String,
     /// Optional keyboard-shortcut hint, drawn right-aligned in the dropdown
     /// (e.g. `"F3"`, `"Shift-F6"`). Empty for items without a shortcut.
     shortcut: &'static str,
@@ -239,7 +240,7 @@ impl MenuBarState {
             self.item = idx;
             return MenuSignal::Activate(self.menus[self.active].items[idx].action);
         }
-        if let Some(ti) = TITLES
+        if let Some(ti) = titles()
             .iter()
             .position(|t| t.chars().next().map(|x| x.to_ascii_lowercase()) == Some(lc))
         {
@@ -284,7 +285,7 @@ impl MenuBarState {
             return None;
         }
         let mut x = area.x + 1;
-        for (i, title) in TITLES.iter().enumerate() {
+        for (i, title) in titles().iter().enumerate() {
             let w = title.chars().count() as u16 + 2; // " {title} "
             if col >= x && col < x + w {
                 return Some(i);
@@ -325,7 +326,7 @@ impl MenuBarState {
         let mut spans: Vec<Span> = vec![Span::styled(" ", theme.menubar)];
         let mut title_x = vec![];
         let mut x = area.x + 1;
-        for (i, title) in TITLES.iter().enumerate() {
+        for (i, title) in titles().iter().enumerate() {
             let text = format!(" {title} ");
             title_x.push(x);
             self.title_rects.push(Rect {
@@ -401,7 +402,7 @@ impl MenuBarState {
             } else {
                 Style::default().fg(theme.menu_fg).bg(theme.menu_bg)
             };
-            let (display, hk) = split_hotkey(it.label);
+            let (display, hk) = split_hotkey(&it.label);
             let iw = inner.width as usize;
             let mut text = format!(" {display}");
             // Right-align the shortcut hint (one trailing space from the edge),
@@ -429,18 +430,18 @@ impl Default for MenuBarState {
     }
 }
 
-fn item(label: &'static str, action: MenuAction) -> MenuItem {
-    MenuItem { label, shortcut: "", action }
+fn item(label: &str, action: MenuAction) -> MenuItem {
+    MenuItem { label: crate::l10n::tr(label), shortcut: "", action }
 }
 
 /// A menu item with a right-aligned keyboard-shortcut hint.
-fn item_key(label: &'static str, shortcut: &'static str, action: MenuAction) -> MenuItem {
-    MenuItem { label, shortcut, action }
+fn item_key(label: &str, shortcut: &'static str, action: MenuAction) -> MenuItem {
+    MenuItem { label: crate::l10n::tr(label), shortcut, action }
 }
 
 fn sep() -> MenuItem {
     MenuItem {
-        label: "",
+        label: String::new(),
         shortcut: "",
         action: MenuAction::Separator,
     }
@@ -450,7 +451,7 @@ impl MenuItem {
     /// The lower-cased accelerator key for this item, if its label marks one
     /// with `&` (e.g. `"&Copy"` → `'c'`, `"Select &group"` → `'g'`).
     fn hotkey(&self) -> Option<char> {
-        let (display, idx) = split_hotkey(self.label);
+        let (display, idx) = split_hotkey(&self.label);
         idx.and_then(|i| display.chars().nth(i)).map(|c| c.to_ascii_lowercase())
     }
 }

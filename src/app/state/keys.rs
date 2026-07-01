@@ -81,13 +81,8 @@ impl AppState {
     async fn route_key(&mut self, key: KeyEvent) -> Flow {
         if self.dialog.is_some() {
             let res = self.dialog.as_mut().unwrap().handle_key(key);
-            // Live theme preview: apply the settings form's current theme choice.
-            if let Some(Dialog::Form(fd)) = &self.dialog
-                && let Some(name) = fd.theme_choice()
-                && name != self.theme.name
-            {
-                self.theme = Theme::by_name(name, self.truecolor);
-            }
+            // Live theme/language preview from the settings form.
+            self.preview_settings_choices();
             return self.handle_dialog_result(res).await;
         }
         if self.editor.is_some() {

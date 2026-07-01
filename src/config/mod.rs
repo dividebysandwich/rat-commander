@@ -65,6 +65,10 @@ pub struct Config {
     pub confirm_exit: bool,
     /// Active color theme (palette name).
     pub theme: String,
+    /// Active UI language (the language file's display name, e.g. "Deutsch").
+    /// `None` = English (the default).
+    #[serde(default)]
+    pub language: Option<String>,
     /// 24-bit color override; `None` = auto-detect from the terminal.
     pub truecolor: Option<bool>,
     /// Enable animations (gradient motion, CPU histogram).
@@ -90,6 +94,7 @@ impl Default for Config {
             confirm_unmount: true,
             confirm_exit: true,
             theme: "Midnight Commander".to_string(),
+            language: None,
             truecolor: None,
             animation: true,
             system_status: true,

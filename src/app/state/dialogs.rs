@@ -3,20 +3,42 @@
 use super::*;
 
 impl AppState {
+    /// Apply the settings form's currently-highlighted theme/language choice as a
+    /// live preview (called after every settings key/click/scroll). The final
+    /// values are committed on submit and reverted on cancel.
+    pub(in crate::app::state) fn preview_settings_choices(&mut self) {
+        if let Some(Dialog::Form(fd)) = &self.dialog
+            && let Some(name) = fd.theme_choice()
+            && name != self.theme.name
+        {
+            self.theme = Theme::by_name(name, self.truecolor);
+        }
+        if let Some(Dialog::Form(fd)) = &self.dialog
+            && let Some(name) = fd.lang_choice()
+            && crate::l10n::active_name() != name
+        {
+            crate::l10n::set_active_by_name(name);
+        }
+    }
+
     pub(in crate::app::state) async fn handle_dialog_result(&mut self, res: DialogResult) -> Flow {
         match res {
             DialogResult::None => Flow::Continue,
             DialogResult::Cancel => {
                 self.dialog = None;
-                // Revert a live theme preview when the settings dialog is cancelled.
+                // Revert a live theme/language preview when Settings is cancelled.
                 if let Some(name) = self.theme_backup.take() {
                     self.theme = Theme::by_name(&name, self.truecolor);
+                }
+                if let Some(name) = self.lang_backup.take() {
+                    crate::l10n::set_active_by_name(&name);
                 }
                 Flow::Continue
             }
             DialogResult::Submit(s) => {
                 self.dialog = None;
                 self.theme_backup = None; // keep any previewed theme
+                self.lang_backup = None; // keep any previewed language
                 self.handle_submit(s).await;
                 if self.pending_quit {
                     Flow::Quit
@@ -132,6 +154,13 @@ impl AppState {
                 self.config.animation = v.animation;
                 self.config.system_status = v.system_status;
                 self.truecolor = v.truecolor;
+                // Apply the chosen language (store English as the default => None).
+                crate::l10n::set_active_by_name(&v.language);
+                self.config.language = if v.language == "English" {
+                    None
+                } else {
+                    Some(v.language)
+                };
                 // Re-theme the running UI immediately.
                 self.theme = Theme::by_name(&self.config.theme, self.truecolor);
                 if let Err(e) = self.config.save() {
@@ -390,8 +419,9 @@ impl AppState {
     }
 
     pub(in crate::app::state) fn open_settings(&mut self) {
-        // Remember the current theme so Esc can revert a live preview.
+        // Remember the current theme + language so Esc can revert a live preview.
         self.theme_backup = Some(self.config.theme.clone());
+        self.lang_backup = Some(crate::l10n::active_name());
         self.dialog = Some(Dialog::Form(FormDialog::settings(&self.config, self.truecolor)));
     }
 

@@ -256,6 +256,8 @@ pub struct SettingsValues {
     pub use_internal_viewer: bool,
     pub use_internal_editor: bool,
     pub theme: String,
+    /// The chosen UI language (a language file's display name).
+    pub language: String,
     pub truecolor: bool,
     pub animation: bool,
     pub system_status: bool,
@@ -359,9 +361,13 @@ impl Dialog {
             Dialog::SaveAs(d) => return d.handle_click(area, col, row),
             Dialog::Drive(d) => return d.handle_click(area, col, row),
             Dialog::MultiRename(d) => return d.handle_click(area, col, row),
-            // The connect form's history chevron/dropdown take clicks first.
+            // The connect form's history chevron/dropdown and the Choice
+            // dropdowns take clicks first.
             Dialog::Form(d) => {
                 if let Some(res) = d.click_dropdown(col, row) {
+                    return res;
+                }
+                if let Some(res) = d.click_choice(area, col, row) {
                     return res;
                 }
             }
@@ -390,8 +396,15 @@ impl Dialog {
     /// Route a mouse-wheel scroll to dialogs with a scrollable region. `delta` is
     /// in rows (positive = down). Returns `None` for dialogs that don't scroll.
     pub fn handle_scroll(&mut self, delta: isize) -> DialogResult {
-        if let Dialog::MultiRename(d) = self {
-            d.handle_scroll(delta);
+        match self {
+            Dialog::MultiRename(d) => {
+                d.handle_scroll(delta);
+            }
+            // Scroll an open Choice dropdown's highlight (settings theme/language).
+            Dialog::Form(d) => {
+                d.scroll_choice(delta);
+            }
+            _ => {}
         }
         DialogResult::None
     }

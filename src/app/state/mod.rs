@@ -121,6 +121,8 @@ pub struct AppState {
     pub sampler: crate::util::sysinfo::SysSampler,
     /// Theme name to restore if the settings dialog is cancelled (live preview).
     theme_backup: Option<String>,
+    /// Language name to restore if the settings dialog is cancelled (live preview).
+    lang_backup: Option<String>,
     /// F2 user-menu entries (loaded from the config `menu` file).
     user_menu: Vec<UserMenuEntry>,
     /// A user-menu command to run after the dialog closes (expanded).

@@ -177,16 +177,19 @@ impl EditorState {
     /// The F-key bar labels for the current mode and modifier state. While Shift
     /// or Ctrl is held in text mode, F2 / F9 show their alternates ("Save as" /
     /// "Wrap").
-    pub fn footer_labels(&self) -> [&'static str; 10] {
-        if self.hex.is_some() {
-            return crate::ui::fkeys::HEX_LABELS;
-        }
-        let mut labels = crate::ui::fkeys::EDITOR_LABELS;
-        if self.hint_mods.intersects(KeyModifiers::SHIFT | KeyModifiers::CONTROL) {
-            labels[1] = "Save as"; // F2
-            labels[8] = "Wrap"; // F9
-        }
-        labels
+    pub fn footer_labels(&self) -> [String; 10] {
+        let src = if self.hex.is_some() {
+            crate::ui::fkeys::HEX_LABELS
+        } else {
+            let mut labels = crate::ui::fkeys::EDITOR_LABELS;
+            if self.hint_mods.intersects(KeyModifiers::SHIFT | KeyModifiers::CONTROL) {
+                labels[1] = "Save as"; // F2
+                labels[8] = "Wrap"; // F9
+            }
+            labels
+        };
+        // Translate each label into the active language.
+        src.map(crate::l10n::tr)
     }
 
     /// Whether the F1 shortcut-help overlay is currently shown.

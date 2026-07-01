@@ -1,0 +1,116 @@
+# rat-commander localization — Deutsch (German)
+#
+# `name` is what the language is shown as in the Settings dialog. Keys are the
+# English source strings; values are the German translations. `&` marks the
+# keyboard accelerator letter in menu labels.
+
+name = "Deutsch"
+code = "de"
+
+[strings]
+
+# -- Menüleiste --
+"Left" = "Links"
+"File" = "Datei"
+"Command" = "Befehl"
+"Options" = "Optionen"
+"Right" = "Rechts"
+
+# -- Panel-Menüs (Links/Rechts) --
+"&Full view" = "&Vollansicht"
+"&Brief view" = "&Kurzansicht"
+"&Details view" = "&Detailansicht"
+"Sort: &Name" = "Sortierung: &Name"
+"Sort: &Extension" = "Sortierung: &Endung"
+"Sort: &Size" = "Sortierung: &Größe"
+"Sort: &Modify time" = "Sortierung: Änderungs&zeit"
+"Sort: &Unsorted" = "Sortierung: &Unsortiert"
+"&Reverse order" = "&Reihenfolge umkehren"
+"SFT&P connection..." = "SFT&P-Verbindung..."
+"F&TP connection..." = "F&TP-Verbindung..."
+"S&CP connection..." = "S&CP-Verbindung..."
+"Disconnect (&local)" = "Trennen (&lokal)"
+
+# -- Datei-Menü --
+"&View" = "&Ansehen"
+"&Edit" = "&Bearbeiten"
+"&Copy" = "&Kopieren"
+"&Rename/Move" = "&Umbenennen/Verschieben"
+"M&ulti rename" = "&Mehrfach umbenennen"
+"&Make directory" = "&Neues Verzeichnis"
+"&Delete" = "&Löschen"
+"C&hmod" = "C&hmod"
+"Cho&wn" = "Ch&own"
+"&Symlink" = "&Symlink"
+"Com&press..." = "Kom&primieren..."
+"Select &group" = "&Gruppe wählen"
+"U&nselect group" = "Gruppe ab&wählen"
+"&Invert selection" = "Auswahl &invertieren"
+"&Quit" = "Been&den"
+
+# -- Befehl-Menü --
+"&Find file..." = "Datei &suchen..."
+"Find d&uplicates..." = "&Duplikate finden..."
+"Compare &directories..." = "&Verzeichnisse vergleichen..."
+"Compare fi&les..." = "Datei&en vergleichen..."
+"&Process explorer..." = "&Prozess-Explorer..."
+"Disk &explorer..." = "Speicher-E&xplorer..."
+"Disk &manager..." = "Datenträger-&Manager..."
+"S&wap panels" = "Panels &tauschen"
+"&Re-read directories" = "Verzeichnisse &neu einlesen"
+"&Toggle split V/H" = "Teilung &umschalten V/H"
+
+# -- Optionen-Menü --
+"&Settings..." = "&Einstellungen..."
+"&Confirmations..." = "&Bestätigungen..."
+"&Edit themes..." = "&Themes bearbeiten..."
+
+# -- Funktionstastenleiste (kurz gehalten, damit es passt) --
+"Help" = "Hilfe"
+"Menu" = "Menü"
+"View" = "Ansehn"
+"Edit" = "Bearb"
+"Copy" = "Kopie"
+"RenMov" = "UmbVer"
+"Mkdir" = "NeuVz"
+"Delete" = "Lösch"
+"PullDn" = "Aufkl"
+"Quit" = "Ende"
+
+# -- Editor / Hex-Editor --
+"Save" = "Speich"
+"Mark" = "Markrn"
+"Replac" = "Ersetz"
+"Move" = "Versch"
+"Search" = "Suchen"
+"Hex" = "Hex"
+"Save as" = "Sp.unt"
+"Wrap" = "Umbr"
+"Text" = "Text"
+
+# -- Einstellungen --
+"Settings" = "Einstellungen"
+"Theme" = "Design"
+"Language" = "Sprache"
+"Truecolor (gradients)" = "Truecolor (Verläufe)"
+"Animations" = "Animationen"
+"System status widget" = "System-Statusanzeige"
+"External editor" = "Externer Editor"
+"External viewer" = "Externer Betrachter"
+"Use internal viewer" = "Internen Betrachter verwenden"
+"Use internal editor" = "Internen Editor verwenden"
+
+# -- Bestätigungen --
+"Confirmations" = "Bestätigungen"
+"Confirm delete" = "Löschen bestätigen"
+"Confirm overwrite" = "Überschreiben bestätigen"
+"Confirm execute" = "Ausführen bestätigen"
+"Confirm unmount" = "Aushängen bestätigen"
+"Confirm exit" = "Beenden bestätigen"
+
+# -- Allgemeine Schaltflächen --
+"OK" = "OK"
+"Cancel" = "Abbrechen"
+"Yes" = "Ja"
+"No" = "Nein"
+"Execute" = "Ausführen"

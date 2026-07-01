@@ -17,13 +17,8 @@ impl AppState {
         if self.dialog.is_some() {
             if left_down {
                 let res = self.dialog.as_mut().unwrap().handle_click(area, col, row);
-                // Live theme preview, mirroring the keyboard path.
-                if let Some(Dialog::Form(fd)) = &self.dialog
-                    && let Some(name) = fd.theme_choice()
-                    && name != self.theme.name
-                {
-                    self.theme = Theme::by_name(name, self.truecolor);
-                }
+                // Live theme + language preview, mirroring the keyboard path.
+                self.preview_settings_choices();
                 return self.handle_dialog_result(res).await;
             }
             // The wheel scrolls dialogs with a scrollable region (e.g. the
@@ -34,6 +29,8 @@ impl AppState {
                 _ => return Flow::Continue,
             };
             let res = self.dialog.as_mut().unwrap().handle_scroll(delta);
+            // Wheel-scrolling a settings Choice dropdown previews live too.
+            self.preview_settings_choices();
             return self.handle_dialog_result(res).await;
         }
 

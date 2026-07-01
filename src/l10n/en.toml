@@ -1,0 +1,120 @@
+# rat-commander localization — English
+#
+# `name` is what the language is shown as in the Settings dialog; it lets new
+# language files be dropped into this directory and picked up automatically.
+# Every entry under [strings] maps an English source string (the key, used
+# throughout the program) to its translation. A missing key falls back to the
+# key itself, so a partial translation still works. Copy this file to a new name
+# (e.g. `fr.toml`), change `name`/`code`, and translate the values to add a
+# language.
+
+name = "English"
+code = "en"
+
+[strings]
+
+# -- Menu bar titles --
+"Left" = "Left"
+"File" = "File"
+"Command" = "Command"
+"Options" = "Options"
+"Right" = "Right"
+
+# -- Left/Right panel menus --
+"&Full view" = "&Full view"
+"&Brief view" = "&Brief view"
+"&Details view" = "&Details view"
+"Sort: &Name" = "Sort: &Name"
+"Sort: &Extension" = "Sort: &Extension"
+"Sort: &Size" = "Sort: &Size"
+"Sort: &Modify time" = "Sort: &Modify time"
+"Sort: &Unsorted" = "Sort: &Unsorted"
+"&Reverse order" = "&Reverse order"
+"SFT&P connection..." = "SFT&P connection..."
+"F&TP connection..." = "F&TP connection..."
+"S&CP connection..." = "S&CP connection..."
+"Disconnect (&local)" = "Disconnect (&local)"
+
+# -- File menu --
+"&View" = "&View"
+"&Edit" = "&Edit"
+"&Copy" = "&Copy"
+"&Rename/Move" = "&Rename/Move"
+"M&ulti rename" = "M&ulti rename"
+"&Make directory" = "&Make directory"
+"&Delete" = "&Delete"
+"C&hmod" = "C&hmod"
+"Cho&wn" = "Cho&wn"
+"&Symlink" = "&Symlink"
+"Com&press..." = "Com&press..."
+"Select &group" = "Select &group"
+"U&nselect group" = "U&nselect group"
+"&Invert selection" = "&Invert selection"
+"&Quit" = "&Quit"
+
+# -- Command menu --
+"&Find file..." = "&Find file..."
+"Find d&uplicates..." = "Find d&uplicates..."
+"Compare &directories..." = "Compare &directories..."
+"Compare fi&les..." = "Compare fi&les..."
+"&Process explorer..." = "&Process explorer..."
+"Disk &explorer..." = "Disk &explorer..."
+"Disk &manager..." = "Disk &manager..."
+"S&wap panels" = "S&wap panels"
+"&Re-read directories" = "&Re-read directories"
+"&Toggle split V/H" = "&Toggle split V/H"
+
+# -- Options menu --
+"&Settings..." = "&Settings..."
+"&Confirmations..." = "&Confirmations..."
+"&Edit themes..." = "&Edit themes..."
+
+# -- Panel function-key bar (kept short to fit the segments) --
+"Help" = "Help"
+"Menu" = "Menu"
+"View" = "View"
+"Edit" = "Edit"
+"Copy" = "Copy"
+"RenMov" = "RenMov"
+"Mkdir" = "Mkdir"
+"Delete" = "Delete"
+"PullDn" = "PullDn"
+"Quit" = "Quit"
+
+# -- Editor / hex-editor function-key bar --
+"Save" = "Save"
+"Mark" = "Mark"
+"Replac" = "Replac"
+"Move" = "Move"
+"Search" = "Search"
+"Hex" = "Hex"
+"Save as" = "Save as"
+"Wrap" = "Wrap"
+"Text" = "Text"
+
+# -- Settings dialog --
+"Settings" = "Settings"
+"Theme" = "Theme"
+"Language" = "Language"
+"Truecolor (gradients)" = "Truecolor (gradients)"
+"Animations" = "Animations"
+"System status widget" = "System status widget"
+"External editor" = "External editor"
+"External viewer" = "External viewer"
+"Use internal viewer" = "Use internal viewer"
+"Use internal editor" = "Use internal editor"
+
+# -- Confirmations dialog --
+"Confirmations" = "Confirmations"
+"Confirm delete" = "Confirm delete"
+"Confirm overwrite" = "Confirm overwrite"
+"Confirm execute" = "Confirm execute"
+"Confirm unmount" = "Confirm unmount"
+"Confirm exit" = "Confirm exit"
+
+# -- Common buttons --
+"OK" = "OK"
+"Cancel" = "Cancel"
+"Yes" = "Yes"
+"No" = "No"
+"Execute" = "Execute"

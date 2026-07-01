@@ -641,19 +641,38 @@ appear below.
 Configuration files live in your platform config directory
 (`~/.config/rat-commander/` on Linux):
 
-- **`config.toml`** — written by the Settings dialog. Holds the active theme,
-  the truecolor / animation / status-widget toggles, the external editor and
-  viewer commands, the confirmation flags, and the remembered remote servers
-  (without passwords).
+- **`config.toml`** — written by the Settings dialog. Holds the active theme and
+  language, the truecolor / animation / status-widget toggles, the external
+  editor and viewer commands, the confirmation flags, and the remembered remote
+  servers (without passwords).
 - **`themes.toml`** — your editable themes (see *Themes*).
+- **`lang/`** — the localization files, one TOML per language (see *Language*).
 - **`menu`** — the F2 user menu (see below).
 
 ### Settings (Options → Settings…)
 
-Choose the **theme** (it previews live as you cycle; Enter keeps it, Esc
-reverts), toggle **truecolor**, **animations** and the **system-status widget**,
-set an **external editor / viewer** command (used instead of the built-in ones),
-and choose whether to use the internal viewer/editor.
+Choose the **theme** and **language**, toggle **truecolor**, **animations** and
+the **system-status widget**, set an **external editor / viewer** command (used
+instead of the built-in ones), and choose whether to use the internal
+viewer/editor.
+
+The **Theme** and **Language** fields are dropdowns: press **Enter** to open the
+scrollable list, **↑/↓** (or the mouse wheel) to move through it, **Enter** to
+pick, **Esc** to close. Both **preview live** as you move the highlight — the UI
+re-colors / re-translates immediately — so **Enter** keeps the highlighted one
+and **Esc** (closing the dialog) reverts to what you started with.
+
+### Language
+
+The UI language is chosen in Settings and applied immediately. Translations live
+in the **`lang/`** directory of the config folder, one file per language;
+**English** and **Deutsch** are written there on first run. Each file starts with
+a `name` (what the language is called in the chooser) and a `[strings]` table
+mapping the English source text to its translation — any missing entry falls back
+to English, so a partial translation still works. To **add a language**, copy an
+existing file (e.g. `en.toml`) to a new name, change its `name`/`code`, translate
+the values, and it appears in the Settings chooser automatically. In menu labels,
+the `&` marks the keyboard-accelerator letter.
 
 ### Confirmations (Options → Confirmations…)
 

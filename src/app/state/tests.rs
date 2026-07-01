@@ -957,12 +957,19 @@ async fn theme_preview_applies_and_reverts_on_cancel() {
     let mut st = AppState::new(tx);
     let original = st.theme.name.clone();
     st.open_settings();
-    // The Theme choice is the first (focused) field; Space cycles it.
-    st.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE)).await;
-    assert_ne!(st.theme.name, original, "theme preview should apply live");
-    // Esc cancels → revert to the original theme.
-    st.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).await;
-    assert_eq!(st.theme.name, original, "cancel should revert the preview");
+    let key = |c| KeyEvent::new(c, KeyModifiers::NONE);
+    // The Theme choice is the first (focused) field; Enter opens its dropdown,
+    // and moving the highlight previews the theme live.
+    st.handle_key(key(KeyCode::Enter)).await;
+    st.handle_key(key(KeyCode::Down)).await;
+    let previewed = st.theme.name.clone();
+    assert_ne!(previewed, original, "scrolling the dropdown previews the theme live");
+    // Enter confirms the highlighted option; the preview persists.
+    st.handle_key(key(KeyCode::Enter)).await;
+    assert_eq!(st.theme.name, previewed, "confirming keeps the previewed theme");
+    // Esc cancels the settings dialog → revert to the original theme.
+    st.handle_key(key(KeyCode::Esc)).await;
+    assert_eq!(st.theme.name, original, "cancel should revert to the original theme");
 }
 
 #[tokio::test]

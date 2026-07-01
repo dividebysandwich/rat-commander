@@ -17,3 +17,9 @@ pub fn menu_file() -> Option<PathBuf> {
 pub fn themes_file() -> Option<PathBuf> {
     ProjectDirs::from("", "", "rat-commander").map(|d| d.config_dir().join("themes.toml"))
 }
+
+/// Path to the localization directory (`lang/`), which holds one TOML file per
+/// language; or `None` if the config directory can't be determined.
+pub fn lang_dir() -> Option<PathBuf> {
+    ProjectDirs::from("", "", "rat-commander").map(|d| d.config_dir().join("lang"))
+}

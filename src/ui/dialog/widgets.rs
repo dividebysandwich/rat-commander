@@ -310,17 +310,19 @@ pub(crate) fn check_span(label: &str, checked: bool, focused: bool, theme: &Them
     Span::styled(format!("{mark}{label}"), style)
 }
 
-/// The `[< OK >]   [ Cancel ]` button row.
+/// The `[< OK >]   [ Cancel ]` button row (localized).
 pub(crate) fn ok_cancel_line(focus_ok: bool, theme: &Theme) -> Line<'static> {
+    let ok_txt = crate::l10n::tr("OK");
+    let cancel_txt = crate::l10n::tr("Cancel");
     let ok = if focus_ok {
-        Span::styled("[< OK >]", theme.button_focused)
+        Span::styled(format!("[< {ok_txt} >]"), theme.button_focused)
     } else {
-        Span::styled("[  OK  ]", theme.button)
+        Span::styled(format!("[  {ok_txt}  ]"), theme.button)
     };
     let cancel = if focus_ok {
-        Span::styled("[ Cancel ]", theme.button)
+        Span::styled(format!("[ {cancel_txt} ]"), theme.button)
     } else {
-        Span::styled("[< Cancel >]", theme.button_focused)
+        Span::styled(format!("[< {cancel_txt} >]"), theme.button_focused)
     };
     Line::from(vec![ok, Span::styled("   ", Style::default().bg(theme.dialog_bg)), cancel])
 }

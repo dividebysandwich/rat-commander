@@ -11,6 +11,7 @@ mod disk;
 mod drive;
 mod editor;
 mod flash;
+mod l10n;
 mod mount;
 mod ops;
 mod panel;

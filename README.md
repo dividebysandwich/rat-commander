@@ -46,6 +46,9 @@ The installed executable is named **`rc`** for quick typing.
 - **Look & feel** — many color themes (fully customizable via `themes.toml`),
   truecolor animated gradients, an optional CPU/memory status widget, and a
   configurable **F2 user menu**.
+- **Localization** — the UI language is selectable in Settings (English and
+  German included); translations live in editable `lang/*.toml` files and new
+  languages can be dropped in.
 
 For a full, feature-by-feature walkthrough see the **[user manual](doc/MANUAL.md)** —
 also available in-program by pressing **F1**.
@@ -209,8 +212,9 @@ C++ `unrar` library doesn't build with those cross toolchains.
 
 Configuration lives in your platform config directory
 (`~/.config/rat-commander/` on Linux): **`config.toml`** (written from the
-Settings dialog), **`themes.toml`** (editable color themes), and **`menu`** (the
-F2 user menu, in Midnight Commander format). See the
+Settings dialog), **`themes.toml`** (editable color themes), **`lang/`**
+(one editable TOML per UI language), and **`menu`** (the F2 user menu, in
+Midnight Commander format). See the
 **[user manual](doc/MANUAL.md#configuration)** for details.
 
 ---

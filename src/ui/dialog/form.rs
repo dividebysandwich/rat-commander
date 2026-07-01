@@ -24,11 +24,18 @@ pub enum Field {
         label: String,
         value: bool,
     },
-    /// A cycle-through choice (Space / ←→ to change).
+    /// A choice picked from a scrollable dropdown (Enter opens it).
     Choice {
         label: String,
         options: Vec<String>,
         idx: usize,
+        /// Whether the dropdown list is currently open.
+        open: bool,
+        /// Highlighted option while the dropdown is open.
+        sel: usize,
+        /// First visible option while open (scroll offset); adjusted only when
+        /// the highlight would leave the window, so the cursor moves freely.
+        top: usize,
     },
 }
 
@@ -64,6 +71,9 @@ impl Field {
             label: label.to_string(),
             options,
             idx,
+            open: false,
+            sel: idx,
+            top: 0,
         }
     }
 
@@ -120,19 +130,8 @@ impl Form {
                     *value = !*value;
                 }
             }
-            KeyCode::Char(' ') | KeyCode::Right | KeyCode::Left
-                if matches!(self.fields.get(self.focus), Some(Field::Choice { .. })) =>
-            {
-                let back = key.code == KeyCode::Left;
-                if let Some(Field::Choice { options, idx, .. }) = self.fields.get_mut(self.focus) {
-                    let n = options.len().max(1);
-                    *idx = if back {
-                        (*idx + n - 1) % n
-                    } else {
-                        (*idx + 1) % n
-                    };
-                }
-            }
+            // Choice fields are changed via their dropdown (opened with Enter),
+            // handled in `FormDialog::handle_key` — arrows just move focus.
             _ => match self.fields.get_mut(self.focus) {
                 Some(Field::Text { value, cursor, .. })
                 | Some(Field::Password { value, cursor, .. }) => edit_text(value, cursor, key),
@@ -193,6 +192,7 @@ impl FormDialog {
     pub fn settings(cfg: &crate::config::Config, truecolor: bool) -> Self {
         let form = Form::new(vec![
             Field::choice("Theme", crate::ui::theme::palette_names(), &cfg.theme),
+            Field::choice("Language", crate::l10n::available(), &crate::l10n::active_name()),
             Field::check("Truecolor (gradients)", truecolor),
             Field::check("Animations", cfg.animation),
             Field::check("System status widget", cfg.system_status),
@@ -316,12 +316,25 @@ impl FormDialog {
     /// The currently-selected theme name in the settings form (for live
     /// preview), or `None` if this isn't the settings form.
     pub fn theme_choice(&self) -> Option<&str> {
+        self.choice_value("Theme")
+    }
+
+    /// The currently-selected language name in the settings form (for live
+    /// preview), or `None` if this isn't the settings form.
+    pub fn lang_choice(&self) -> Option<&str> {
+        self.choice_value("Language")
+    }
+
+    /// The highlighted option of the settings `Choice` field labelled `label`.
+    fn choice_value(&self, label_key: &str) -> Option<&str> {
         if !matches!(self.purpose, FormPurpose::Settings) {
             return None;
         }
         self.form.fields.iter().find_map(|f| match f {
-            Field::Choice { label, options, idx } if label == "Theme" => {
-                options.get(*idx).map(|s| s.as_str())
+            Field::Choice { label, options, idx, open, sel, .. } if label == label_key => {
+                // While the dropdown is open, preview the highlighted option so
+                // scrolling shows a live theme/language preview.
+                options.get(if *open { *sel } else { *idx }).map(|s| s.as_str())
             }
             _ => None,
         })
@@ -455,6 +468,36 @@ impl FormDialog {
             return DialogResult::None;
         }
 
+        // A Choice field's scrollable dropdown: Enter on a closed choice opens
+        // it; while open, the arrows move the highlight, Enter picks, Esc closes.
+        if let Some(Field::Choice { options, idx, open, sel, .. }) =
+            self.form.fields.get_mut(self.form.focus)
+        {
+            if *open {
+                let last = options.len().saturating_sub(1);
+                match key.code {
+                    KeyCode::Esc => *open = false,
+                    KeyCode::Up => *sel = sel.saturating_sub(1),
+                    KeyCode::Down => *sel = (*sel + 1).min(last),
+                    KeyCode::PageUp => *sel = sel.saturating_sub(8),
+                    KeyCode::PageDown => *sel = (*sel + 8).min(last),
+                    KeyCode::Home => *sel = 0,
+                    KeyCode::End => *sel = last,
+                    KeyCode::Enter => {
+                        *idx = *sel;
+                        *open = false;
+                    }
+                    _ => {}
+                }
+                return DialogResult::None;
+            }
+            if key.code == KeyCode::Enter {
+                *sel = *idx;
+                *open = true;
+                return DialogResult::None;
+            }
+        }
+
         if let KeyCode::Esc = key.code {
             return DialogResult::Cancel;
         }
@@ -466,13 +509,14 @@ impl FormDialog {
         let submit = match &self.purpose {
             FormPurpose::Settings => Submit::Settings(SettingsValues {
                 theme: fields[0].as_text().to_string(),
-                truecolor: fields[1].as_bool(),
-                animation: fields[2].as_bool(),
-                system_status: fields[3].as_bool(),
-                editor: fields[4].as_text().trim().to_string(),
-                viewer: fields[5].as_text().trim().to_string(),
-                use_internal_viewer: fields[6].as_bool(),
-                use_internal_editor: fields[7].as_bool(),
+                language: fields[1].as_text().to_string(),
+                truecolor: fields[2].as_bool(),
+                animation: fields[3].as_bool(),
+                system_status: fields[4].as_bool(),
+                editor: fields[5].as_text().trim().to_string(),
+                viewer: fields[6].as_text().trim().to_string(),
+                use_internal_viewer: fields[7].as_bool(),
+                use_internal_editor: fields[8].as_bool(),
             }),
             FormPurpose::Confirmations => Submit::Confirmations(ConfirmValues {
                 delete: fields[0].as_bool(),
@@ -552,7 +596,7 @@ impl FormDialog {
         let rect = centered(area, w, height);
         draw_shadow(f, rect, theme);
         f.render_widget(Clear, rect);
-        let block = dialog_block(&self.title, theme);
+        let block = dialog_block(&crate::l10n::tr(&self.title), theme);
         let inner = block.inner(rect);
         f.render_widget(block, rect);
 
@@ -587,7 +631,7 @@ impl FormDialog {
                     cursor,
                 } => {
                     let masked = matches!(field, Field::Password { .. });
-                    let label_str = format!("{label}: ");
+                    let label_str = format!("{}: ", crate::l10n::tr(label));
                     let lw = (label_str.chars().count() as u16).min(row.width);
                     let style = if focused { focus_style } else { base };
                     f.render_widget(
@@ -615,16 +659,20 @@ impl FormDialog {
                     let mark = if *value { "[x]" } else { "[ ]" };
                     let style = if focused { focus_style } else { base };
                     f.render_widget(
-                        Paragraph::new(Line::from(Span::styled(format!("{mark} {label}"), style))),
+                        Paragraph::new(Line::from(Span::styled(
+                            format!("{mark} {}", crate::l10n::tr(label)),
+                            style,
+                        ))),
                         row,
                     );
                 }
-                Field::Choice { label, options, idx } => {
+                Field::Choice { label, options, idx, .. } => {
                     let style = if focused { focus_style } else { base };
                     let val = options.get(*idx).map(|s| s.as_str()).unwrap_or("");
+                    // A ▾ affordance signals the Enter-to-open dropdown.
                     f.render_widget(
                         Paragraph::new(Line::from(Span::styled(
-                            format!("{label}: ◂ {val} ▸"),
+                            format!("{}: {val} ▾", crate::l10n::tr(label)),
                             style,
                         ))),
                         row,
@@ -647,6 +695,22 @@ impl FormDialog {
             self.render_dropdown(f, inner, theme);
         }
 
+        // Draw an open Choice field's scrollable dropdown over the fields. The
+        // scroll offset `top` is nudged only when the highlight leaves the
+        // window, so the cursor moves freely within it.
+        let choice_open = self.form.fields.iter().any(|f| matches!(f, Field::Choice { open: true, .. }));
+        for (i, field) in self.form.fields.iter_mut().enumerate() {
+            if let Field::Choice { options, sel, top, open: true, .. } = field {
+                let visible = choice_visible_rows(inner, i, options.len());
+                if *sel < *top {
+                    *top = *sel;
+                } else if *sel >= *top + visible {
+                    *top = *sel + 1 - visible;
+                }
+                render_choice_dropdown(f, inner, i, options, *sel, *top, theme);
+            }
+        }
+
         let hint = Rect {
             y: inner.y + inner.height.saturating_sub(1),
             height: 1,
@@ -658,7 +722,7 @@ impl FormDialog {
         };
         f.render_widget(
             Paragraph::new(Line::from(format!(
-                "[ OK ]  Tab/↑↓ Space toggle  [ Cancel ]{extra}"
+                "[ OK ]  Tab/↑↓ Space toggle  Enter opens a list  [ Cancel ]{extra}"
             )))
             .style(base),
             hint,
@@ -666,9 +730,92 @@ impl FormDialog {
 
         if let Some(pos) = caret
             && !dropdown_open
+            && !choice_open
         {
             f.set_cursor_position(pos);
         }
+    }
+
+    /// Recompute the dialog's interior rect (mirrors `render`), for click/scroll
+    /// hit-testing of the Choice dropdown.
+    fn dialog_inner(&self, area: Rect) -> Rect {
+        let height = self.form.fields.len() as u16 + 4;
+        let w = 60u16.min(area.width.saturating_sub(4));
+        let rect = centered(area, w, height);
+        Rect {
+            x: rect.x + 1,
+            y: rect.y + 1,
+            width: rect.width.saturating_sub(2),
+            height: rect.height.saturating_sub(2),
+        }
+    }
+
+    /// Route a click when a Choice dropdown is (or should be) involved: click a
+    /// closed Choice row to open it; click an option to pick it; click elsewhere
+    /// (while open) to close. Returns `Some` if the click was consumed.
+    pub(crate) fn click_choice(&mut self, area: Rect, col: u16, row: u16) -> Option<DialogResult> {
+        let inner = self.dialog_inner(area);
+        // An open dropdown: pick the clicked option, or close on an outside click.
+        if let Some(fi) = self
+            .form
+            .fields
+            .iter()
+            .position(|f| matches!(f, Field::Choice { open: true, .. }))
+        {
+            if let Some(Field::Choice { options, idx, open, sel, top, .. }) = self.form.fields.get_mut(fi) {
+                let visible = choice_visible_rows(inner, fi, options.len());
+                let dtop = inner.y + fi as u16 + 1;
+                let (list_x, list_y, list_w) = (inner.x + 1, dtop + 1, inner.width.saturating_sub(2));
+                if row >= list_y
+                    && row < list_y + visible as u16
+                    && col >= list_x
+                    && col < list_x + list_w
+                {
+                    let chosen = *top + (row - list_y) as usize;
+                    if chosen < options.len() {
+                        *idx = chosen;
+                        *sel = chosen;
+                    }
+                }
+                *open = false;
+            }
+            return Some(DialogResult::None);
+        }
+        // No dropdown open: a click on a Choice row opens it.
+        let hit = self.form.fields.iter().enumerate().find_map(|(i, f)| {
+            let on_row = row == inner.y + i as u16 && col >= inner.x && col < inner.x + inner.width;
+            (matches!(f, Field::Choice { .. }) && on_row).then_some(i)
+        });
+        if let Some(i) = hit {
+            if let Field::Choice { idx, open, sel, .. } = &mut self.form.fields[i] {
+                *sel = *idx;
+                *open = true;
+            }
+            self.form.focus = i;
+            return Some(DialogResult::None);
+        }
+        None
+    }
+
+    /// Test accessor: `(sel, top)` of the currently open Choice dropdown, if any.
+    #[cfg(test)]
+    pub(crate) fn open_choice_state(&self) -> Option<(usize, usize)> {
+        self.form.fields.iter().find_map(|f| match f {
+            Field::Choice { sel, top, open: true, .. } => Some((*sel, *top)),
+            _ => None,
+        })
+    }
+
+    /// Move the open Choice dropdown's highlight (mouse wheel); `delta` in rows.
+    pub(crate) fn scroll_choice(&mut self, delta: isize) -> bool {
+        if let Some(Field::Choice { options, sel, open: true, .. }) =
+            self.form.fields.iter_mut().find(|f| matches!(f, Field::Choice { open: true, .. }))
+        {
+            let last = options.len().saturating_sub(1) as isize;
+            *sel = (*sel as isize + delta).clamp(0, last) as usize;
+            return true;
+        }
+        false
     }
 
     /// Render the recent-servers list under the Host field and record per-entry
@@ -731,6 +878,56 @@ impl FormDialog {
             );
             c.entries.push((row, idx));
         }
+    }
+}
+
+/// Number of option rows visible in a Choice dropdown opened below field `fi`.
+fn choice_visible_rows(inner: Rect, fi: usize, options_len: usize) -> usize {
+    let dtop = inner.y + fi as u16 + 1;
+    let avail = (inner.y + inner.height).saturating_sub(dtop) as usize;
+    options_len.min(avail.saturating_sub(2).max(1)).max(1)
+}
+
+/// Draw a Choice field's scrollable dropdown just below its row (field `fi`),
+/// showing options from `top` with `sel` highlighted.
+fn render_choice_dropdown(
+    f: &mut Frame,
+    inner: Rect,
+    fi: usize,
+    options: &[String],
+    sel: usize,
+    top: usize,
+    theme: &Theme,
+) {
+    let dtop = inner.y + fi as u16 + 1;
+    let avail = (inner.y + inner.height).saturating_sub(dtop) as usize;
+    if avail < 3 || options.is_empty() {
+        return;
+    }
+    let visible = choice_visible_rows(inner, fi, options.len());
+    let rect = Rect { x: inner.x, y: dtop, width: inner.width, height: (visible + 2) as u16 };
+    f.render_widget(Clear, rect);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(theme.dialog_title).bg(theme.dialog_bg))
+        .style(Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg));
+    let list = block.inner(rect);
+    f.render_widget(block, rect);
+
+    let normal = Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg);
+    for vi in 0..visible {
+        let idx = top + vi;
+        let Some(opt) = options.get(idx) else {
+            break;
+        };
+        let row = Rect { x: list.x, y: list.y + vi as u16, width: list.width, height: 1 };
+        let style = if idx == sel { theme.dialog_selection } else { normal };
+        let text = crate::util::text::pad_right(
+            &crate::util::text::ellipsize(opt, list.width as usize),
+            list.width as usize,
+        );
+        f.render_widget(Paragraph::new(Line::from(Span::styled(text, style))), row);
     }
 }
 
