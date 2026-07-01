@@ -324,10 +324,11 @@ impl MenuBarState {
         // Top bar with the active title highlighted.
         let bar = Rect { height: 1, ..area };
         let mut spans: Vec<Span> = vec![Span::styled(" ", theme.menubar)];
+        let rtl = crate::l10n::active_is_rtl();
         let mut title_x = vec![];
         let mut x = area.x + 1;
         for (i, title) in titles().iter().enumerate() {
-            let text = format!(" {title} ");
+            let text = format!(" {} ", crate::l10n::display(title));
             title_x.push(x);
             self.title_rects.push(Rect {
                 x,
@@ -344,8 +345,10 @@ impl MenuBarState {
                 theme.menubar
             };
             x += text.chars().count() as u16;
-            // The title's first letter (after the leading space) is its hotkey.
-            spans.extend(label_spans(&text, Some(1), style, theme).spans);
+            // The title's first letter (after the leading space) is its hotkey
+            // (skipped in RTL, where the reshaped title reads right-to-left).
+            let hk = if rtl { None } else { Some(1) };
+            spans.extend(label_spans(&text, hk, style, theme).spans);
         }
         f.render_widget(Paragraph::new(Line::from(spans)), bar);
 
@@ -403,6 +406,10 @@ impl MenuBarState {
                 Style::default().fg(theme.menu_fg).bg(theme.menu_bg)
             };
             let (display, hk) = split_hotkey(&it.label);
+            // Reshape RTL text for display; in that case the hotkey accent can't
+            // line up with the reversed text, so it is dropped (the key still works).
+            let display = crate::l10n::display(&display);
+            let hk = if rtl { None } else { hk.map(|i| i + 1) };
             let iw = inner.width as usize;
             let mut text = format!(" {display}");
             // Right-align the shortcut hint (one trailing space from the edge),
@@ -418,7 +425,7 @@ impl MenuBarState {
                 text.push(' ');
             }
             // The hotkey sits one column right of its index (the leading space).
-            lines.push(label_spans(&text, hk.map(|i| i + 1), style, theme));
+            lines.push(label_spans(&text, hk, style, theme));
         }
         f.render_widget(Paragraph::new(lines), inner);
     }

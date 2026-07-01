@@ -312,8 +312,8 @@ pub(crate) fn check_span(label: &str, checked: bool, focused: bool, theme: &Them
 
 /// The `[< OK >]   [ Cancel ]` button row (localized).
 pub(crate) fn ok_cancel_line(focus_ok: bool, theme: &Theme) -> Line<'static> {
-    let ok_txt = crate::l10n::tr("OK");
-    let cancel_txt = crate::l10n::tr("Cancel");
+    let ok_txt = crate::l10n::trd("OK");
+    let cancel_txt = crate::l10n::trd("Cancel");
     let ok = if focus_ok {
         Span::styled(format!("[< {ok_txt} >]"), theme.button_focused)
     } else {

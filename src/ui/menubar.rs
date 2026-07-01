@@ -26,12 +26,17 @@ pub fn titles() -> [String; 5] {
 /// — shown only while the menu is active or Alt arms it.
 pub fn render(f: &mut Frame, area: Rect, theme: &Theme, show_hotkeys: bool) {
     let width = area.width as usize;
+    // In RTL the reshaped title reads right-to-left, so the first-letter hotkey
+    // accent no longer lines up — skip it (the accelerator key still works).
+    let rtl = crate::l10n::active_is_rtl();
     let mut text = String::from(" ");
     // Char position of each title's first letter — its hotkey.
     let mut hotkeys: Vec<usize> = Vec::new();
     for title in titles() {
-        hotkeys.push(text.chars().count() + 1); // +1 for the segment's leading space
-        text.push_str(&format!(" {title} "));
+        if !rtl {
+            hotkeys.push(text.chars().count() + 1); // +1 for the segment's leading space
+        }
+        text.push_str(&format!(" {} ", crate::l10n::display(&title)));
     }
     while text.chars().count() < width {
         text.push(' ');

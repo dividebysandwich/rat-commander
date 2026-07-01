@@ -261,6 +261,8 @@ pub struct SettingsValues {
     pub truecolor: bool,
     pub animation: bool,
     pub system_status: bool,
+    /// Reshape + bidi-reorder RTL text for display.
+    pub reshape_rtl: bool,
 }
 
 /// Values collected by the Confirmations form (which actions need confirming).

@@ -69,6 +69,11 @@ pub struct Config {
     /// `None` = English (the default).
     #[serde(default)]
     pub language: Option<String>,
+    /// Reshape + bidi-reorder right-to-left text (Arabic/Persian) into visual
+    /// order so it reads correctly on terminals without native bidi support.
+    /// Turn off on terminals that do their own bidi (mlterm, modern VTE, …).
+    /// (Missing from an old config → the struct default, `true`.)
+    pub reshape_rtl: bool,
     /// 24-bit color override; `None` = auto-detect from the terminal.
     pub truecolor: Option<bool>,
     /// Enable animations (gradient motion, CPU histogram).
@@ -95,6 +100,7 @@ impl Default for Config {
             confirm_exit: true,
             theme: "Midnight Commander".to_string(),
             language: None,
+            reshape_rtl: true,
             truecolor: None,
             animation: true,
             system_status: true,

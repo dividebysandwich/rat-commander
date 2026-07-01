@@ -200,6 +200,7 @@ impl FormDialog {
             Field::text("External viewer", cfg.viewer.clone()),
             Field::check("Use internal viewer", cfg.use_internal_viewer),
             Field::check("Use internal editor", cfg.use_internal_editor),
+            Field::check("Reshape RTL text", cfg.reshape_rtl),
         ]);
         FormDialog {
             title: "Settings".to_string(),
@@ -323,6 +324,18 @@ impl FormDialog {
     /// preview), or `None` if this isn't the settings form.
     pub fn lang_choice(&self) -> Option<&str> {
         self.choice_value("Language")
+    }
+
+    /// The value of the settings `Check` field labelled `label_key` (for live
+    /// preview), or `None` if this isn't the settings form.
+    pub fn check_value(&self, label_key: &str) -> Option<bool> {
+        if !matches!(self.purpose, FormPurpose::Settings) {
+            return None;
+        }
+        self.form.fields.iter().find_map(|f| match f {
+            Field::Check { label, value } if label == label_key => Some(*value),
+            _ => None,
+        })
     }
 
     /// The highlighted option of the settings `Choice` field labelled `label`.
@@ -517,6 +530,7 @@ impl FormDialog {
                 viewer: fields[6].as_text().trim().to_string(),
                 use_internal_viewer: fields[7].as_bool(),
                 use_internal_editor: fields[8].as_bool(),
+                reshape_rtl: fields[9].as_bool(),
             }),
             FormPurpose::Confirmations => Submit::Confirmations(ConfirmValues {
                 delete: fields[0].as_bool(),
@@ -596,7 +610,7 @@ impl FormDialog {
         let rect = centered(area, w, height);
         draw_shadow(f, rect, theme);
         f.render_widget(Clear, rect);
-        let block = dialog_block(&crate::l10n::tr(&self.title), theme);
+        let block = dialog_block(&crate::l10n::trd(&self.title), theme);
         let inner = block.inner(rect);
         f.render_widget(block, rect);
 
@@ -631,7 +645,7 @@ impl FormDialog {
                     cursor,
                 } => {
                     let masked = matches!(field, Field::Password { .. });
-                    let label_str = format!("{}: ", crate::l10n::tr(label));
+                    let label_str = crate::l10n::display(&format!("{}: ", crate::l10n::tr(label)));
                     let lw = (label_str.chars().count() as u16).min(row.width);
                     let style = if focused { focus_style } else { base };
                     f.render_widget(
@@ -660,7 +674,7 @@ impl FormDialog {
                     let style = if focused { focus_style } else { base };
                     f.render_widget(
                         Paragraph::new(Line::from(Span::styled(
-                            format!("{mark} {}", crate::l10n::tr(label)),
+                            crate::l10n::display(&format!("{mark} {}", crate::l10n::tr(label))),
                             style,
                         ))),
                         row,
@@ -672,7 +686,7 @@ impl FormDialog {
                     // A ▾ affordance signals the Enter-to-open dropdown.
                     f.render_widget(
                         Paragraph::new(Line::from(Span::styled(
-                            format!("{}: {val} ▾", crate::l10n::tr(label)),
+                            crate::l10n::display(&format!("{}: {val} ▾", crate::l10n::tr(label))),
                             style,
                         ))),
                         row,
@@ -923,8 +937,9 @@ fn render_choice_dropdown(
         };
         let row = Rect { x: list.x, y: list.y + vi as u16, width: list.width, height: 1 };
         let style = if idx == sel { theme.dialog_selection } else { normal };
+        let opt = crate::l10n::display(opt);
         let text = crate::util::text::pad_right(
-            &crate::util::text::ellipsize(opt, list.width as usize),
+            &crate::util::text::ellipsize(&opt, list.width as usize),
             list.width as usize,
         );
         f.render_widget(Paragraph::new(Line::from(Span::styled(text, style))), row);

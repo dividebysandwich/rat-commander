@@ -188,8 +188,8 @@ impl EditorState {
             }
             labels
         };
-        // Translate each label into the active language.
-        src.map(crate::l10n::tr)
+        // Translate each label into the active language (RTL-reshaped for display).
+        src.map(crate::l10n::trd)
     }
 
     /// Whether the F1 shortcut-help overlay is currently shown.

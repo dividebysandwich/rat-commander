@@ -78,6 +78,8 @@ zip = "8.6.0"
 # `system` + `network` features are needed (drops temperature/components, the
 # user database, and the mounted-disk listing we don't use).
 sysinfo = { version = "0.39.5", default-features = false, features = ["system", "network"] }
+ar-reshaper = "1.5.0"
+unicode-bidi = "0.3.18"
 
 # nix (chmod/chown/uid lookups, process signals) is Unix-only.
 [target.'cfg(unix)'.dependencies]

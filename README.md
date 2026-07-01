@@ -50,7 +50,10 @@ The installed executable is named **`rc`** for quick typing.
   languages built in (English, German, French, Spanish, Portuguese, Dutch,
   Czech, Slovak, Hungarian, Serbian, Ukrainian, Russian, Japanese, Chinese
   traditional & simplified, Hindi, Persian, Arabic); translations live in
-  editable `lang/*.toml` files and new languages can be dropped in.
+  editable `lang/*.toml` files and new languages can be dropped in. Right-to-left
+  scripts (Arabic, Persian) are shaped and bidi-reordered for display on
+  terminals without native bidi support (a **Reshape RTL text** setting turns
+  this off when the terminal handles bidi itself).
 
 For a full, feature-by-feature walkthrough see the **[user manual](doc/MANUAL.md)** —
 also available in-program by pressing **F1**.

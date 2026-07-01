@@ -42,6 +42,7 @@ impl AppState {
             sampler: crate::util::sysinfo::SysSampler::new(),
             theme_backup: None,
             lang_backup: None,
+            reshape_backup: None,
             user_menu: usermenu::load_or_create(),
             pending_run: None,
             pending_quit: false,

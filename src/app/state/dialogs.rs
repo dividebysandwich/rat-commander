@@ -19,6 +19,12 @@ impl AppState {
         {
             crate::l10n::set_active_by_name(name);
         }
+        if let Some(Dialog::Form(fd)) = &self.dialog
+            && let Some(on) = fd.check_value("Reshape RTL text")
+            && on != crate::l10n::reshape_rtl_enabled()
+        {
+            crate::l10n::set_reshape_rtl(on);
+        }
     }
 
     pub(in crate::app::state) async fn handle_dialog_result(&mut self, res: DialogResult) -> Flow {
@@ -33,12 +39,16 @@ impl AppState {
                 if let Some(name) = self.lang_backup.take() {
                     crate::l10n::set_active_by_name(&name);
                 }
+                if let Some(on) = self.reshape_backup.take() {
+                    crate::l10n::set_reshape_rtl(on);
+                }
                 Flow::Continue
             }
             DialogResult::Submit(s) => {
                 self.dialog = None;
                 self.theme_backup = None; // keep any previewed theme
                 self.lang_backup = None; // keep any previewed language
+                self.reshape_backup = None; // keep any previewed reshape toggle
                 self.handle_submit(s).await;
                 if self.pending_quit {
                     Flow::Quit
@@ -161,6 +171,8 @@ impl AppState {
                 } else {
                     Some(v.language)
                 };
+                self.config.reshape_rtl = v.reshape_rtl;
+                crate::l10n::set_reshape_rtl(v.reshape_rtl);
                 // Re-theme the running UI immediately.
                 self.theme = Theme::by_name(&self.config.theme, self.truecolor);
                 if let Err(e) = self.config.save() {
@@ -422,6 +434,7 @@ impl AppState {
         // Remember the current theme + language so Esc can revert a live preview.
         self.theme_backup = Some(self.config.theme.clone());
         self.lang_backup = Some(crate::l10n::active_name());
+        self.reshape_backup = Some(crate::l10n::reshape_rtl_enabled());
         self.dialog = Some(Dialog::Form(FormDialog::settings(&self.config, self.truecolor)));
     }
 

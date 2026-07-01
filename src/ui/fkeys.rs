@@ -47,9 +47,10 @@ pub fn index_at<S: AsRef<str>>(area: Rect, labels: &[S], col: u16, row: u16) -> 
     None
 }
 
-/// The panel function-key bar labels in the active language.
+/// The panel function-key bar labels in the active language (RTL-reshaped for
+/// display).
 pub fn panel_labels() -> [String; 10] {
-    PANEL_LABELS.map(crate::l10n::tr)
+    PANEL_LABELS.map(crate::l10n::trd)
 }
 
 /// Render a function-key hint row using the supplied labels. The segments are

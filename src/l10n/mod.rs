@@ -13,6 +13,7 @@
 
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, RwLock};
 
 /// Built-in catalogs, embedded so the files can be (re)generated and used as a
@@ -48,6 +49,10 @@ pub struct Catalog {
     /// Short language code (informational).
     #[serde(default)]
     pub code: String,
+    /// Right-to-left script (Arabic, Persian, …). Drives optional reshaping so
+    /// the text reads correctly on terminals without their own bidi support.
+    #[serde(default)]
+    pub rtl: bool,
     #[serde(default)]
     strings: HashMap<String, String>,
 }
@@ -72,9 +77,18 @@ static ACTIVE: LazyLock<RwLock<Catalog>> = LazyLock::new(|| {
     RwLock::new(builtin_catalogs().into_iter().next().unwrap_or_else(|| Catalog {
         name: "English".to_string(),
         code: "en".to_string(),
+        rtl: false,
         strings: HashMap::new(),
     }))
 });
+
+/// Shared Arabic contextual-shaper (maps letters to their joined presentation
+/// forms). Cheap to build; reused across renders.
+static RESHAPER: LazyLock<ar_reshaper::ArabicReshaper> =
+    LazyLock::new(ar_reshaper::ArabicReshaper::default);
+/// Whether to reshape + bidi-reorder RTL text into visual order for terminals
+/// that don't do their own bidi (the `reshape_rtl` setting).
+static RESHAPE_RTL: AtomicBool = AtomicBool::new(true);
 
 /// Translate `key` into the active language. Unknown keys fall back to the key
 /// itself (the English source string).
@@ -84,6 +98,70 @@ pub fn tr(key: &str) -> String {
         .ok()
         .and_then(|c| c.get(key).map(|s| s.to_string()))
         .unwrap_or_else(|| key.to_string())
+}
+
+/// Translate `key` and prepare it for display: identical to [`tr`] except that,
+/// for a right-to-left language with reshaping enabled, the result is Arabic-
+/// shaped and bidi-reordered into visual order (see [`display`]). Use this for
+/// plain display strings (no `&` accelerators): F-key labels, buttons, etc.
+pub fn trd(key: &str) -> String {
+    display(&tr(key))
+}
+
+/// Whether the active language is right-to-left.
+pub fn active_is_rtl() -> bool {
+    ACTIVE.read().map(|c| c.rtl).unwrap_or(false)
+}
+
+/// Enable or disable RTL reshaping (the `reshape_rtl` setting). Turn it off on
+/// terminals that already do their own bidi (mlterm, modern VTE, Konsole).
+pub fn set_reshape_rtl(on: bool) {
+    RESHAPE_RTL.store(on, Ordering::Relaxed);
+}
+
+/// Whether RTL reshaping is currently enabled.
+pub fn reshape_rtl_enabled() -> bool {
+    RESHAPE_RTL.load(Ordering::Relaxed)
+}
+
+/// Prepare `s` for display in the terminal. For an RTL language (with reshaping
+/// enabled) that contains RTL characters, Arabic letters are shaped to their
+/// joined presentation forms and the string is bidi-reordered into visual order,
+/// so it reads correctly on terminals without native bidi support. Otherwise the
+/// string is returned unchanged.
+pub fn display(s: &str) -> String {
+    if !reshape_rtl_enabled() || !active_is_rtl() || !contains_rtl(s) {
+        return s.to_string();
+    }
+    reshape_and_reorder(s)
+}
+
+/// Arabic-shape `s` and bidi-reorder it into visual order. The core transform
+/// behind [`display`], factored out so it can be unit-tested without global
+/// state.
+fn reshape_and_reorder(s: &str) -> String {
+    // Shape first (joining depends on logical adjacency), then reorder visually.
+    let shaped = RESHAPER.reshape(s);
+    let info = unicode_bidi::BidiInfo::new(&shaped, None);
+    match info.paragraphs.first() {
+        Some(para) => info.reorder_line(para, para.range.clone()).into_owned(),
+        None => shaped,
+    }
+}
+
+/// Whether `s` contains any right-to-left characters (Arabic / Hebrew ranges and
+/// Arabic presentation forms), so pure-ASCII labels skip reshaping.
+fn contains_rtl(s: &str) -> bool {
+    s.chars().any(|c| {
+        matches!(c as u32,
+            0x0590..=0x05FF   // Hebrew
+            | 0x0600..=0x06FF // Arabic
+            | 0x0750..=0x077F // Arabic Supplement
+            | 0x08A0..=0x08FF // Arabic Extended-A
+            | 0xFB50..=0xFDFF // Arabic Presentation Forms-A
+            | 0xFE70..=0xFEFF // Arabic Presentation Forms-B
+        )
+    })
 }
 
 /// Names of all available languages, for the Settings chooser.

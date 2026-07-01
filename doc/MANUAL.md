@@ -651,10 +651,10 @@ Configuration files live in your platform config directory
 
 ### Settings (Options → Settings…)
 
-Choose the **theme** and **language**, toggle **truecolor**, **animations** and
-the **system-status widget**, set an **external editor / viewer** command (used
-instead of the built-in ones), and choose whether to use the internal
-viewer/editor.
+Choose the **theme** and **language**, toggle **truecolor**, **animations**, the
+**system-status widget** and **Reshape RTL text** (see *Language*), set an
+**external editor / viewer** command (used instead of the built-in ones), and
+choose whether to use the internal viewer/editor.
 
 The **Theme** and **Language** fields are dropdowns: press **Enter** to open the
 scrollable list, **↑/↓** (or the mouse wheel) to move through it, **Enter** to
@@ -676,8 +676,17 @@ still works. To **add a language**, copy an existing file (e.g. `en.toml`) to a
 new name, change its `name`/`code`, translate the values, and it appears in the
 Settings chooser automatically. In menu labels the `&` marks the keyboard-
 accelerator letter (the non-Latin catalogs put it in a trailing `(&X)` so the
-accelerators stay typeable; right-to-left scripts such as Arabic and Persian are
-translated but the terminal lays them out left-to-right).
+accelerators stay typeable).
+
+**Right-to-left scripts** (Arabic, Persian) are handled with the **Reshape RTL
+text** setting, on by default. When on, RTL text is Arabic-shaped (letters are
+mapped to their joined presentation forms) and bidi-reordered into visual order
+just before it is drawn, so it reads correctly on a terminal that has no bidi
+support of its own — most terminals. The accelerator underline is dropped in
+this mode (reshaping moves the marked letter), but the accelerator **key** still
+works. If your terminal already does its own bidi (mlterm, a recent VTE-based
+terminal, Konsole), turn **Reshape RTL text** off so the text isn't processed
+twice. The setting has no effect for left-to-right languages.
 
 ### Confirmations (Options → Confirmations…)
 

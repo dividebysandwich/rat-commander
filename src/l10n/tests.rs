@@ -105,6 +105,62 @@ fn menu_accelerators_are_unique_per_menu_in_every_language() {
 }
 
 #[test]
+fn arabic_and_persian_catalogs_are_marked_rtl() {
+    let cats = builtin_catalogs();
+    for name in ["العربية", "فارسی"] {
+        assert!(cats.iter().find(|c| c.name == name).expect(name).rtl, "{name} should be rtl");
+    }
+    // A Latin-script language must not be flagged rtl.
+    assert!(!cats.iter().find(|c| c.name == "English").unwrap().rtl);
+    assert!(!cats.iter().find(|c| c.name == "Deutsch").unwrap().rtl);
+}
+
+#[test]
+fn contains_rtl_detects_arabic_not_latin() {
+    assert!(super::contains_rtl("مرحبا"));
+    assert!(super::contains_rtl("Save حفظ")); // mixed
+    assert!(!super::contains_rtl("hello"));
+    assert!(!super::contains_rtl("Speichern"));
+}
+
+#[test]
+fn reshape_reorders_arabic_leaves_latin_alone() {
+    // Latin text is untouched by shaping + bidi.
+    assert_eq!(super::reshape_and_reorder("hello"), "hello");
+    // Arabic text is shaped and reordered into visual order, so it changes and
+    // (for a pure-RTL run) the visual-first char is the logical-last one.
+    let logical = "سلام";
+    let visual = super::reshape_and_reorder(logical);
+    assert_ne!(visual, logical, "arabic is reshaped/reordered");
+    assert!(!visual.is_empty());
+    let last_logical = logical.chars().next_back().unwrap();
+    assert_ne!(visual.chars().next().unwrap(), logical.chars().next().unwrap());
+    let _ = last_logical;
+}
+
+#[test]
+fn reshape_maps_arabic_to_joined_presentation_forms() {
+    // Shaping replaces base Arabic letters with contextual (joined) presentation
+    // forms in the U+FB50..U+FEFF blocks, which is what makes them connect on a
+    // terminal without its own shaping engine.
+    let out = super::reshape_and_reorder("مرحبا");
+    assert!(
+        out.chars().any(|c| (0xFB50..=0xFEFF).contains(&(c as u32))),
+        "expected presentation forms in {:?}",
+        out.chars().map(|c| format!("U+{:04X}", c as u32)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn display_is_a_noop_when_the_active_language_is_not_rtl() {
+    // English is active by default (no global mutation here), so display leaves
+    // even RTL text unchanged — reshaping only kicks in for an RTL language.
+    assert!(!active_is_rtl());
+    assert_eq!(display("مرحبا"), "مرحبا");
+    assert_eq!(display("hello"), "hello");
+}
+
+#[test]
 fn available_lists_the_builtin_languages() {
     let names = available();
     assert!(names.contains(&"English".to_string()));

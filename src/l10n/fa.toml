@@ -4,6 +4,7 @@
 # ideally, but the translations are complete.
 name = "فارسی"
 code = "fa"
+rtl = true
 
 [strings]
 

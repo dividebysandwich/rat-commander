@@ -34,6 +34,7 @@ pub async fn run(edit_file: Option<std::path::PathBuf>) -> Result<()> {
     // Generate/discover the `lang/` files and activate the configured language
     // before anything renders.
     crate::l10n::load_languages(state.config.language.as_deref());
+    crate::l10n::set_reshape_rtl(state.config.reshape_rtl);
     state.init().await;
 
     // `rc /edit <file>` (or the `rcedit` shim) opens straight into the editor;
