@@ -150,10 +150,10 @@ and **F9 → Wrap** to show those alternates.
 ### Process explorer
 
 - `↑ ↓` / `PgUp PgDn` / `Home End` — Move the selection
-- `→` / `←` — Expand / collapse the selected process (or step into a child / out to the parent)
-- `Enter` / `Space` — Toggle the selected subtree open or closed
-- `*` — Collapse every subtree (top-level overview) or expand them all again
-- `c` / `m` / `n` / `p` — Sort by CPU / memory / name / PID (again to reverse)
+- `Tab` — Switch between the flat list and the process tree
+- `→` / `←` / `Enter` / `Space` (tree mode) — Expand / collapse the selected process (`←` on a collapsed row jumps to its parent)
+- `*` (tree mode) — Collapse every subtree, or expand them all again
+- `c` / `m` / `t` / `n` / `u` / `p` — Sort by CPU / memory / threads / program / user / PID (again to reverse)
 - `r` — Reverse the sort order
 - `+` / `-` — Adjust the refresh interval
 - `k` / `F8` / `F9` / `Del` — Kill the selected process (SIGTERM, with confirm)
@@ -578,17 +578,18 @@ and live graphs. It works on **Linux, Windows and macOS**.
 **Useful for** seeing what's running and what's using the CPU, memory, disk and
 network — and killing a runaway process.
 
-**Operation.** The table is a **collapsible tree**. Every process is shown by
-default (nothing is hidden), indented under its parent so multi-process apps are
-grouped; the direct children of `init`/`systemd` are lifted to the top level so
-the roots are the real services and apps rather than just pid 1. A process with
-children carries a **▾** marker when open and **▸** when folded: press **`←`** (or
-**`Enter`**/**`Space`**) to collapse a subtree and **`→`** to reopen it; **`←`**
-on an already-collapsed row jumps to the parent, and **`*`** folds every subtree
-to a top-level overview (press again to expand all). Each row shows CPU%, memory, thread count and a
-per-process CPU sparkline; sort by **name, CPU, memory, threads or PID** (the
-sort hotkey is shown in each column header) — the sort orders the top-level
-processes, and children stay grouped under their parent. The layout adds a CPU-load line
+**Operation.** The table has two layouts, toggled with **`Tab`**. **Flat** (the
+default) is a single sortable list with **Pid**, **Program**, **Command**,
+**Threads**, **User** and **MemB** columns. **Tree** shows the parent/child
+process hierarchy, **fully unfolded** by default, with branch lines and a fold
+box on each parent: **`[-]`** when open, **`[+]`** when folded; press **`→`**
+(or **`Enter`**/**`Space`**) to unfold a subtree and **`←`** to fold it (or, on an
+already-folded row, to jump to the parent), and **`*`** to fold/unfold the whole
+tree at once. Individual threads are collapsed into their process's **Threads**
+count rather than listed separately. Each row also shows CPU%, memory and a
+per-process CPU sparkline; sort by **program, CPU, memory, threads, user or PID**
+— in the tree, the sort orders each set of siblings while children stay grouped
+under their parent. The layout adds a CPU-load line
 graph and per-core meters, a memory sparkline, and two **centre-line graphs**
 that split a metric into its two directions around a drawn **horizontal axis
 line**: the **Disk** panel grows **writes upward (▲)** and **reads downward

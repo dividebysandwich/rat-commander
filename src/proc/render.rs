@@ -1,6 +1,6 @@
 //! Rendering of the [`ProcView`] full-screen process explorer.
 
-use super::{ProcSort, ProcView};
+use super::{ProcMode, ProcSort, ProcView};
 use crate::ui::graphics::{raster, Gfx, Slot};
 use crate::ui::theme::Theme;
 use crate::util::bytes::human_size;
@@ -553,22 +553,27 @@ fn lerp3(a: (u8, u8, u8), b: (u8, u8, u8), t: f32) -> (u8, u8, u8) {
     (l(a.0, b.0), l(a.1, b.1), l(a.2, b.2))
 }
 
+// Fixed column widths shared by both modes. The "left" region (PID+Program+
+// Command in flat mode, or the whole tree column in tree mode) takes the rest.
+const SPARK_W: usize = 8;
+const THR_W: usize = 9;
+const USER_W: usize = 12;
+const MEM_W: usize = 6;
+const CPU_W: usize = 6;
+const PID_W: usize = 7;
+const PROG_W: usize = 16;
+
 fn render_table(f: &mut Frame, area: Rect, pv: &mut ProcView, theme: &Theme) {
     if area.height < 2 {
         return;
     }
     let width = area.width as usize;
-    // Columns: PID, THR, CPU%, <cpu sparkline>, MEM, MEM%, then the name fills the
-    // rest. The sparkline column has a 1-space separator on each side.
-    const SPARK_W: usize = 8;
-    let pid_w = 7;
-    let thr_w = 5;
-    let cpu_w = 7;
-    let mem_w = 9;
-    let memp_w = 6;
-    let name_w = width
-        .saturating_sub(pid_w + thr_w + cpu_w + mem_w + memp_w + SPARK_W + 7)
-        .max(4);
+    let tree = pv.mode == ProcMode::Tree;
+    // Everything to the right of the left region: Threads, User, MemB, spark, Cpu%
+    // with a single-space separator before each (5 separators total).
+    let fixed = THR_W + USER_W + MEM_W + SPARK_W + CPU_W + 5;
+    let left_w = width.saturating_sub(fixed).max(12);
+    let cmd_w = left_w.saturating_sub(PID_W + PROG_W + 2).max(4);
 
     let arrow = |k: ProcSort| -> &'static str {
         if pv.sort == k {
@@ -577,22 +582,29 @@ fn render_table(f: &mut Frame, area: Rect, pv: &mut ProcView, theme: &Theme) {
             ""
         }
     };
-    // Bracketed letters show the sort hotkey, e.g. [C]PU%; the active column
-    // also gets a ▼/▲ direction arrow.
-    let pid_h = format!("[P]ID{}", arrow(ProcSort::Pid));
-    let thr_h = format!("[T]HR{}", arrow(ProcSort::Threads));
-    let cpu_h = format!("[C]PU%{}", arrow(ProcSort::Cpu));
-    let mem_h = format!("[M]EM{}", arrow(ProcSort::Mem));
-    let name_h = pad_right("[N]AME", name_w);
+
+    // --- header ---
+    let thr_h = format!("Threads{}", arrow(ProcSort::Threads));
+    let user_h = format!("User{}", arrow(ProcSort::User));
+    let mem_h = format!("MemB{}", arrow(ProcSort::Mem));
+    let cpu_h = format!("Cpu%{}", arrow(ProcSort::Cpu));
+    let left_h = if tree {
+        pad_right("Tree", left_w)
+    } else {
+        format!(
+            "{} {} {}",
+            pad_left(&format!("[P]id{}", arrow(ProcSort::Pid)), PID_W),
+            pad_right(&format!("Program{}", arrow(ProcSort::Name)), PROG_W),
+            pad_right("Command", cmd_w),
+        )
+    };
     let header = format!(
-        "{}{}{} {:^sw$} {}{}  {}",
-        pad_left(&pid_h, pid_w),
-        pad_left(&thr_h, thr_w + 1),
-        pad_left(&cpu_h, cpu_w + 1),
+        "{left_h} {} {} {} {:^sw$} {}",
+        pad_left(&thr_h, THR_W),
+        pad_right(&user_h, USER_W),
+        pad_left(&mem_h, MEM_W),
         "cpu",
-        pad_left(&mem_h, mem_w + 1),
-        pad_left("MEM%", memp_w + 1),
-        name_h,
+        pad_left(&cpu_h, CPU_W),
         sw = SPARK_W,
     );
     f.render_widget(
@@ -636,42 +648,48 @@ fn render_table(f: &mut Frame, area: Rect, pv: &mut ProcView, theme: &Theme) {
         } else {
             theme.panel_bg
         };
-        // Left columns + trailing separator space before the sparkline.
-        let left = format!(
-            "{}{}{} ",
-            pad_left(&p.pid.to_string(), pid_w),
-            pad_left(&p.threads.to_string(), thr_w + 1),
-            pad_left(&format!("{:.1}", p.cpu), cpu_w + 1),
+        // Left region (mode-dependent) then the shared Threads/User/MemB columns
+        // and the trailing separator before the sparkline.
+        let left_field = if tree {
+            tree_cell(&row.tree_prefix, p, left_w)
+        } else {
+            format!(
+                "{} {} {}",
+                pad_left(&p.pid.to_string(), PID_W),
+                pad_right(&ellipsize(&p.name, PROG_W), PROG_W),
+                pad_right(&ellipsize(&p.cmd, cmd_w), cmd_w),
+            )
+        };
+        let pre_spark = format!(
+            "{left_field} {} {} {} ",
+            pad_left(&p.threads.to_string(), THR_W),
+            pad_right(&ellipsize(&p.user, USER_W), USER_W),
+            pad_left(&human_size(p.rss), MEM_W),
         );
-        // Leading separator space + right columns + tree-decorated name.
-        let right = format!(
-            " {}{}  {}",
-            pad_left(&human_size(p.rss), mem_w + 1),
-            pad_left(&format!("{:.1}", p.mem_pct), memp_w + 1),
-            tree_name(&p.name, row.depth as usize, row.has_children, row.expanded, name_w),
-        );
-        let mut spans = vec![Span::styled(left, row_style)];
+        let post_spark = format!(" {}", pad_left(&format!("{:.1}", p.cpu), CPU_W));
+        let mut spans = vec![Span::styled(pre_spark, row_style)];
         spans.extend(cpu_spark_spans(pv.proc_cpu_history.get(&p.pid), SPARK_W, row_bg, theme));
-        spans.push(Span::styled(right, row_style));
+        spans.push(Span::styled(post_spark, row_style));
         lines.push(Line::from(spans));
     }
     f.render_widget(Paragraph::new(lines), body);
 }
 
-/// Render the name column for a tree row: `depth` levels of indentation, an
-/// expand marker (▾ open, ▸ collapsed, blank for a leaf), then the ellipsized
-/// process name, padded to exactly `name_w` display columns.
-fn tree_name(name: &str, depth: usize, has_children: bool, expanded: bool, name_w: usize) -> String {
-    let marker = if has_children {
-        if expanded { "▾ " } else { "▸ " }
+/// Build the tree-mode "Tree" column for one row: the branch-glyph prefix, the
+/// PID, the program name and — when it adds information — the command in
+/// parentheses, truncated/padded to exactly `width` display columns.
+fn tree_cell(prefix: &str, p: &crate::proc::ProcInfo, width: usize) -> String {
+    // Show the executable (argv0) in parens when it differs from the short name,
+    // e.g. "systemd-resolve (systemd-resolved)" — like the btop tree view.
+    let arg0 = p.cmd.split_whitespace().next().unwrap_or("");
+    let base = arg0.rsplit('/').next().unwrap_or(arg0);
+    let paren = if !arg0.is_empty() && base != p.name && arg0 != p.name {
+        format!(" ({arg0})")
     } else {
-        "  "
+        String::new()
     };
-    let indent = depth * 2;
-    // Indent + 2-column marker; the name gets whatever room is left (≥1).
-    let avail = name_w.saturating_sub(indent + 2).max(1);
-    let field = format!("{}{marker}{}", " ".repeat(indent.min(name_w)), ellipsize(name, avail));
-    pad_right(&field, name_w)
+    let text = format!("{prefix}{} {}{paren}", p.pid, p.name);
+    pad_right(&ellipsize(&text, width), width)
 }
 
 /// Build a `width`-cell colored CPU sparkline for one process row (newest at the
@@ -703,8 +721,12 @@ fn cpu_spark_spans(
         .collect()
 }
 
-fn render_footer(f: &mut Frame, area: Rect, _pv: &ProcView, theme: &Theme) {
-    let hint = "↑↓ move   →← ⏎ expand   * all   c CPU  m Mem  t Thr  n Name  p PID   r reverse   +/- rate   k kill  K force   Esc close";
+fn render_footer(f: &mut Frame, area: Rect, pv: &ProcView, theme: &Theme) {
+    // Tree-specific fold keys are only shown while in tree mode.
+    let hint = match pv.mode {
+        ProcMode::Flat => "↑↓ move   ⇥ tree   c CPU  m Mem  t Thr  n Prog  u User  p PID   r reverse   +/- rate   k kill  K force   Esc close",
+        ProcMode::Tree => "↑↓ move   ⇥ flat   →←⏎ fold  * all   c CPU  m Mem  t Thr  n Prog  u User  p PID   r rev   +/- rate   k kill  Esc close",
+    };
     // Highlighted bar (matching the F-key row) so the hints are clearly visible.
     let line = pad_right(&format!(" {hint}"), area.width as usize);
     f.render_widget(
@@ -720,25 +742,33 @@ mod tests {
     use ratatui::backend::TestBackend;
     use ratatui::style::Color;
 
-    /// `tree_name` picks the right marker, indents by depth, and always fills
-    /// exactly `name_w` display columns so the table stays aligned.
+    /// `tree_cell` renders "<branch><pid> <name> (<cmd>)", shows argv0 in parens
+    /// only when it differs from the name, and fills exactly `width` columns.
     #[test]
-    fn tree_name_marks_and_indents() {
+    fn tree_cell_formats_branch_and_command() {
+        use crate::proc::ProcInfo;
         use unicode_width::UnicodeWidthStr;
-        let root = tree_name("systemd", 0, true, false, 20);
-        assert!(root.starts_with("▸ systemd"), "collapsed parent uses ▸: {root:?}");
-        assert_eq!(root.width(), 20, "field padded to the column width");
+        let mut p = ProcInfo {
+            pid: 1,
+            ppid: None,
+            name: "systemd".into(),
+            cmd: "/sbin/init".into(),
+            user: "root".into(),
+            cpu: 0.0,
+            rss: 0,
+            mem_pct: 0.0,
+            threads: 1,
+        };
+        let cell = tree_cell("[-]─", &p, 30);
+        assert!(cell.starts_with("[-]─1 systemd (/sbin/init)"), "branch+pid+name+cmd: {cell:?}");
+        assert_eq!(cell.width(), 30, "padded to the column width");
 
-        let open = tree_name("systemd", 0, true, true, 20);
-        assert!(open.starts_with("▾ systemd"), "expanded parent uses ▾: {open:?}");
-
-        let leaf = tree_name("bash", 1, false, false, 20);
-        assert!(leaf.starts_with("    bash"), "child leaf is indented, no marker: {leaf:?}");
-        assert_eq!(leaf.width(), 20);
-
-        // Deep nesting still yields a valid, exactly-sized field (name squeezed).
-        let deep = tree_name("some-long-process-name", 6, false, false, 20);
-        assert_eq!(deep.width(), 20);
+        // No parens when argv0's basename matches the name.
+        p.name = "niri".into();
+        p.cmd = "niri --session".into();
+        let cell = tree_cell("└─", &p, 30);
+        assert!(cell.starts_with("└─1 niri "), "no redundant command shown: {cell:?}");
+        assert!(!cell.contains('('), "argv0 == name ⇒ no parens: {cell:?}");
     }
 
     /// `draw_mirror_bars` must grow the `up` series upward (top band, bar-colored

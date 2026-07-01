@@ -75,9 +75,9 @@ xz2 = "0.1.7"
 zip = "8.6.0"
 # Cross-platform process/CPU/memory/disk/network sampling for the process
 # explorer (Linux, Windows, macOS). Pure Rust, no external C deps. Only the
-# `system` + `network` features are needed (drops temperature/components, the
-# user database, and the mounted-disk listing we don't use).
-sysinfo = { version = "0.39.5", default-features = false, features = ["system", "network"] }
+# `system` + `network` + `user` features are needed (drops temperature/components
+# and the mounted-disk listing we don't use). `user` maps process UIDs to names.
+sysinfo = { version = "0.39.5", default-features = false, features = ["system", "network", "user"] }
 ar-reshaper = "1.5.0"
 unicode-bidi = "0.3.18"
 ratatui-image = { version = "11.0.6", default-features = false, features = ["crossterm"] }
