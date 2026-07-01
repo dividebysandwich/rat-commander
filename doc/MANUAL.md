@@ -551,12 +551,18 @@ the name and a human-readable size.
 
 **Useful for** finding what is using your disk space.
 
-**Operation.** Boxes that are large enough also list their **biggest files**
-inside, each with its size, so you can spot space hogs without diving in. The top
+**Operation.** Boxes that are large enough also show their **biggest files**
+inside, each with its size, so you can spot space hogs without diving in. On a
+terminal with graphics support (see *Terminal graphics*), the **whole treemap is
+drawn as pixel "pillow" boxes**: each directory is a softly cushion-shaded box
+**in its own hue**, subdivided into recessed, semi-transparent **sub-boxes** for
+its largest files (sized by their share, with names labeled where they fit), so
+every box reads as a little map of its own contents and much finer detail is
+visible than with characters. It falls back to character-cell boxes on a plain terminal. The top
 bar always shows the selected box's name, size and share of the total. **Arrow
-keys** move the selection, **Enter** dives into a subdirectory, **Backspace** goes
-up, **`g`** (or **Ctrl-Enter**) exits and points the active panel at the selected
-directory, **Esc** closes. Symlinks are never followed or counted.
+keys** move the selection, **Enter** dives into a subdirectory, **Backspace**
+goes up, **`g`** (or **Ctrl-Enter**) exits and points the active panel at the
+selected directory, **Esc** closes. Symlinks are never followed or counted.
 
 
 ## Process explorer
@@ -670,9 +676,10 @@ of the keyboard focus ring: **Tab** / **↑↓** move onto them and **Enter** or
 ### Terminal graphics
 
 Where the terminal supports a graphics protocol, the **progress bars**, the
-**process-explorer graphs** (CPU, per-core, memory, disk and network) and the
-file-transfer **speed graph** are drawn as true-pixel images with smooth
-gradients instead of block characters. It uses the **Kitty**, **Sixel** or
+**process-explorer graphs** (CPU, per-core, memory, disk and network), the
+file-transfer **speed graph** and the **disk-explorer treemap** are drawn as
+true-pixel images with smooth gradients instead of block characters. It uses the
+**Kitty**, **Sixel** or
 **iTerm2** protocol — so Kitty, Ghostty, WezTerm, Konsole, foot, recent
 xterm/VTE, iTerm2 and similar all get the richer rendering — and falls back
 automatically to the classic cell rendering everywhere else, so nothing is lost

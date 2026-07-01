@@ -9,6 +9,7 @@
 //! the pixel output uses exactly the same gradients as the Ratatui cell widgets
 //! these graphics replace.
 
+use font8x8::{UnicodeFonts, BASIC_FONTS};
 use image::{Rgba, RgbaImage};
 use ratatui::style::Color;
 
@@ -292,6 +293,182 @@ pub fn sweep_bar(w: u32, h: u32, pos: f64, block: f64, band: Rgb, track: Rgb, bg
     img
 }
 
+/// A blank RGBA image filled with `bg`, for drawing multiple pillows into.
+pub fn canvas(w: u32, h: u32, bg: Rgb) -> RgbaImage {
+    RgbaImage::from_pixel(w.max(1), h.max(1), Rgba([bg.0, bg.1, bg.2, 255]))
+}
+
+/// HSV → RGB (`h` in degrees, `s`/`v` in `[0, 1]`). Used to give treemap boxes
+/// distinct hues.
+pub fn hsv(h: f64, s: f64, v: f64) -> Rgb {
+    let h = h.rem_euclid(360.0) / 60.0;
+    let c = v * s.clamp(0.0, 1.0);
+    let x = c * (1.0 - ((h % 2.0) - 1.0).abs());
+    let m = v - c;
+    let (r, g, b) = match h as u32 {
+        0 => (c, x, 0.0),
+        1 => (x, c, 0.0),
+        2 => (0.0, c, x),
+        3 => (0.0, x, c),
+        4 => (x, 0.0, c),
+        _ => (c, 0.0, x),
+    };
+    let q = |z: f64| ((z + m) * 255.0).round().clamp(0.0, 255.0) as u8;
+    (q(r), q(g), q(b))
+}
+
+/// Blit `text` into `img` at `(x, y)` using the 8×8 bitmap font, each glyph
+/// scaled by `scale`, in color `fg` over an optional darkened `plate` (drawn
+/// behind the text for legibility). Text baked into the image this way survives
+/// every graphics protocol, unlike cell text drawn over an image. Off-image
+/// pixels are clipped.
+pub fn draw_text(img: &mut RgbaImage, x: i32, y: i32, text: &str, fg: Rgb, plate: Option<Rgb>, scale: u32) {
+    let scale = scale.max(1);
+    let (iw, ih) = (img.width() as i32, img.height() as i32);
+    let gw = (8 * scale) as i32;
+    if let Some(pl) = plate {
+        let total_w = text.chars().count() as i32 * gw;
+        for py in y..(y + gw) {
+            for px in (x - 1)..(x + total_w + 1) {
+                if px >= 0 && py >= 0 && px < iw && py < ih {
+                    let p = img.get_pixel(px as u32, py as u32).0;
+                    let c = over((p[0], p[1], p[2]), pl, 0.6);
+                    img.put_pixel(px as u32, py as u32, Rgba([c.0, c.1, c.2, 255]));
+                }
+            }
+        }
+    }
+    let mut cx = x;
+    for ch in text.chars() {
+        if let Some(rows) = BASIC_FONTS.get(ch) {
+            for (ry, bits) in rows.iter().enumerate() {
+                for bit in 0..8u32 {
+                    if bits & (1 << bit) != 0 {
+                        for sy in 0..scale {
+                            for sx in 0..scale {
+                                let px = cx + (bit * scale + sx) as i32;
+                                let py = y + (ry as u32 * scale + sy) as i32;
+                                if px >= 0 && py >= 0 && px < iw && py < ih {
+                                    img.put_pixel(px as u32, py as u32, Rgba([fg.0, fg.1, fg.2, 255]));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        cx += gw;
+    }
+}
+
+/// Pixel width of `text` rendered by [`draw_text`] at `scale`.
+pub fn text_width(text: &str, scale: u32) -> u32 {
+    text.chars().count() as u32 * 8 * scale.max(1)
+}
+
+/// A recessed sub-panel inside a [`pillow_box`]: a pixel rect and its fill color.
+pub struct SubBox {
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+    pub color: Rgb,
+}
+
+/// Draw one "pillow" box into `img` at `(ox, oy)` of size `w × h`: a cushion-
+/// shaded fill in `fill` (brighter in the middle so it reads as raised), each
+/// [`SubBox`] (box-local pixel coords) drawn as a semi-transparent, bevelled
+/// depression so it sits *below* the surface, and an optional bright selection
+/// `border`. A 1px "grout" gap is left around the box so adjacent boxes stay
+/// distinct when many are drawn into a single image.
+#[allow(clippy::too_many_arguments)]
+pub fn pillow_into(
+    img: &mut RgbaImage,
+    ox: u32,
+    oy: u32,
+    w: u32,
+    h: u32,
+    fill: Rgb,
+    subs: &[SubBox],
+    border: Option<Rgb>,
+) {
+    let (iw_max, ih_max) = (img.width(), img.height());
+    if w == 0 || h == 0 {
+        return;
+    }
+    // Interior (inside the 1px grout), clipped to the image bounds.
+    let ix0 = ox + 1;
+    let iy0 = oy + 1;
+    let ix1 = (ox + w).saturating_sub(1).min(iw_max);
+    let iy1 = (oy + h).saturating_sub(1).min(ih_max);
+    if ix1 <= ix0 || iy1 <= iy0 {
+        for y in oy..(oy + h).min(ih_max) {
+            for x in ox..(ox + w).min(iw_max) {
+                put(img, x, y, fill); // too small for grout: solid fill
+            }
+        }
+        return;
+    }
+    let iw = (ix1 - ix0).max(1) as f64;
+    let ih = (iy1 - iy0).max(1) as f64;
+    // Cushion: a soft radial bump, brightest at the centre, dimmer toward edges.
+    for y in iy0..iy1 {
+        let ly = (y - iy0) as f64 / ih * 2.0 - 1.0;
+        for x in ix0..ix1 {
+            let lx = (x - ix0) as f64 / iw * 2.0 - 1.0;
+            let cushion = (1.14 - 0.44 * (0.75 * lx * lx + ly * ly)).clamp(0.55, 1.25);
+            put(img, x, y, shade(fill, cushion));
+        }
+    }
+    // Recessed, semi-transparent sub-boxes (offset into the interior).
+    for s in subs {
+        let x0 = ix0 + s.x.round().max(0.0) as u32;
+        let y0 = iy0 + s.y.round().max(0.0) as u32;
+        let x1 = (ix0 + (s.x + s.w).round().max(0.0) as u32).min(ix1);
+        let y1 = (iy0 + (s.y + s.h).round().max(0.0) as u32).min(iy1);
+        if x1 < x0 + 3 || y1 < y0 + 3 {
+            continue; // too small to read as a box
+        }
+        let (jx0, jy0, jx1, jy1) = (x0 + 1, y0 + 1, x1 - 1, y1 - 1);
+        for y in jy0..jy1 {
+            for x in jx0..jx1 {
+                let p = img.get_pixel(x, y).0;
+                let under = (p[0], p[1], p[2]);
+                // A ~50%-transparent dark inset: the cushion still shows through,
+                // but the panel is clearly darker so it reads as recessed *inside*
+                // the pillow. A light per-box tint keeps neighbours distinct.
+                let mut c = over(under, (0, 0, 0), 0.5);
+                c = over(c, s.color, 0.16);
+                // 2px bevel: dark shadow on the top/left, bright rim on bottom/right.
+                if y <= jy0 + 1 || x <= jx0 + 1 {
+                    c = over(c, (0, 0, 0), 0.42);
+                } else if y + 2 >= jy1 || x + 2 >= jx1 {
+                    c = over(c, (255, 255, 255), 0.24);
+                }
+                put(img, x, y, c);
+            }
+        }
+    }
+    // Selection border: a bright 1px rectangle just inside the grout.
+    if let Some(bc) = border {
+        for x in ix0..ix1 {
+            put(img, x, iy0, bc);
+            put(img, x, iy1 - 1, bc);
+        }
+        for y in iy0..iy1 {
+            put(img, ix0, y, bc);
+            put(img, ix1 - 1, y, bc);
+        }
+    }
+}
+
+/// A standalone "pillow" box image (see [`pillow_into`]).
+pub fn pillow_box(w: u32, h: u32, fill: Rgb, subs: &[SubBox], bg: Rgb) -> RgbaImage {
+    let mut img = RgbaImage::from_pixel(w.max(1), h.max(1), Rgba([bg.0, bg.1, bg.2, 255]));
+    pillow_into(&mut img, 0, 0, w.max(1), h.max(1), fill, subs, None);
+    img
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -359,6 +536,43 @@ mod tests {
         let high = area_spark(4, 20, &[0.9], 1.0, |_| (0, 200, 0), bg);
         let filled = |img: &RgbaImage, x: u32| (0..img.height()).filter(|&y| !is_bg(img, x, y, bg)).count();
         assert!(filled(&high, 2) > filled(&low, 2), "higher value → more filled pixels");
+    }
+
+    #[test]
+    fn pillow_box_cushions_and_recesses_subboxes() {
+        let fill = (120, 120, 120);
+        let bg = (0, 0, 0);
+        // One sub-box in the middle of a 40x40 pillow.
+        let subs = vec![SubBox { x: 10.0, y: 10.0, w: 20.0, h: 20.0, color: (60, 60, 60) }];
+        let img = pillow_box(40, 40, fill, &subs, bg);
+        let lum = |x: u32, y: u32| {
+            let p = img.get_pixel(x, y).0;
+            p[0] as u32 + p[1] as u32 + p[2] as u32
+        };
+        // Cushion: the centre is brighter than a corner (raised look).
+        assert!(lum(20, 20) > lum(1, 1), "cushion centre should be brighter than the edge");
+        // The sub-box interior is drawn (its top/left bevel is darker than its
+        // own centre → a recessed, bevelled look).
+        assert!(lum(12, 12) < lum(20, 20), "sub-box shadow edge darker than pillow centre");
+    }
+
+    #[test]
+    fn hsv_primaries_are_correct() {
+        assert_eq!(hsv(0.0, 1.0, 1.0), (255, 0, 0)); // red
+        assert_eq!(hsv(120.0, 1.0, 1.0), (0, 255, 0)); // green
+        assert_eq!(hsv(240.0, 1.0, 1.0), (0, 0, 255)); // blue
+        assert_eq!(hsv(0.0, 0.0, 0.5), (128, 128, 128)); // desaturated grey
+    }
+
+    #[test]
+    fn draw_text_sets_glyph_pixels() {
+        let mut img = RgbaImage::from_pixel(64, 16, Rgba([0, 0, 0, 255]));
+        draw_text(&mut img, 1, 1, "A", (255, 255, 255), None, 1);
+        // Some pixels within the glyph box are now white; the far corner is not.
+        let lit = |x: u32, y: u32| img.get_pixel(x, y).0[0] > 0;
+        let any = (1..9).flat_map(|x| (1..9).map(move |y| (x, y))).any(|(x, y)| lit(x, y));
+        assert!(any, "glyph 'A' should light some pixels");
+        assert!(!lit(40, 12), "pixels outside the text stay background");
     }
 
     #[test]

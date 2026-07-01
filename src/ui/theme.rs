@@ -612,6 +612,19 @@ impl Theme {
         Color::Rgb(r, g, b)
     }
 
+    /// The static gradient color (full RGB) at normalized position `t` in
+    /// `[0, 1]`, ignoring both animation and the `truecolor` gate. Used for
+    /// pixel-graphics fills that should stay stable frame-to-frame (so their
+    /// encoded image can be cached rather than re-transmitted every frame).
+    pub fn gradient_rgb_static(&self, t: f64) -> (u8, u8, u8) {
+        let t = t.clamp(0.0, 1.0);
+        (
+            lerp(self.grad_a.0, self.grad_b.0, t),
+            lerp(self.grad_a.1, self.grad_b.1, t),
+            lerp(self.grad_a.2, self.grad_b.2, t),
+        )
+    }
+
     /// The gradient color (full RGB) at normalized position `t` in `[0, 1]`,
     /// honoring the animation slide but **not** the `truecolor` gate — the
     /// pixel-graphics raster always has full color available (even on a sixel

@@ -47,8 +47,9 @@ The installed executable is named **`rc`** for quick typing.
   truecolor animated gradients, an optional CPU/memory status widget, and a
   configurable **F2 user menu**.
 - **Terminal graphics** — on terminals with a **Kitty**, **Sixel** or **iTerm2**
-  graphics protocol, the progress bars, process-explorer graphs and transfer
-  speed graph are drawn as true-pixel gradient images, falling back
+  graphics protocol, the progress bars, process-explorer graphs, transfer speed
+  graph and the disk-explorer **treemap** (a nested "pillow" map of each folder's
+  biggest files) are drawn as true-pixel gradient images, falling back
   automatically to block-character rendering elsewhere (a **Graphics** setting
   forces or disables it).
 - **Localization** — the UI language is selectable in Settings, with 18

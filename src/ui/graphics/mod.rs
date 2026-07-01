@@ -33,6 +33,7 @@ pub enum Slot {
     ProcDisk,
     ProcNet,
     ProcCore(u16),
+    Treemap(u16),
 }
 
 struct Cached {
@@ -134,6 +135,18 @@ impl Gfx {
         if let Some(c) = self.cache.get_mut(&slot) {
             f.render_stateful_widget(StatefulImage::default().resize(Resize::Fit(None)), area, &mut c.proto);
         }
+    }
+}
+
+#[cfg(test)]
+impl Gfx {
+    /// A test-only context using the halfblocks protocol at a fixed cell size, so
+    /// the graphics render paths can be exercised without a real terminal.
+    pub fn test_halfblocks() -> Gfx {
+        #[allow(deprecated)]
+        let mut picker = Picker::from_fontsize((8u16, 16u16).into());
+        picker.set_protocol_type(ProtocolType::Halfblocks);
+        Gfx { picker, detected: ProtocolType::Halfblocks, enabled: true, cache: HashMap::new() }
     }
 }
 

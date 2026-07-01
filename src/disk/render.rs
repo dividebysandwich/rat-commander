@@ -66,8 +66,18 @@ pub fn render(f: &mut Frame, area: Rect, dv: &mut DiskView, theme: &Theme, gfx: 
         dv.selected = dv.entries.len() - 1;
     }
     let n = dv.entries.len();
-    for (i, (entry, rect)) in dv.entries.iter().zip(rects.iter()).enumerate() {
-        draw_box(f, *rect, entry, i == dv.selected, i, n, theme);
+    match gfx {
+        // Graphics terminal: draw the whole treemap as one image of nested
+        // "pillow" boxes, then overlay the text labels on top.
+        Some(g) if g.available() => {
+            render_treemap_graphics(f, body, &dv.entries, &rects, dv.selected, theme, g);
+        }
+        // Fallback: classic character-cell boxes.
+        _ => {
+            for (i, (entry, rect)) in dv.entries.iter().zip(rects.iter()).enumerate() {
+                draw_box(f, *rect, entry, i == dv.selected, i, n, theme);
+            }
+        }
     }
 }
 
@@ -210,6 +220,8 @@ fn center_text(f: &mut Frame, area: Rect, text: &str, theme: &Theme) {
     );
 }
 
+/// Character-cell rendering of one treemap box (the fallback used when there is
+/// no terminal-graphics protocol).
 fn draw_box(f: &mut Frame, rect: Rect, entry: &DiskEntry, selected: bool, idx: usize, n: usize, theme: &Theme) {
     if rect.width == 0 || rect.height == 0 {
         return;
@@ -269,11 +281,7 @@ fn draw_box(f: &mut Frame, rect: Rect, entry: &DiskEntry, selected: bool, idx: u
         );
         // Big enough: list the largest files (path relative to this box + size).
         if bi.height >= 5 && bi.width >= 16 && !entry.files.is_empty() {
-            let list = Rect {
-                y: bi.y + 3,
-                height: bi.height - 3,
-                ..bi
-            };
+            let list = Rect { y: bi.y + 3, height: bi.height - 3, ..bi };
             draw_file_list(f, list, &entry.files, color, theme);
         }
     } else {
@@ -320,6 +328,155 @@ fn draw_file_list(
             Paragraph::new(line).style(Style::default().bg(bg)),
             Rect { y: area.y + k as u16, height: 1, ..area },
         );
+    }
+}
+
+/// Render the whole treemap as a single graphics image of nested "pillow" boxes
+/// — every directory a cushion-shaded box (each a distinct hue) subdivided into
+/// recessed, semi-transparent sub-boxes for its largest files, with the names
+/// baked into the pixels. Used whenever the terminal has a graphics protocol;
+/// [`draw_box`] is the cell fallback.
+fn render_treemap_graphics(
+    f: &mut Frame,
+    body: Rect,
+    entries: &[DiskEntry],
+    rects: &[Rect],
+    selected: usize,
+    theme: &Theme,
+    g: &mut Gfx,
+) {
+    let (cw, ch) = g.cell();
+    let (iw, ih) = g.px_size(body);
+    let mut img = raster::canvas(iw, ih, raster::rgb(theme.panel_bg));
+    let accent = raster::rgb(theme.panel_border_active);
+
+    for (i, (entry, rect)) in entries.iter().zip(rects).enumerate() {
+        let ox = (rect.x.saturating_sub(body.x)) as u32 * cw;
+        let oy = (rect.y.saturating_sub(body.y)) as u32 * ch;
+        let (bw, bh) = (rect.width as u32 * cw, rect.height as u32 * ch);
+        if bw < 3 || bh < 3 {
+            continue;
+        }
+        // A distinct hue per box (golden-angle spread); the selected box keeps the
+        // accent color and gets a bright border. Both stay stable frame-to-frame
+        // so the encoded image is cached rather than re-transmitted.
+        let fill = if i == selected {
+            accent
+        } else {
+            raster::hsv(i as f64 * 137.508, 0.55, 0.72)
+        };
+        // Squarify the box's largest files into its interior, below the name/size
+        // header (sized to the label scales so it doesn't overlap the sub-boxes).
+        let (inner_w, inner_h) = (bw.saturating_sub(2) as f64, bh.saturating_sub(2) as f64);
+        let (nsc, ssc) = label_scales(bw, bh);
+        let header_px = header_layout(bh, nsc, ssc).0 as f64;
+        let region_h = inner_h - header_px;
+        let mut frects = if entry.files.len() >= 2 && inner_w > 10.0 && region_h > 10.0 {
+            let sizes: Vec<f64> = entry.files.iter().take(16).map(|fe| fe.size.max(1) as f64).collect();
+            // `squarify` expects each area pre-scaled to fill the region (like
+            // `treemap` does), so normalize the file sizes to the region's pixels —
+            // otherwise the raw byte counts produce a degenerate, incomplete layout.
+            let total: f64 = sizes.iter().sum::<f64>().max(1.0);
+            let region_area = inner_w * region_h;
+            let areas: Vec<f64> = sizes.iter().map(|s| s / total * region_area).collect();
+            squarify(&areas, 0.0, 0.0, inner_w, region_h)
+        } else {
+            Vec::new()
+        };
+        for r in &mut frects {
+            r.y += header_px; // shift the sub-treemap below the header
+        }
+        let subs: Vec<raster::SubBox> = frects
+            .iter()
+            .enumerate()
+            .map(|(k, r)| raster::SubBox {
+                x: r.x as f32,
+                y: r.y as f32,
+                w: r.w as f32,
+                h: r.h as f32,
+                color: raster::over((0, 0, 0), fill, 0.42 + 0.12 * (k % 3) as f64),
+            })
+            .collect();
+        let border = (i == selected).then(|| raster::rgb(theme.cursor_fg));
+        raster::pillow_into(&mut img, ox, oy, bw, bh, fill, &subs, border);
+        // Bake the labels into the pixels so they survive every graphics protocol
+        // (cell text drawn over an image is painted over by Kitty/Sixel).
+        bake_labels(&mut img, (ox, oy, bw, bh), entry, fill, &frects, i == selected, theme);
+    }
+    g.draw(f, body, Slot::Treemap(0), img);
+}
+
+/// Font scales (name, size) for a box's labels, chosen from its pixel size —
+/// bigger boxes get bigger, more legible text (each unit = an 8px glyph).
+fn label_scales(bw: u32, bh: u32) -> (u32, u32) {
+    let name = if bw >= 300 && bh >= 170 {
+        3
+    } else if bw >= 72 && bh >= 40 {
+        2
+    } else {
+        1
+    };
+    let size = if bw >= 110 && bh >= 58 { 2 } else { 1 };
+    (name, size)
+}
+
+/// The header height (pixels reserved above the sub-boxes) for a box, and whether
+/// the size line fits under the name. Keeps the sub-treemap and [`bake_labels`]
+/// in agreement about where the header ends.
+fn header_layout(bh: u32, name_scale: u32, size_scale: u32) -> (u32, bool) {
+    let name_h = 8 * name_scale;
+    if bh < name_h + 12 {
+        return (0, false);
+    }
+    let with_size = bh >= name_h + 8 * size_scale + 24;
+    let px = 3 + name_h + if with_size { 3 + 8 * size_scale } else { 0 } + 4;
+    (px, with_size)
+}
+
+/// Bake a box's labels into the treemap image: the directory name + size near the
+/// top, and each file's base name on any sub-box big enough to hold it. Text is
+/// baked as pixels (not cells) so it survives every graphics protocol; the font
+/// scale grows with the box so labels stay readable.
+fn bake_labels(
+    img: &mut image::RgbaImage,
+    (ox, oy, bw, bh): (u32, u32, u32, u32),
+    entry: &DiskEntry,
+    fill: raster::Rgb,
+    frects: &[FRect],
+    selected: bool,
+    theme: &Theme,
+) {
+    let name_fg = if selected { raster::rgb(theme.cursor_fg) } else { (250, 250, 250) };
+    let plate = raster::over(fill, (0, 0, 0), 0.6);
+    let (nsc, ssc) = label_scales(bw, bh);
+    let (_, with_size) = header_layout(bh, nsc, ssc);
+
+    // Directory name, centered near the top.
+    let name = ellipsize(&entry.name, (bw.saturating_sub(4) / (8 * nsc)).max(1) as usize);
+    let nx = ox as i32 + (bw as i32 - raster::text_width(&name, nsc) as i32) / 2;
+    raster::draw_text(img, nx, oy as i32 + 3, &name, name_fg, Some(plate), nsc);
+    // Size, centered under the name.
+    if with_size {
+        let size = ellipsize(&human_gb(entry.size), (bw.saturating_sub(4) / (8 * ssc)).max(1) as usize);
+        let sx = ox as i32 + (bw as i32 - raster::text_width(&size, ssc) as i32) / 2;
+        let sy = oy as i32 + 3 + (8 * nsc) as i32 + 3;
+        raster::draw_text(img, sx, sy, &size, (230, 230, 230), Some(plate), ssc);
+    }
+
+    // File names on sub-boxes large enough to hold them (bigger where there's room).
+    for (k, r) in frects.iter().enumerate() {
+        let Some(file) = entry.files.get(k) else { break };
+        let fsc = if r.w >= 120.0 && r.h >= 34.0 { 2 } else { 1 };
+        if r.w < (8 * fsc * 3) as f64 + 4.0 || r.h < (8 * fsc) as f64 + 6.0 {
+            continue;
+        }
+        let sub_rgb = raster::over((0, 0, 0), fill, 0.42 + 0.12 * (k % 3) as f64);
+        let base = file.rel.rsplit(['/', '\\']).next().unwrap_or(&file.rel);
+        let maxc = ((r.w as u32).saturating_sub(4) / (8 * fsc)).max(1) as usize;
+        let label = ellipsize(base, maxc);
+        let sx = ox as i32 + 1 + r.x as i32 + 2;
+        let sy = oy as i32 + 1 + r.y as i32 + 2;
+        raster::draw_text(img, sx, sy, &label, (240, 240, 240), Some(sub_rgb), fsc);
     }
 }
 
@@ -520,6 +677,38 @@ mod tests {
         assert!(s.contains("target/huge.bin"), "largest file path shown");
         assert!(s.contains("assets/movie.mp4"), "second file path shown");
         assert!(s.contains("4.8 MB"), "file size shown");
+    }
+
+    #[test]
+    fn big_box_pillow_graphics_path_renders_without_panic() {
+        use crate::disk::{DiskView, FileEntry};
+        use crate::ui::graphics::Gfx;
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let mut dv = DiskView::new(std::path::PathBuf::from("/tmp"));
+        dv.scanning = false;
+        dv.entries = vec![DiskEntry {
+            name: "project".into(),
+            size: 9_000_000,
+            files: vec![
+                FileEntry { rel: "target/huge.bin".into(), size: 5_000_000 },
+                FileEntry { rel: "assets/movie.mp4".into(), size: 3_000_000 },
+                FileEntry { rel: "docs/manual.pdf".into(), size: 1_000_000 },
+            ],
+        }];
+        let theme = crate::ui::theme::Theme::mc();
+        let mut gfx = Gfx::test_halfblocks();
+        let mut t = Terminal::new(TestBackend::new(100, 30)).unwrap();
+        // Exercises draw_box_pillow: squarify sub-layout + pillow_box + g.draw.
+        t.draw(|f| render(f, f.area(), &mut dv, &theme, Some(&mut gfx))).unwrap();
+        // The whole treemap is one graphics image (labels are baked into pixels,
+        // so they render as image cells, not readable text). Assert it painted.
+        let b = t.backend().buffer();
+        let image_cells = (0..b.area.height)
+            .flat_map(|y| (0..b.area.width).map(move |x| (x, y)))
+            .filter(|&(x, y)| matches!(b[(x, y)].symbol(), "\u{2580}" | "\u{2584}"))
+            .count();
+        assert!(image_cells > 100, "the graphical pillow treemap should paint many image cells");
     }
 
     #[test]

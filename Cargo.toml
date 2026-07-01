@@ -82,6 +82,7 @@ ar-reshaper = "1.5.0"
 unicode-bidi = "0.3.18"
 ratatui-image = { version = "11.0.6", default-features = false, features = ["crossterm"] }
 image = { version = "0.25.10", default-features = false }
+font8x8 = "0.3.1"
 
 # nix (chmod/chown/uid lookups, process signals) is Unix-only.
 [target.'cfg(unix)'.dependencies]
