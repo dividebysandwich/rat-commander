@@ -21,7 +21,7 @@ impl MessageDialog {
         }
     }
 
-    pub(crate) fn render(&self, f: &mut Frame, area: Rect, theme: &Theme) {
+    pub(crate) fn render(&self, f: &mut Frame, area: Rect, theme: &Theme, gfx: Option<&mut Gfx>) {
         let w = 60u16.min(area.width.saturating_sub(4));
         let rect = centered(area, w, 8);
         draw_shadow(f, rect, theme);
@@ -47,12 +47,15 @@ impl MessageDialog {
                 .alignment(ratatui::layout::Alignment::Center),
             rows[0],
         );
-        f.render_widget(
-            Paragraph::new(Line::from(button("[ OK ]", true, theme)))
-                .alignment(ratatui::layout::Alignment::Center)
-                .style(Style::default().bg(theme.dialog_bg)),
-            rows[1],
-        );
+        let ok = center_button_rect(rows[1], 10);
+        if !gfx_button(f, gfx, Slot::Button(0), ok, "OK", true, theme) {
+            f.render_widget(
+                Paragraph::new(Line::from(button("[ OK ]", true, theme)))
+                    .alignment(ratatui::layout::Alignment::Center)
+                    .style(Style::default().bg(theme.dialog_bg)),
+                rows[1],
+            );
+        }
     }
 }
 

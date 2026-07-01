@@ -90,7 +90,14 @@ ar-reshaper = "1.5.0"
 unicode-bidi = "0.3.18"
 ratatui-image = { version = "11.0.6", default-features = false, features = ["crossterm"] }
 image = { version = "0.25.10", default-features = false }
-font8x8 = "0.3.1"
+# Anti-aliased text baked into the terminal-graphics images (dialog button
+# labels, disk-explorer treemap labels). `fontdue` is a pure-Rust glyph
+# rasterizer (no C, ARM-cross-compile safe); `epaint_default_fonts` supplies the
+# embedded Ubuntu font bytes (Latin + Cyrillic + Greek), so no font file is
+# shipped separately. Baking (rather than overlaying cell text) is required
+# because graphics protocols draw pixels over the terminal cells.
+fontdue = "0.9"
+epaint_default_fonts = "0.34"
 
 # nix (chmod/chown/uid lookups, process signals) is Unix-only.
 [target.'cfg(unix)'.dependencies]

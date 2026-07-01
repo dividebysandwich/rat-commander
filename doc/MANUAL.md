@@ -724,8 +724,13 @@ of the keyboard focus ring: **Tab** / **↑↓** move onto them and **Enter** or
 
 Where the terminal supports a graphics protocol, the **progress bars**, the
 **process-explorer graphs** (CPU, per-core, memory, disk and network), the
-file-transfer **speed graph** and the **disk-explorer treemap** are drawn as
-true-pixel images with smooth gradients instead of block characters. It uses the
+file-transfer **speed graph**, the **disk-explorer treemap** and the **dialog
+buttons** (OK, Cancel, Yes/No, …) are drawn as true-pixel images with smooth
+gradients instead of block characters. Buttons pick up the theme's button colors
+and gain a drop shadow, with a soft glow around the focused one; their labels are
+drawn with an anti-aliased font (Latin, Cyrillic and Greek). A button whose
+translated label is in a script that font can't draw (e.g. Arabic or CJK) simply
+falls back to a regular text button so it stays readable. It uses the
 **Kitty**, **Sixel** or
 **iTerm2** protocol — so Kitty, Ghostty, WezTerm, Konsole, foot, recent
 xterm/VTE, iTerm2 and similar all get the richer rendering — and falls back

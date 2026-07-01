@@ -423,7 +423,7 @@ fn choice_dropdown_cursor_moves_freely() {
     let mut t = Terminal::new(TestBackend::new(60, 24)).unwrap();
     macro_rules! render {
         () => {
-            t.draw(|f| d.render(f, f.area(), &theme)).unwrap();
+            t.draw(|f| d.render(f, f.area(), &theme, None)).unwrap();
         };
     }
     d.handle_key(key(KeyCode::Enter)); // open the dropdown (sel = 0)
@@ -625,11 +625,11 @@ fn connect_dialog_renders_chevron_and_dropdown() {
         s
     };
 
-    t.draw(|f| d.render(f, f.area(), &theme)).unwrap();
+    t.draw(|f| d.render(f, f.area(), &theme, None)).unwrap();
     assert!(dump(&t).contains('▼'), "chevron shown on the host field");
 
     d.handle_key(key(KeyCode::Down)); // open the dropdown
-    t.draw(|f| d.render(f, f.area(), &theme)).unwrap();
+    t.draw(|f| d.render(f, f.area(), &theme, None)).unwrap();
     let s = dump(&t);
     assert!(s.contains("Recent"), "dropdown box title");
     assert!(s.contains("bob@host.example:22"), "history entry label");
@@ -669,20 +669,20 @@ fn multi_rename_mouse_focuses_and_toggles_fields() {
     };
 
     // Render once so the dialog records its clickable field geometry.
-    t.draw(|f| d.render(f, f.area(), &theme)).unwrap();
+    t.draw(|f| d.render(f, f.area(), &theme, None)).unwrap();
     assert!(find(&t, "[ ] Case sensitive").is_some(), "checkbox starts unchecked");
     assert!(find(&t, "unchanged").is_some(), "case starts unchanged");
 
     // Clicking the checkbox toggles it on.
     let (cx, cy) = find(&t, "Case sensitive").unwrap();
     d.handle_click(area, cx, cy);
-    t.draw(|f| d.render(f, f.area(), &theme)).unwrap();
+    t.draw(|f| d.render(f, f.area(), &theme, None)).unwrap();
     assert!(find(&t, "[x] Case sensitive").is_some(), "click toggled the checkbox on");
 
     // Clicking the case chooser cycles unchanged → lowercase.
     let (kx, ky) = find(&t, "Case:").unwrap();
     d.handle_click(area, kx, ky);
-    t.draw(|f| d.render(f, f.area(), &theme)).unwrap();
+    t.draw(|f| d.render(f, f.area(), &theme, None)).unwrap();
     assert!(find(&t, "lowercase").is_some(), "click cycled the case mode");
 }
 
@@ -743,7 +743,7 @@ fn form_ok_cancel_buttons_are_keyboard_navigable() {
     // Confirmations form has 5 fields; slot 5 = OK, slot 6 = Cancel.
     let render_has = |d: &mut FormDialog, needle: &str| {
         let mut t = Terminal::new(TestBackend::new(80, 24)).unwrap();
-        t.draw(|f| d.render(f, area, &theme)).unwrap();
+        t.draw(|f| d.render(f, area, &theme, None)).unwrap();
         let buf = t.backend().buffer();
         let mut s = String::new();
         for y in 0..buf.area.height {
@@ -886,4 +886,53 @@ fn checksum_result_dialog_shows_verdict_and_digest() {
     assert!(matches!(d.handle_click(area, 0, 0), DialogResult::None));
     let (ok_col, ok_row) = find(&t, "OK").expect("OK button rendered");
     assert!(matches!(d.handle_click(area, ok_col, ok_row), DialogResult::Cancel));
+}
+
+#[test]
+fn graphical_buttons_paint_and_stay_clickable() {
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    use crate::ui::graphics::Gfx;
+    let theme = crate::ui::theme::Theme::mc();
+    let area = Rect::new(0, 0, 80, 24);
+    let mut gfx = Gfx::test_halfblocks();
+
+    // A Yes/No confirmation rendered through the graphics path.
+    let mut d = Dialog::Confirm(ConfirmDialog::delete(vec![VfsPath::local("/tmp/a")]));
+    let mut t = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    t.draw(|f| d.render(f, area, &theme, Some(&mut gfx))).unwrap();
+
+    let image_cells = {
+        let b = t.backend().buffer();
+        (0..b.area.height)
+            .flat_map(|y| (0..b.area.width).map(move |x| (x, y)))
+            .filter(|&(x, y)| matches!(b[(x, y)].symbol(), "\u{2580}" | "\u{2584}"))
+            .count()
+    };
+    // The whole button (chrome + baked label) paints as graphics (half-block
+    // image cells); the label is baked into the pixels, not cell text, so it
+    // survives every graphics protocol.
+    assert!(image_cells > 0, "graphical buttons should paint image cells");
+
+    // Hit zones are unchanged by the graphics path: the Yes button (first button,
+    // centered on the last-but-one interior row of the centered 54×7 box) still
+    // submits. Box: centered(80×24,54,7) → x=13,y=8; button row y=13; Yes at x≈32.
+    assert!(
+        matches!(d.handle_click(area, 34, 13), DialogResult::Submit(Submit::Delete(_))),
+        "clicking the graphical Yes button still submits the delete"
+    );
+}
+
+#[test]
+fn button_labels_fall_back_to_text_for_unrenderable_scripts() {
+    use super::widgets::all_renderable;
+    // Scripts the bundled graphics font covers → graphical buttons.
+    assert!(all_renderable(&["OK", "Cancel"]));
+    assert!(all_renderable(&["ОК", "Отмена"])); // Russian (Cyrillic)
+    assert!(all_renderable(&["Άκυρο"])); // Greek
+    // Scripts it doesn't cover → the row falls back to regular text buttons, so
+    // the terminal font renders them (no baked "tofu" boxes).
+    assert!(!all_renderable(&["موافق", "إلغاء"])); // Arabic (ar.toml OK/Cancel)
+    assert!(!all_renderable(&["キャンセル"])); // Japanese (ja.toml Cancel)
+    assert!(!all_renderable(&["OK", "取消"])); // any unsupported member fails the row
 }

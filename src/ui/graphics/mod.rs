@@ -34,6 +34,8 @@ pub enum Slot {
     ProcNet,
     ProcCore(u16),
     Treemap(u16),
+    /// A dialog push-button, indexed within the currently-open dialog.
+    Button(u16),
 }
 
 struct Cached {

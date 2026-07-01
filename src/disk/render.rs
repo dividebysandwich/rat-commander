@@ -368,8 +368,8 @@ fn render_treemap_graphics(
         // Squarify the box's largest files into its interior, below the name/size
         // header (sized to the label scales so it doesn't overlap the sub-boxes).
         let (inner_w, inner_h) = (bw.saturating_sub(2) as f64, bh.saturating_sub(2) as f64);
-        let (nsc, ssc) = label_scales(bw, bh);
-        let header_px = header_layout(bh, nsc, ssc).0 as f64;
+        let (name_px, size_px) = label_px(bw, bh);
+        let header_px = header_layout(bh, name_px, size_px).0 as f64;
         let region_h = inner_h - header_px;
         let mut frects = if entry.files.len() >= 2 && inner_w > 10.0 && region_h > 10.0 {
             let sizes: Vec<f64> = entry.files.iter().take(16).map(|fe| fe.size.max(1) as f64).collect();
@@ -406,30 +406,31 @@ fn render_treemap_graphics(
     g.draw(f, body, Slot::Treemap(0), img);
 }
 
-/// Font scales (name, size) for a box's labels, chosen from its pixel size —
-/// bigger boxes get bigger, more legible text (each unit = an 8px glyph).
-fn label_scales(bw: u32, bh: u32) -> (u32, u32) {
+/// Font pixel sizes (name, size) for a box's labels, chosen from its pixel size —
+/// bigger boxes get bigger, more legible anti-aliased text.
+fn label_px(bw: u32, bh: u32) -> (f32, f32) {
     let name = if bw >= 300 && bh >= 170 {
-        3
+        30.0
     } else if bw >= 72 && bh >= 40 {
-        2
+        20.0
     } else {
-        1
+        14.0
     };
-    let size = if bw >= 110 && bh >= 58 { 2 } else { 1 };
+    let size = if bw >= 110 && bh >= 58 { 17.0 } else { 12.0 };
     (name, size)
 }
 
 /// The header height (pixels reserved above the sub-boxes) for a box, and whether
 /// the size line fits under the name. Keeps the sub-treemap and [`bake_labels`]
 /// in agreement about where the header ends.
-fn header_layout(bh: u32, name_scale: u32, size_scale: u32) -> (u32, bool) {
-    let name_h = 8 * name_scale;
+fn header_layout(bh: u32, name_px: f32, size_px: f32) -> (u32, bool) {
+    let name_h = raster::text_height(name_px);
     if bh < name_h + 12 {
         return (0, false);
     }
-    let with_size = bh >= name_h + 8 * size_scale + 24;
-    let px = 3 + name_h + if with_size { 3 + 8 * size_scale } else { 0 } + 4;
+    let size_h = raster::text_height(size_px);
+    let with_size = bh >= name_h + size_h + 24;
+    let px = 3 + name_h + if with_size { 3 + size_h } else { 0 } + 4;
     (px, with_size)
 }
 
@@ -448,35 +449,36 @@ fn bake_labels(
 ) {
     let name_fg = if selected { raster::rgb(theme.cursor_fg) } else { (250, 250, 250) };
     let plate = raster::over(fill, (0, 0, 0), 0.6);
-    let (nsc, ssc) = label_scales(bw, bh);
-    let (_, with_size) = header_layout(bh, nsc, ssc);
+    let (name_px, size_px) = label_px(bw, bh);
+    let (_, with_size) = header_layout(bh, name_px, size_px);
+    // How many characters of `text` fit in `width_px` at font size `px`.
+    let fit = |width: u32, px: f32| (width.saturating_sub(4) as f32 / raster::char_advance(px)).max(1.0) as usize;
 
     // Directory name, centered near the top.
-    let name = ellipsize(&entry.name, (bw.saturating_sub(4) / (8 * nsc)).max(1) as usize);
-    let nx = ox as i32 + (bw as i32 - raster::text_width(&name, nsc) as i32) / 2;
-    raster::draw_text(img, nx, oy as i32 + 3, &name, name_fg, Some(plate), nsc);
+    let name = ellipsize(&entry.name, fit(bw, name_px));
+    let nx = ox as i32 + (bw as i32 - raster::text_width(&name, name_px) as i32) / 2;
+    raster::draw_text(img, nx, oy as i32 + 3, &name, name_fg, Some(plate), name_px);
     // Size, centered under the name.
     if with_size {
-        let size = ellipsize(&human_gb(entry.size), (bw.saturating_sub(4) / (8 * ssc)).max(1) as usize);
-        let sx = ox as i32 + (bw as i32 - raster::text_width(&size, ssc) as i32) / 2;
-        let sy = oy as i32 + 3 + (8 * nsc) as i32 + 3;
-        raster::draw_text(img, sx, sy, &size, (230, 230, 230), Some(plate), ssc);
+        let size = ellipsize(&human_gb(entry.size), fit(bw, size_px));
+        let sx = ox as i32 + (bw as i32 - raster::text_width(&size, size_px) as i32) / 2;
+        let sy = oy as i32 + 3 + raster::text_height(name_px) as i32 + 3;
+        raster::draw_text(img, sx, sy, &size, (230, 230, 230), Some(plate), size_px);
     }
 
     // File names on sub-boxes large enough to hold them (bigger where there's room).
     for (k, r) in frects.iter().enumerate() {
         let Some(file) = entry.files.get(k) else { break };
-        let fsc = if r.w >= 120.0 && r.h >= 34.0 { 2 } else { 1 };
-        if r.w < (8 * fsc * 3) as f64 + 4.0 || r.h < (8 * fsc) as f64 + 6.0 {
+        let fpx = if r.w >= 120.0 && r.h >= 34.0 { 18.0 } else { 13.0 };
+        if r.w < raster::char_advance(fpx) as f64 * 3.0 + 4.0 || r.h < raster::text_height(fpx) as f64 + 6.0 {
             continue;
         }
         let sub_rgb = raster::over((0, 0, 0), fill, 0.42 + 0.12 * (k % 3) as f64);
         let base = file.rel.rsplit(['/', '\\']).next().unwrap_or(&file.rel);
-        let maxc = ((r.w as u32).saturating_sub(4) / (8 * fsc)).max(1) as usize;
-        let label = ellipsize(base, maxc);
+        let label = ellipsize(base, fit(r.w as u32, fpx));
         let sx = ox as i32 + 1 + r.x as i32 + 2;
         let sy = oy as i32 + 1 + r.y as i32 + 2;
-        raster::draw_text(img, sx, sy, &label, (240, 240, 240), Some(sub_rgb), fsc);
+        raster::draw_text(img, sx, sy, &label, (240, 240, 240), Some(sub_rgb), fpx);
     }
 }
 

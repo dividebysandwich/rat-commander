@@ -267,7 +267,7 @@ impl MultiRenameDialog {
         self.scroll(delta);
     }
 
-    pub(crate) fn render(&mut self, f: &mut Frame, area: Rect, theme: &Theme) {
+    pub(crate) fn render(&mut self, f: &mut Frame, area: Rect, theme: &Theme, gfx: Option<&mut Gfx>) {
         let w = area.width.saturating_sub(4).max(40);
         let h = area.height.saturating_sub(2).max(14);
         let rect = centered(area, w, h);
@@ -482,8 +482,14 @@ impl MultiRenameDialog {
             width: cancel.chars().count() as u16,
             height: 1,
         };
-        f.render_widget(Paragraph::new(Line::from(button(exec, true, theme))), exec_rect);
-        f.render_widget(Paragraph::new(Line::from(button(cancel, false, theme))), cancel_rect);
+        let mut gfx = gfx;
+        if gfx.as_deref().is_some_and(|g| g.available()) {
+            gfx_button(f, gfx.as_deref_mut(), Slot::Button(0), exec_rect, "Execute", true, theme);
+            gfx_button(f, gfx, Slot::Button(1), cancel_rect, "Cancel", false, theme);
+        } else {
+            f.render_widget(Paragraph::new(Line::from(button(exec, true, theme))), exec_rect);
+            f.render_widget(Paragraph::new(Line::from(button(cancel, false, theme))), cancel_rect);
+        }
         self.exec_rect = exec_rect;
         self.cancel_rect = cancel_rect;
 

@@ -9,9 +9,21 @@
 //! the pixel output uses exactly the same gradients as the Ratatui cell widgets
 //! these graphics replace.
 
-use font8x8::{UnicodeFonts, BASIC_FONTS};
 use image::{Rgba, RgbaImage};
 use ratatui::style::Color;
+use std::sync::LazyLock;
+
+/// The bundled UI font used for all baked-in graphics text (button labels,
+/// treemap labels). Ubuntu covers Latin, Cyrillic and Greek; parsed once. Text
+/// is baked as anti-aliased pixels so it survives every graphics protocol —
+/// terminal cell text drawn *over* a graphics image is not shown by Kitty/Sixel.
+static FONT: LazyLock<fontdue::Font> = LazyLock::new(|| {
+    fontdue::Font::from_bytes(
+        epaint_default_fonts::UBUNTU_LIGHT,
+        fontdue::FontSettings::default(),
+    )
+    .expect("bundled Ubuntu font parses")
+});
 
 /// An opaque RGB triple, matching the terminal's truecolor cells.
 pub type Rgb = (u8, u8, u8);
@@ -293,6 +305,93 @@ pub fn sweep_bar(w: u32, h: u32, pos: f64, block: f64, band: Rgb, track: Rgb, bg
     img
 }
 
+/// A themed push-button "face": a rounded (pill) body filled with `fill` under a
+/// soft vertical gloss and a bevelled top/bottom rim, sitting over background
+/// `bg` with a drop shadow toward the bottom-right. When `glow` is `Some` the
+/// body is wrapped in a soft halo of that color (pulsing when `animated`), used
+/// to mark the focused button. The label is drawn separately as crisp cell text
+/// by the caller, so every script renders (the 8×8 font is ASCII-only).
+#[allow(clippy::too_many_arguments)]
+pub fn button(w: u32, h: u32, fill: Rgb, glow: Option<Rgb>, bg: Rgb, anim: usize, animated: bool) -> RgbaImage {
+    let mut img = RgbaImage::from_pixel(w.max(1), h.max(1), Rgba([bg.0, bg.1, bg.2, 255]));
+    let (w, h) = (img.width(), img.height());
+    // Too small to shape a pill: fall back to a solid block.
+    if w < 4 || h < 3 {
+        for y in 0..h {
+            for x in 0..w {
+                put(&mut img, x, y, fill);
+            }
+        }
+        return img;
+    }
+    let so = (h as f64 / 8.0).max(1.0); // drop-shadow offset (down + right)
+    let pad = (h as f64 / 12.0).max(1.0); // inset leaving room for the glow/shadow
+    let x0 = pad;
+    let y0 = pad;
+    let x1 = (w as f64 - 1.0 - so).max(x0 + 2.0);
+    let y1 = (h as f64 - 1.0 - so).max(y0 + 2.0);
+    let r = ((y1 - y0) / 2.0).max(1.0); // pill radius (capsule half-height)
+    let cy = (y0 + y1) / 2.0;
+    let ax = x0 + r; // capsule spine endpoints
+    let bx = (x1 - r).max(ax);
+    // Signed distance from `(px,py)` to the pill capsule shifted by `(dx,dy)`
+    // (negative inside). Used for the body, its offset shadow, and the glow.
+    let capsule = |px: f64, py: f64, dx: f64, dy: f64| -> f64 {
+        let sx = (px - dx).clamp(ax, bx);
+        let ex = (px - dx) - sx;
+        let ey = (py - dy) - cy;
+        (ex * ex + ey * ey).sqrt() - r
+    };
+    // The glow gently pulses on animated themes, matching the progress bars.
+    let gstr = if animated {
+        0.4 + 0.45 * ((anim as f64 * 0.12).sin() * 0.5 + 0.5)
+    } else {
+        0.6
+    };
+    let glow_r = r + 3.0;
+    for y in 0..h {
+        let py = y as f64;
+        let vy = ((py - y0) / (y1 - y0).max(1.0)).clamp(0.0, 1.0);
+        // Vertical gloss: brightest just above the middle, darker toward the base.
+        let gloss = (1.18 - 0.55 * (vy - 0.28).abs()).clamp(0.6, 1.28);
+        for x in 0..w {
+            let px = x as f64;
+            let mut c = bg;
+            let dbody = capsule(px, py, 0.0, 0.0);
+            // Outer glow halo around the body (focused buttons only).
+            if let Some(gc) = glow
+                && dbody > 0.0
+                && dbody < glow_r
+            {
+                let t = 1.0 - dbody / glow_r;
+                c = over(c, gc, t * t * gstr);
+            }
+            // Drop shadow: the body silhouette offset toward the bottom-right,
+            // drawn only where the body itself won't cover it.
+            let dsh = capsule(px, py, so, so);
+            if dbody > 0.0 && dsh < 0.9 {
+                let cover = (0.9 - dsh).clamp(0.0, 1.0);
+                c = over(c, (0, 0, 0), cover * 0.42);
+            }
+            // Body (anti-aliased edge), with a bright top rim and dark bottom rim.
+            if dbody < 0.9 {
+                let cover = (0.9 - dbody).clamp(0.0, 1.0);
+                let mut bc = shade(fill, gloss);
+                if dbody < 0.0 {
+                    if py <= y0 + 1.2 {
+                        bc = over(bc, (255, 255, 255), 0.30);
+                    } else if py >= y1 - 1.2 {
+                        bc = over(bc, (0, 0, 0), 0.20);
+                    }
+                }
+                c = over(c, bc, cover);
+            }
+            put(&mut img, x, y, c);
+        }
+    }
+    img
+}
+
 /// A blank RGBA image filled with `bg`, for drawing multiple pillows into.
 pub fn canvas(w: u32, h: u32, bg: Rgb) -> RgbaImage {
     RgbaImage::from_pixel(w.max(1), h.max(1), Rgba([bg.0, bg.1, bg.2, 255]))
@@ -317,53 +416,93 @@ pub fn hsv(h: f64, s: f64, v: f64) -> Rgb {
     (q(r), q(g), q(b))
 }
 
-/// Blit `text` into `img` at `(x, y)` using the 8×8 bitmap font, each glyph
-/// scaled by `scale`, in color `fg` over an optional darkened `plate` (drawn
-/// behind the text for legibility). Text baked into the image this way survives
-/// every graphics protocol, unlike cell text drawn over an image. Off-image
-/// pixels are clipped.
-pub fn draw_text(img: &mut RgbaImage, x: i32, y: i32, text: &str, fg: Rgb, plate: Option<Rgb>, scale: u32) {
-    let scale = scale.max(1);
+/// Blit anti-aliased `text` into `img` with its top-left at `(x, y)`, at font
+/// pixel size `px`, in color `fg` over an optional darkened `plate` (a rectangle
+/// drawn behind the run for legibility). Each glyph is rasterized by the bundled
+/// font and alpha-composited, so the text looks smooth at any size. Text baked
+/// this way survives every graphics protocol, unlike cell text drawn over an
+/// image. Off-image pixels are clipped.
+pub fn draw_text(img: &mut RgbaImage, x: i32, y: i32, text: &str, fg: Rgb, plate: Option<Rgb>, px: f32) {
+    let font = &*FONT;
     let (iw, ih) = (img.width() as i32, img.height() as i32);
-    let gw = (8 * scale) as i32;
+    let ascent = font.horizontal_line_metrics(px).map(|m| m.ascent).unwrap_or(px * 0.8);
+    let baseline = y as f32 + ascent;
+
     if let Some(pl) = plate {
-        let total_w = text.chars().count() as i32 * gw;
-        for py in y..(y + gw) {
-            for px in (x - 1)..(x + total_w + 1) {
-                if px >= 0 && py >= 0 && px < iw && py < ih {
-                    let p = img.get_pixel(px as u32, py as u32).0;
+        let tw = text_width(text, px) as i32;
+        let th = text_height(px) as i32;
+        for py in (y - 1)..(y + th + 1) {
+            for pxi in (x - 1)..(x + tw + 1) {
+                if pxi >= 0 && py >= 0 && pxi < iw && py < ih {
+                    let p = img.get_pixel(pxi as u32, py as u32).0;
                     let c = over((p[0], p[1], p[2]), pl, 0.6);
-                    img.put_pixel(px as u32, py as u32, Rgba([c.0, c.1, c.2, 255]));
+                    img.put_pixel(pxi as u32, py as u32, Rgba([c.0, c.1, c.2, 255]));
                 }
             }
         }
     }
-    let mut cx = x;
+
+    let mut cursor = x as f32;
     for ch in text.chars() {
-        if let Some(rows) = BASIC_FONTS.get(ch) {
-            for (ry, bits) in rows.iter().enumerate() {
-                for bit in 0..8u32 {
-                    if bits & (1 << bit) != 0 {
-                        for sy in 0..scale {
-                            for sx in 0..scale {
-                                let px = cx + (bit * scale + sx) as i32;
-                                let py = y + (ry as u32 * scale + sy) as i32;
-                                if px >= 0 && py >= 0 && px < iw && py < ih {
-                                    img.put_pixel(px as u32, py as u32, Rgba([fg.0, fg.1, fg.2, 255]));
-                                }
-                            }
-                        }
+        // Skip characters the font has no glyph for, so a missing script draws a
+        // gap rather than a `.notdef` "tofu" box. Still advance to keep layout.
+        if !ch.is_whitespace() && !font.has_glyph(ch) {
+            cursor += font.metrics(ch, px).advance_width;
+            continue;
+        }
+        let (m, bitmap) = font.rasterize(ch, px);
+        if m.width > 0 && m.height > 0 {
+            let gx0 = (cursor + m.xmin as f32).round() as i32;
+            // Bitmap top in screen coords: baseline − glyph-height − bottom-bearing.
+            let gy0 = (baseline - m.height as f32 - m.ymin as f32).round() as i32;
+            for gy in 0..m.height {
+                for gx in 0..m.width {
+                    let a = bitmap[gy * m.width + gx];
+                    if a == 0 {
+                        continue;
+                    }
+                    let sx = gx0 + gx as i32;
+                    let sy = gy0 + gy as i32;
+                    if sx >= 0 && sy >= 0 && sx < iw && sy < ih {
+                        let p = img.get_pixel(sx as u32, sy as u32).0;
+                        let c = over((p[0], p[1], p[2]), fg, a as f64 / 255.0);
+                        img.put_pixel(sx as u32, sy as u32, Rgba([c.0, c.1, c.2, 255]));
                     }
                 }
             }
         }
-        cx += gw;
+        cursor += m.advance_width;
     }
 }
 
-/// Pixel width of `text` rendered by [`draw_text`] at `scale`.
-pub fn text_width(text: &str, scale: u32) -> u32 {
-    text.chars().count() as u32 * 8 * scale.max(1)
+/// Pixel width of `text` rendered by [`draw_text`] at font size `px`.
+pub fn text_width(text: &str, px: f32) -> u32 {
+    let font = &*FONT;
+    let w: f32 = text.chars().map(|c| font.metrics(c, px).advance_width).sum();
+    w.ceil() as u32
+}
+
+/// Vertical extent (ascent + descent) of a line at font size `px`, for centering.
+pub fn text_height(px: f32) -> u32 {
+    match FONT.horizontal_line_metrics(px) {
+        Some(m) => (m.ascent - m.descent).ceil().max(1.0) as u32,
+        None => px.ceil() as u32,
+    }
+}
+
+/// Advance width of a representative glyph at font size `px` (used to budget how
+/// many characters fit in a given pixel width before ellipsizing).
+pub fn char_advance(px: f32) -> f32 {
+    FONT.metrics('n', px).advance_width.max(1.0)
+}
+
+/// Whether the bundled font can render every (non-space) character in `s` — i.e.
+/// baking it produces real glyphs, not `.notdef` "tofu" boxes. The font covers
+/// Latin, Cyrillic and Greek but not, say, Arabic or CJK; callers use this to
+/// fall back to an English label rather than bake unreadable boxes.
+pub fn font_can_render(s: &str) -> bool {
+    let font = &*FONT;
+    s.chars().all(|c| c.is_whitespace() || font.has_glyph(c))
 }
 
 /// A recessed sub-panel inside a [`pillow_box`]: a pixel rect and its fill color.
@@ -557,6 +696,33 @@ mod tests {
     }
 
     #[test]
+    fn button_has_body_shadow_and_focus_glow() {
+        let fill = (40, 90, 200);
+        let bg = (10, 10, 10);
+        // Unfocused: a filled body over the background, with a bottom-right shadow.
+        let plain = button(80, 24, fill, None, bg, 0, false);
+        let (cx, cy) = (plain.width() / 2, plain.height() / 2);
+        assert!(!is_bg(&plain, cx, cy, bg), "the button body is filled");
+        // A pixel just inside the bottom-right corner is darkened by the shadow
+        // (neither the flat body color nor the untouched background).
+        let sx = plain.width() - 2;
+        let sy = plain.height() - 2;
+        let sp = plain.get_pixel(sx, sy).0;
+        let lum = |p: [u8; 4]| p[0] as u32 + p[1] as u32 + p[2] as u32;
+        assert!(lum(sp) < lum([bg.0, bg.1, bg.2, 255]) + 60, "drop shadow darkens the corner");
+
+        // Focused: a glow tint appears in the margin around the body that is plain
+        // background when unfocused.
+        let glow = (120, 200, 255);
+        let lit = button(80, 24, fill, Some(glow), bg, 0, false);
+        // Sample a column at the far left edge, above/below the body center where
+        // the halo bleeds into the padding.
+        let edge_glows = (0..lit.height())
+            .any(|y| !is_bg(&lit, 1, y, bg) && is_bg(&plain, 1, y, bg));
+        assert!(edge_glows, "focus glow tints the padding around the body");
+    }
+
+    #[test]
     fn hsv_primaries_are_correct() {
         assert_eq!(hsv(0.0, 1.0, 1.0), (255, 0, 0)); // red
         assert_eq!(hsv(120.0, 1.0, 1.0), (0, 255, 0)); // green
@@ -566,13 +732,52 @@ mod tests {
 
     #[test]
     fn draw_text_sets_glyph_pixels() {
-        let mut img = RgbaImage::from_pixel(64, 16, Rgba([0, 0, 0, 255]));
-        draw_text(&mut img, 1, 1, "A", (255, 255, 255), None, 1);
-        // Some pixels within the glyph box are now white; the far corner is not.
+        let mut img = RgbaImage::from_pixel(64, 24, Rgba([0, 0, 0, 255]));
+        draw_text(&mut img, 1, 1, "A", (255, 255, 255), None, 18.0);
+        // Some pixels within the glyph box are now lit; the far corner is not.
         let lit = |x: u32, y: u32| img.get_pixel(x, y).0[0] > 0;
-        let any = (1..9).flat_map(|x| (1..9).map(move |y| (x, y))).any(|(x, y)| lit(x, y));
+        let any = (1..18).flat_map(|x| (1..22).map(move |y| (x, y))).any(|(x, y)| lit(x, y));
         assert!(any, "glyph 'A' should light some pixels");
-        assert!(!lit(40, 12), "pixels outside the text stay background");
+        assert!(!lit(60, 22), "pixels outside the text stay background");
+        // Anti-aliasing produces intermediate (grey) intensities, not just on/off.
+        let has_partial =
+            (0..img.width()).flat_map(|x| (0..img.height()).map(move |y| (x, y))).any(|(x, y)| {
+                let v = img.get_pixel(x, y).0[0];
+                v > 0 && v < 255
+            });
+        assert!(has_partial, "anti-aliased glyph edges should have partial intensities");
+    }
+
+    #[test]
+    fn text_metrics_scale_with_size() {
+        // Wider text and taller lines at a larger font size.
+        assert!(text_width("Cancel", 24.0) > text_width("Cancel", 12.0));
+        assert!(text_height(24.0) > text_height(12.0));
+        assert!(char_advance(20.0) > 1.0);
+    }
+
+    #[test]
+    fn font_can_render_covers_latin_cyrillic_greek_not_arabic_cjk() {
+        assert!(font_can_render("OK"));
+        assert!(font_can_render("Cancel 123"));
+        assert!(font_can_render("Отмена")); // Cyrillic
+        assert!(font_can_render("Ελληνικά")); // Greek
+        assert!(!font_can_render("موافق")); // Arabic
+        assert!(!font_can_render("取消")); // CJK
+        // A single unsupported character makes the whole string unrenderable.
+        assert!(!font_can_render("OK取"));
+    }
+
+    #[test]
+    fn draw_text_skips_unrenderable_chars_instead_of_tofu() {
+        // An unsupported script bakes no pixels at all (no ".notdef" tofu boxes).
+        let mut a = RgbaImage::from_pixel(80, 24, Rgba([0, 0, 0, 255]));
+        draw_text(&mut a, 1, 1, "取消", (255, 255, 255), None, 18.0);
+        assert_eq!(a.pixels().filter(|p| p.0[0] > 0).count(), 0, "no tofu baked");
+        // Renderable text still bakes glyph pixels.
+        let mut b = RgbaImage::from_pixel(80, 24, Rgba([0, 0, 0, 255]));
+        draw_text(&mut b, 1, 1, "OK", (255, 255, 255), None, 18.0);
+        assert!(b.pixels().any(|p| p.0[0] > 0), "renderable text is drawn");
     }
 
     #[test]

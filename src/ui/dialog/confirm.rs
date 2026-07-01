@@ -418,7 +418,7 @@ impl ConfirmDialog {
         centered(area, w.min(area.width.saturating_sub(4)), h)
     }
 
-    pub(crate) fn render(&self, f: &mut Frame, area: Rect, theme: &Theme) {
+    pub(crate) fn render(&self, f: &mut Frame, area: Rect, theme: &Theme, gfx: Option<&mut Gfx>) {
         let rect = self.box_rect(area);
         draw_shadow(f, rect, theme);
         f.render_widget(Clear, rect);
@@ -446,19 +446,43 @@ impl ConfirmDialog {
             rows[0],
         );
 
-        let mut spans = Vec::new();
-        for (i, label) in self.button_labels().iter().enumerate() {
-            if i > 0 {
-                spans.push(Span::raw("   "));
+        let labels = self.button_labels();
+        let mut gfx = gfx;
+        if gfx.as_deref().is_some_and(|g| g.available()) {
+            // Graphical buttons: lay them out exactly as `handle_click` computes
+            // the hit zones so clicks still land.
+            let total: usize = labels.iter().map(|l| l.chars().count()).sum::<usize>()
+                + 3 * labels.len().saturating_sub(1);
+            let mut x = inner.x + (inner.width.saturating_sub(total as u16)) / 2;
+            let y = rows[1].y;
+            for (i, (label, btn)) in labels.iter().zip(self.buttons.iter()).enumerate() {
+                let w = label.chars().count() as u16;
+                gfx_button(
+                    f,
+                    gfx.as_deref_mut(),
+                    Slot::Button(i as u16),
+                    Rect { x, y, width: w, height: 1 },
+                    &btn.label,
+                    i == self.focus,
+                    theme,
+                );
+                x += w + 3;
             }
-            spans.push(button(label, i == self.focus, theme));
+        } else {
+            let mut spans = Vec::new();
+            for (i, label) in labels.iter().enumerate() {
+                if i > 0 {
+                    spans.push(Span::raw("   "));
+                }
+                spans.push(button(label, i == self.focus, theme));
+            }
+            f.render_widget(
+                Paragraph::new(Line::from(spans))
+                    .alignment(ratatui::layout::Alignment::Center)
+                    .style(Style::default().bg(theme.dialog_bg)),
+                rows[1],
+            );
         }
-        f.render_widget(
-            Paragraph::new(Line::from(spans))
-                .alignment(ratatui::layout::Alignment::Center)
-                .style(Style::default().bg(theme.dialog_bg)),
-            rows[1],
-        );
     }
 }
 

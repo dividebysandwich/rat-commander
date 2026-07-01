@@ -152,7 +152,7 @@ impl InputDialog {
         }
     }
 
-    pub(crate) fn render(&self, f: &mut Frame, area: Rect, theme: &Theme) {
+    pub(crate) fn render(&self, f: &mut Frame, area: Rect, theme: &Theme, gfx: Option<&mut Gfx>) {
         let w = 60u16.min(area.width.saturating_sub(4));
         let rect = centered(area, w, 7);
         draw_shadow(f, rect, theme);
@@ -183,12 +183,14 @@ impl InputDialog {
         }
 
         let by = Rect { y: inner.y + inner.height - 1, height: 1, ..inner };
-        f.render_widget(
-            Paragraph::new(ok_cancel_line(true, theme))
-                .alignment(ratatui::layout::Alignment::Center)
-                .style(Style::default().bg(theme.dialog_bg)),
-            by,
-        );
+        if !draw_ok_cancel(f, gfx, by, theme) {
+            f.render_widget(
+                Paragraph::new(ok_cancel_line(true, theme))
+                    .alignment(ratatui::layout::Alignment::Center)
+                    .style(Style::default().bg(theme.dialog_bg)),
+                by,
+            );
+        }
     }
 }
 

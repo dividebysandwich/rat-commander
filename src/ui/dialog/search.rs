@@ -143,7 +143,7 @@ impl SearchReplaceDialog {
         }
     }
 
-    pub(crate) fn render(&self, f: &mut Frame, area: Rect, theme: &Theme) {
+    pub(crate) fn render(&self, f: &mut Frame, area: Rect, theme: &Theme, gfx: Option<&mut Gfx>) {
         let title = if self.replace { "Replace" } else { "Search" };
         let height = if self.replace { 14 } else { 12 };
         let rect = centered(area, 64u16.min(area.width.saturating_sub(2)), height);
@@ -216,12 +216,14 @@ impl SearchReplaceDialog {
         }
 
         let by = inner.y + inner.height - 1;
-        f.render_widget(
-            Paragraph::new(ok_cancel_line(true, theme))
-                .alignment(ratatui::layout::Alignment::Center)
-                .style(base),
-            line_at(by),
-        );
+        if !draw_ok_cancel(f, gfx, line_at(by), theme) {
+            f.render_widget(
+                Paragraph::new(ok_cancel_line(true, theme))
+                    .alignment(ratatui::layout::Alignment::Center)
+                    .style(base),
+                line_at(by),
+            );
+        }
 
         if let Some(p) = caret {
             f.set_cursor_position(p);

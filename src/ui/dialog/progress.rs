@@ -226,14 +226,17 @@ impl ProgressDialog {
             .style(base),
             rows[4],
         );
-        self.render_speed_chart(f, rows[5], theme, gfx);
+        self.render_speed_chart(f, rows[5], theme, gfx.as_deref_mut());
 
-        f.render_widget(
-            Paragraph::new(Line::from(button("[ Abort ]", true, theme)))
-                .alignment(ratatui::layout::Alignment::Center)
-                .style(base),
-            rows[6],
-        );
+        let abort = center_button_rect(rows[6], 11);
+        if !gfx_button(f, gfx, Slot::Button(0), abort, "Abort", true, theme) {
+            f.render_widget(
+                Paragraph::new(Line::from(button("[ Abort ]", true, theme)))
+                    .alignment(ratatui::layout::Alignment::Center)
+                    .style(base),
+                rows[6],
+            );
+        }
     }
 
     /// A sparkline of transfer speed over bytes transferred. Each column is a
@@ -327,7 +330,7 @@ impl ProgressDialog {
     }
 
     /// Render an indeterminate scanning dialog (current path + sweep + count).
-    fn render_indeterminate(&mut self, f: &mut Frame, area: Rect, theme: &Theme, gfx: Option<&mut Gfx>) {
+    fn render_indeterminate(&mut self, f: &mut Frame, area: Rect, theme: &Theme, mut gfx: Option<&mut Gfx>) {
         let w = 64u16.min(area.width.saturating_sub(4));
         let rect = centered(area, w, 8);
         draw_shadow(f, rect, theme);
@@ -354,7 +357,7 @@ impl ProgressDialog {
         let span = bar_w.saturating_sub(block_w).max(1);
         let phase = (self.files_done as usize) % (2 * span);
         let pos = if phase < span { phase } else { 2 * span - phase };
-        let drawn = if let Some(g) = gfx {
+        let drawn = if let Some(g) = gfx.as_deref_mut() {
             if g.available() && bar_w > 0 {
                 let (pw, ph) = g.px_size(bar_area);
                 let pos_frac = (pos + block_w / 2) as f64 / bar_w as f64;
@@ -398,7 +401,9 @@ impl ProgressDialog {
             width: bw,
             height: 1,
         };
-        f.render_widget(Paragraph::new(Line::from(button(label, true, theme))).style(base), arect);
+        if !gfx_button(f, gfx, Slot::Button(0), arect, "Abort", true, theme) {
+            f.render_widget(Paragraph::new(Line::from(button(label, true, theme))).style(base), arect);
+        }
         self.abort_rect = arect;
     }
 }

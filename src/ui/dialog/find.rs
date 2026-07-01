@@ -91,7 +91,7 @@ impl FindDialog {
         DialogResult::None
     }
 
-    pub(crate) fn render(&self, f: &mut Frame, area: Rect, theme: &Theme) {
+    pub(crate) fn render(&self, f: &mut Frame, area: Rect, theme: &Theme, gfx: Option<&mut Gfx>) {
         let rect = centered(area, 66u16.min(area.width.saturating_sub(2)), 13);
         draw_shadow(f, rect, theme);
         f.render_widget(Clear, rect);
@@ -150,12 +150,14 @@ impl FindDialog {
         );
 
         let by = inner.y + inner.height - 1;
-        f.render_widget(
-            Paragraph::new(ok_cancel_line(true, theme))
-                .alignment(ratatui::layout::Alignment::Center)
-                .style(base),
-            line_at(by),
-        );
+        if !draw_ok_cancel(f, gfx, line_at(by), theme) {
+            f.render_widget(
+                Paragraph::new(ok_cancel_line(true, theme))
+                    .alignment(ratatui::layout::Alignment::Center)
+                    .style(base),
+                line_at(by),
+            );
+        }
 
         if let Some(p) = caret {
             f.set_cursor_position(p);

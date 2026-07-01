@@ -232,7 +232,8 @@ impl DriveDialog {
         DialogResult::None
     }
 
-    pub(crate) fn render(&mut self, f: &mut Frame, area: Rect, theme: &Theme) {
+    pub(crate) fn render(&mut self, f: &mut Frame, area: Rect, theme: &Theme, gfx: Option<&mut Gfx>) {
+        let mut gfx = gfx;
         const DCELL: usize = 5; // "  X  " drive cell
         const GAP: usize = 1;
 
@@ -300,7 +301,7 @@ impl DriveDialog {
                 let x = gx + (col * (DCELL + GAP)) as u16;
                 let cell = Rect { x, y: grid_y + brow as u16, width: DCELL as u16, height: 1 };
                 let label = self.item_label(i);
-                self.draw_button(f, theme, i, cell, brow, &label);
+                self.draw_button(f, theme, i, cell, brow, &label, gfx.as_deref_mut());
             }
         }
 
@@ -316,18 +317,39 @@ impl DriveDialog {
             for &i in row {
                 let w = self.label_width(i) as u16;
                 let label = self.item_label(i);
-                self.draw_button(f, theme, i, Rect { x: cx, y, width: w, height: 1 }, logical_row, &label);
+                self.draw_button(
+                    f,
+                    theme,
+                    i,
+                    Rect { x: cx, y, width: w, height: 1 },
+                    logical_row,
+                    &label,
+                    gfx.as_deref_mut(),
+                );
                 cx += w + GAP as u16;
             }
         }
     }
 
-    fn draw_button(&mut self, f: &mut Frame, theme: &Theme, i: usize, rect: Rect, row: usize, label: &str) {
-        let style = if i == self.cursor { theme.button_focused } else { theme.button };
-        f.render_widget(
-            Paragraph::new(Line::from(Span::styled(label.to_string(), style))),
-            rect,
-        );
+    #[allow(clippy::too_many_arguments)]
+    fn draw_button(
+        &mut self,
+        f: &mut Frame,
+        theme: &Theme,
+        i: usize,
+        rect: Rect,
+        row: usize,
+        label: &str,
+        gfx: Option<&mut Gfx>,
+    ) {
+        let focused = i == self.cursor;
+        if !gfx_button(f, gfx, Slot::Button(i as u16), rect, label, focused, theme) {
+            let style = if focused { theme.button_focused } else { theme.button };
+            f.render_widget(
+                Paragraph::new(Line::from(Span::styled(label.to_string(), style))),
+                rect,
+            );
+        }
         self.zones.push((rect, i));
         self.layout[i] = (row, rect.x + rect.width / 2);
     }

@@ -238,6 +238,106 @@ pub(crate) fn button(text: &str, focused: bool, theme: &Theme) -> Span<'static> 
     Span::styled(text.to_string(), style)
 }
 
+// --- Graphical buttons (terminal-graphics only) ----------------------------
+
+pub(crate) use crate::ui::graphics::{Gfx, Slot};
+use crate::ui::graphics::raster;
+use ratatui::style::Color;
+
+/// Whether the bundled graphics font can render every one of `labels`. Graphics
+/// buttons bake their text as pixels with a Latin/Cyrillic/Greek font, so when a
+/// translation is in an unsupported script (Arabic, CJK, …) the whole button row
+/// falls back to regular text buttons, which the terminal font draws in any
+/// script (see the `!gfx …` fallbacks at each call site).
+pub(crate) fn all_renderable(labels: &[&str]) -> bool {
+    labels.iter().all(|l| raster::font_can_render(l))
+}
+
+/// A one-row rect of `cells` width, centered horizontally within `row`.
+pub(crate) fn center_button_rect(row: Rect, cells: u16) -> Rect {
+    let w = cells.min(row.width);
+    Rect { x: row.x + (row.width - w) / 2, y: row.y, width: w, height: 1 }
+}
+
+/// Draw a themed graphical push-button filling `rect` (a pill body with gloss, a
+/// drop shadow, and — when `focused` — a glow), with `label` overlaid as crisp
+/// cell text. Returns `false` when graphics are unavailable so the caller can
+/// fall back to its text button. The button's colors come from the theme's
+/// `button` / `button_focused` styles.
+pub(crate) fn gfx_button(
+    f: &mut Frame,
+    gfx: Option<&mut Gfx>,
+    slot: Slot,
+    rect: Rect,
+    label: &str,
+    focused: bool,
+    theme: &Theme,
+) -> bool {
+    let style = if focused { theme.button_focused } else { theme.button };
+    let fill = style.bg.unwrap_or(theme.input_bg);
+    let text_fg = style.fg.unwrap_or(theme.dialog_bg);
+    let glow = focused.then(|| theme.button_focused.bg.unwrap_or(theme.dialog_title));
+    gfx_button_colored(f, gfx, slot, rect, label, fill, text_fg, glow, theme.dialog_bg, theme)
+}
+
+/// Like [`gfx_button`] but with explicit colors, for dialogs that theme their
+/// buttons specially (e.g. the red overwrite prompt). `glow` is `Some` to draw a
+/// focus halo; `bg` is the surrounding surface the button sits on (so its shadow
+/// and glow blend into that dialog's interior).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn gfx_button_colored(
+    f: &mut Frame,
+    gfx: Option<&mut Gfx>,
+    slot: Slot,
+    rect: Rect,
+    label: &str,
+    fill: Color,
+    text_fg: Color,
+    glow: Option<Color>,
+    bg: Color,
+    theme: &Theme,
+) -> bool {
+    let Some(g) = gfx else { return false };
+    if !g.available() || rect.width == 0 || rect.height == 0 {
+        return false;
+    }
+    // The label is baked as pixels; if the bundled font can't render it (Arabic,
+    // CJK, …) refuse, so the caller falls back to a regular text button that the
+    // terminal font can draw in any script.
+    let disp = crate::l10n::display(label);
+    if !raster::font_can_render(&disp) {
+        return false;
+    }
+    let (w, h) = g.px_size(rect);
+    let mut img = raster::button(
+        w,
+        h,
+        raster::rgb(fill),
+        glow.map(raster::rgb),
+        raster::rgb(bg),
+        theme.anim,
+        theme.animated,
+    );
+    // Bake the label into the image as anti-aliased pixels, centered, sized to the
+    // button height and shrunk to fit the width. (Cell text drawn over a graphics
+    // image is not shown by Kitty/Sixel, so it must be baked in.)
+    if !disp.is_empty() && w > 6 && h > 4 {
+        let mut px = (h as f32 * 0.72).clamp(11.0, 30.0);
+        let avail = (w as f32) - 6.0; // leave a little horizontal padding
+        let tw = raster::text_width(&disp, px) as f32;
+        if tw > avail && tw > 0.0 {
+            px = (px * avail / tw).max(8.0);
+        }
+        let tw = raster::text_width(&disp, px) as i32;
+        let th = raster::text_height(px) as i32;
+        let tx = (w as i32 - tw) / 2;
+        let ty = (h as i32 - th) / 2;
+        raster::draw_text(&mut img, tx, ty, &disp, raster::rgb(text_fg), None, px);
+    }
+    g.draw(f, rect, slot, img);
+    true
+}
+
 // --- Reusable styled widgets matching the mc dialog look -------------------
 
 /// Draw a turquoise input field with a trailing `[^]` history button. Returns
@@ -308,6 +408,33 @@ pub(crate) fn check_span(label: &str, checked: bool, focused: bool, theme: &Them
         Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg)
     };
     Span::styled(format!("{mark}{label}"), style)
+}
+
+/// Draw the OK / Cancel pair as graphical buttons centered on `row` (OK
+/// highlighted). Returns `false` when graphics are unavailable (or the row is too
+/// narrow), so the caller falls back to [`ok_cancel_line`].
+pub(crate) fn draw_ok_cancel(f: &mut Frame, gfx: Option<&mut Gfx>, row: Rect, theme: &Theme) -> bool {
+    let mut gfx = gfx;
+    if !gfx.as_deref().is_some_and(|g| g.available()) {
+        return false;
+    }
+    let ok_txt = crate::l10n::tr("OK");
+    let cancel_txt = crate::l10n::tr("Cancel");
+    // Fall back to the text button line when the font can't render either label.
+    if !all_renderable(&[&ok_txt, &cancel_txt]) {
+        return false;
+    }
+    let (ok_w, cancel_w, gap) = (12u16, 14u16, 2u16);
+    let total = ok_w + gap + cancel_w;
+    if row.width < total {
+        return false; // too tight for graphical buttons; keep the text line
+    }
+    let start = row.x + (row.width - total) / 2;
+    let ok = Rect { x: start, y: row.y, width: ok_w, height: 1 };
+    let cancel = Rect { x: start + ok_w + gap, y: row.y, width: cancel_w, height: 1 };
+    gfx_button(f, gfx.as_deref_mut(), Slot::Button(0), ok, &ok_txt, true, theme);
+    gfx_button(f, gfx, Slot::Button(1), cancel, &cancel_txt, false, theme);
+    true
 }
 
 /// The `[< OK >]   [ Cancel ]` button row (localized).

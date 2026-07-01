@@ -58,8 +58,9 @@ impl CompareDialog {
         DialogResult::None
     }
 
-    pub(crate) fn render(&mut self, f: &mut Frame, area: Rect, theme: &Theme) {
+    pub(crate) fn render(&mut self, f: &mut Frame, area: Rect, theme: &Theme, gfx: Option<&mut Gfx>) {
         self.zones.clear();
+        let mut gfx = gfx;
         let w = 52u16.min(area.width.saturating_sub(4));
         let rect = centered(area, w, 7);
         draw_shadow(f, rect, theme);
@@ -86,15 +87,12 @@ impl CompareDialog {
             labels.iter().map(|l| l.chars().count()).sum::<usize>() + labels.len().saturating_sub(1);
         let mut x = rows[1].x + (rows[1].width.saturating_sub(total as u16)) / 2;
         for (i, label) in labels.iter().enumerate() {
-            let style = if i == self.focus { theme.button_focused } else { theme.button };
-            f.render_widget(
-                Paragraph::new(Span::styled(label.clone(), style)),
-                Rect { x, y: rows[1].y, width: label.chars().count() as u16, height: 1 },
-            );
-            self.zones.push((
-                Rect { x, y: rows[1].y, width: label.chars().count() as u16, height: 1 },
-                i,
-            ));
+            let rect = Rect { x, y: rows[1].y, width: label.chars().count() as u16, height: 1 };
+            if !gfx_button(f, gfx.as_deref_mut(), Slot::Button(i as u16), rect, COMPARE_MODES[i].0, i == self.focus, theme) {
+                let style = if i == self.focus { theme.button_focused } else { theme.button };
+                f.render_widget(Paragraph::new(Span::styled(label.clone(), style)), rect);
+            }
+            self.zones.push((rect, i));
             x += label.chars().count() as u16 + 1;
         }
     }

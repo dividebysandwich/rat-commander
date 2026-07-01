@@ -121,8 +121,9 @@ impl OverwriteDialog {
         }
     }
 
-    pub(crate) fn render(&mut self, f: &mut Frame, area: Rect, theme: &Theme) {
+    pub(crate) fn render(&mut self, f: &mut Frame, area: Rect, theme: &Theme, gfx: Option<&mut Gfx>) {
         self.zones.clear();
+        let mut gfx = gfx;
 
         // A red (warning) box: white text on the theme's error color.
         let bg = theme.error_fg;
@@ -176,6 +177,7 @@ impl OverwriteDialog {
                 (" Append ", OwControl::Append),
             ],
             theme,
+            gfx.as_deref_mut(),
         );
         y += 1;
         self.rule(f, inner, y, bg);
@@ -198,12 +200,13 @@ impl OverwriteDialog {
                 (" Size differs ", OwControl::SizeDiffers),
             ],
             theme,
+            gfx.as_deref_mut(),
         );
         y += 1;
         self.rule(f, inner, y, bg);
         y += 1;
 
-        self.button_row(f, inner, y, &[(" Abort ", OwControl::Abort)], theme);
+        self.button_row(f, inner, y, &[(" Abort ", OwControl::Abort)], theme, gfx);
     }
 
     fn rule(&self, f: &mut Frame, inner: Rect, y: u16, bg: ratatui::style::Color) {
@@ -223,31 +226,44 @@ impl OverwriteDialog {
         y: u16,
         buttons: &[(&str, OwControl)],
         theme: &Theme,
+        gfx: Option<&mut Gfx>,
     ) {
         if y >= inner.y + inner.height {
             return;
         }
         let bg = theme.error_fg;
+        let white = ratatui::style::Color::White;
         // Each label is wrapped as "[label]"; buttons separated by one space.
         let labels: Vec<String> = buttons.iter().map(|(l, _)| format!("[{l}]")).collect();
         let total: usize = labels.iter().map(|l| l.chars().count()).sum::<usize>() + labels.len().saturating_sub(1);
         let mut x = inner.x + (inner.width.saturating_sub(total as u16)) / 2;
-        for (label, (_, ctrl)) in labels.iter().zip(buttons.iter()) {
+        let mut gfx = gfx;
+        let use_gfx = gfx.as_deref().is_some_and(|g| g.available());
+        for (label, (plain, ctrl)) in labels.iter().zip(buttons.iter()) {
             let focused = OW_ORDER[self.focus] == *ctrl;
-            let style = if focused {
-                Style::default()
-                    .fg(bg)
-                    .bg(ratatui::style::Color::White)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default()
-                    .fg(ratatui::style::Color::White)
-                    .bg(bg)
-                    .add_modifier(Modifier::BOLD)
-            };
             let wlen = label.chars().count() as u16;
-            f.buffer_mut().set_string(x, y, label, style);
-            self.zones.push((Rect { x, y, width: wlen, height: 1 }, *ctrl));
+            let rect = Rect { x, y, width: wlen, height: 1 };
+            // Focused reverses to white body / red text with a white halo.
+            let (fill, fg, glow) =
+                if focused { (white, bg, Some(white)) } else { (bg, white, None) };
+            let drew = use_gfx
+                && gfx_button_colored(
+                    f,
+                    gfx.as_deref_mut(),
+                    Slot::Button(self.zones.len() as u16),
+                    rect,
+                    plain.trim(),
+                    fill,
+                    fg,
+                    glow,
+                    bg, // the dialog's red interior
+                    theme,
+                );
+            if !drew {
+                let style = Style::default().fg(fg).bg(fill).add_modifier(Modifier::BOLD);
+                f.buffer_mut().set_string(x, y, label, style);
+            }
+            self.zones.push((rect, *ctrl));
             x += wlen + 1;
         }
     }

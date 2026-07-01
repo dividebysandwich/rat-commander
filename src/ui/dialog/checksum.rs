@@ -58,7 +58,7 @@ impl ChecksumResultDialog {
         chars.chunks(width).map(|c| c.iter().collect()).collect()
     }
 
-    pub(crate) fn render(&mut self, f: &mut Frame, area: Rect, theme: &Theme) {
+    pub(crate) fn render(&mut self, f: &mut Frame, area: Rect, theme: &Theme, gfx: Option<&mut Gfx>) {
         let w = 72u16.min(area.width.saturating_sub(4));
         let iw = w.saturating_sub(2) as usize; // interior width (inside the border)
         let base = Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg);
@@ -128,7 +128,9 @@ impl ChecksumResultDialog {
             width: bw,
             height: 1,
         };
-        f.render_widget(Paragraph::new(Line::from(button(label, true, theme))).style(base), ok);
+        if !gfx_button(f, gfx, Slot::Button(0), ok, "OK", true, theme) {
+            f.render_widget(Paragraph::new(Line::from(button(label, true, theme))).style(base), ok);
+        }
         self.ok_rect = ok;
     }
 }

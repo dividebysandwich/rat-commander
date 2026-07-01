@@ -712,7 +712,7 @@ impl FormDialog {
         DialogResult::Submit(submit)
     }
 
-    pub(crate) fn render(&mut self, f: &mut Frame, area: Rect, theme: &Theme) {
+    pub(crate) fn render(&mut self, f: &mut Frame, area: Rect, theme: &Theme, gfx: Option<&mut Gfx>) {
         let n = self.form.fields.len() as u16;
         let height = n + 4;
         let w = 60u16.min(area.width.saturating_sub(4));
@@ -844,27 +844,73 @@ impl FormDialog {
             _ => String::new(),
         };
         // OK / Cancel buttons highlight when focused (reachable via ↑↓/Tab).
-        let ok_txt = crate::l10n::trd("OK");
-        let cancel_txt = crate::l10n::trd("Cancel");
-        let ok = if self.form.on_ok() {
-            Span::styled(format!("[< {ok_txt} >]"), theme.button_focused)
+        let mut gfx = gfx;
+        let ok_txt = crate::l10n::tr("OK");
+        let cancel_txt = crate::l10n::tr("Cancel");
+        // Graphical buttons only when the font can render the labels; otherwise
+        // fall back to the text button row (terminal font handles any script).
+        if gfx.as_deref().is_some_and(|g| g.available()) && all_renderable(&[&ok_txt, &cancel_txt]) {
+            // Graphical buttons: OK at the left, Cancel at the right, with the
+            // navigation hint between them. Left/right halves still hit-test OK/Cancel.
+            let ok_w = 10u16.min(hint.width);
+            let cancel_w = 12u16.min(hint.width.saturating_sub(ok_w));
+            let ok_rect = Rect { x: hint.x, y: hint.y, width: ok_w, height: 1 };
+            let cancel_rect =
+                Rect { x: hint.x + hint.width - cancel_w, y: hint.y, width: cancel_w, height: 1 };
+            let mid_x = ok_rect.x + ok_rect.width + 1;
+            let mid_w = cancel_rect.x.saturating_sub(mid_x);
+            if mid_w > 0 {
+                f.render_widget(
+                    Paragraph::new(Line::from(Span::styled(
+                        format!("Tab/↑↓ move  Space toggle{extra}"),
+                        base,
+                    )))
+                    .alignment(ratatui::layout::Alignment::Center)
+                    .style(base),
+                    Rect { x: mid_x, y: hint.y, width: mid_w, height: 1 },
+                );
+            }
+            gfx_button(
+                f,
+                gfx.as_deref_mut(),
+                Slot::Button(0),
+                ok_rect,
+                &ok_txt,
+                self.form.on_ok(),
+                theme,
+            );
+            gfx_button(
+                f,
+                gfx,
+                Slot::Button(1),
+                cancel_rect,
+                &cancel_txt,
+                self.form.on_cancel(),
+                theme,
+            );
         } else {
-            Span::styled(format!("[  {ok_txt}  ]"), theme.button)
-        };
-        let cancel = if self.form.on_cancel() {
-            Span::styled(format!("[< {cancel_txt} >]"), theme.button_focused)
-        } else {
-            Span::styled(format!("[  {cancel_txt}  ]"), theme.button)
-        };
-        f.render_widget(
-            Paragraph::new(Line::from(vec![
-                ok,
-                Span::styled(format!("  Tab/↑↓ move  Space toggle{extra}  "), base),
-                cancel,
-            ]))
-            .style(base),
-            hint,
-        );
+            let ok_txt = crate::l10n::trd("OK");
+            let cancel_txt = crate::l10n::trd("Cancel");
+            let ok = if self.form.on_ok() {
+                Span::styled(format!("[< {ok_txt} >]"), theme.button_focused)
+            } else {
+                Span::styled(format!("[  {ok_txt}  ]"), theme.button)
+            };
+            let cancel = if self.form.on_cancel() {
+                Span::styled(format!("[< {cancel_txt} >]"), theme.button_focused)
+            } else {
+                Span::styled(format!("[  {cancel_txt}  ]"), theme.button)
+            };
+            f.render_widget(
+                Paragraph::new(Line::from(vec![
+                    ok,
+                    Span::styled(format!("  Tab/↑↓ move  Space toggle{extra}  "), base),
+                    cancel,
+                ]))
+                .style(base),
+                hint,
+            );
+        }
 
         if let Some(pos) = caret
             && !dropdown_open

@@ -78,7 +78,7 @@ impl GotoDialog {
         DialogResult::None
     }
 
-    pub(crate) fn render(&self, f: &mut Frame, area: Rect, theme: &Theme) {
+    pub(crate) fn render(&self, f: &mut Frame, area: Rect, theme: &Theme, gfx: Option<&mut Gfx>) {
         let rect = self.box_rect(area);
         draw_shadow(f, rect, theme);
         f.render_widget(Clear, rect);
@@ -100,12 +100,15 @@ impl GotoDialog {
             );
         }
 
-        f.render_widget(
-            Paragraph::new(ok_cancel_line(true, theme))
-                .alignment(ratatui::layout::Alignment::Center)
-                .style(base),
-            line_at(inner.y + inner.height - 1),
-        );
+        let brow = line_at(inner.y + inner.height - 1);
+        if !draw_ok_cancel(f, gfx, brow, theme) {
+            f.render_widget(
+                Paragraph::new(ok_cancel_line(true, theme))
+                    .alignment(ratatui::layout::Alignment::Center)
+                    .style(base),
+                brow,
+            );
+        }
 
         if let Some(p) = caret {
             f.set_cursor_position(p);
