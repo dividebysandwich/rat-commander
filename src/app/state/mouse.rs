@@ -72,9 +72,34 @@ impl AppState {
             return Flow::Continue;
         }
 
+        // Disk explorer: a left click selects the box under the pointer; a second
+        // click on the same box (within the double-click window) dives into it,
+        // mirroring Enter. `usize::MAX` marks a disk click so it never collides
+        // with a file-panel double-click.
+        if self.diskview.is_some() {
+            if let MouseEventKind::Down(MouseButton::Left) = ev.kind {
+                const DISK: usize = usize::MAX;
+                if let Some(i) = self.diskview.as_ref().unwrap().box_at(col, row) {
+                    self.diskview.as_mut().unwrap().selected = i;
+                    let now = Instant::now();
+                    let double = self.last_click.is_some_and(|(p, idx, t)| {
+                        p == DISK && idx == i && now.duration_since(t) < DOUBLE_CLICK
+                    });
+                    if double {
+                        self.last_click = None; // a third click shouldn't re-fire
+                        let sig = self.diskview.as_mut().unwrap().enter_selected();
+                        self.apply_disk_signal(sig).await;
+                    } else {
+                        self.last_click = Some((DISK, i, now));
+                    }
+                }
+            }
+            return Flow::Continue;
+        }
+
         // The remaining full-screen overlays don't use the mouse yet; swallow the
         // event so it can't move the hidden file-panel cursor underneath them.
-        if self.procview.is_some() || self.diskview.is_some() || self.diffview.is_some() {
+        if self.procview.is_some() || self.diffview.is_some() {
             return Flow::Continue;
         }
 

@@ -392,6 +392,7 @@ impl Dialog {
             Dialog::SaveAs(d) => return d.handle_click(area, col, row),
             Dialog::Drive(d) => return d.handle_click(area, col, row),
             Dialog::MultiRename(d) => return d.handle_click(area, col, row),
+            Dialog::Find(d) => return d.handle_click(area, col, row),
             // The connect form's history chevron/dropdown and the Choice
             // dropdowns take clicks first.
             Dialog::Form(d) => {
@@ -452,7 +453,6 @@ impl Dialog {
             Dialog::SearchReplace(d) => {
                 centered(area, 64u16.min(aw.saturating_sub(2)), if d.replace { 14 } else { 12 })
             }
-            Dialog::Find(_) => centered(area, 66u16.min(aw.saturating_sub(2)), 13),
             _ => return None,
         };
         Some(r)

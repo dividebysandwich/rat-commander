@@ -92,15 +92,7 @@ impl DiskView {
             // a reliable fallback: leave the explorer at the selected directory.
             KeyCode::Enter if go_mod => self.go_to(),
             KeyCode::Char('g') | KeyCode::Char('G') => self.go_to(),
-            KeyCode::Enter => {
-                if let Some(e) = self.entries.get(self.selected) {
-                    self.cwd = self.cwd.join(&e.name);
-                    self.selected = 0;
-                    DiskSignal::Rescan
-                } else {
-                    DiskSignal::Stay
-                }
-            }
+            KeyCode::Enter => self.enter_selected(),
             KeyCode::Left | KeyCode::Right | KeyCode::Up | KeyCode::Down => {
                 self.move_selection(key.code);
                 DiskSignal::Stay
@@ -113,6 +105,26 @@ impl DiskView {
         match self.entries.get(self.selected) {
             Some(e) => DiskSignal::GoTo(self.cwd.join(&e.name)),
             None => DiskSignal::Stay,
+        }
+    }
+
+    /// The entry whose box contains the screen point `(col, row)`, using the box
+    /// rectangles recorded at the last render. `None` if the point misses every box.
+    pub fn box_at(&self, col: u16, row: u16) -> Option<usize> {
+        self.rects.iter().position(|r| {
+            col >= r.x && col < r.x + r.width && row >= r.y && row < r.y + r.height
+        })
+    }
+
+    /// Enter the currently-selected box (dive into that subdirectory). Used by the
+    /// mouse (double-click) to mirror the Enter key.
+    pub fn enter_selected(&mut self) -> DiskSignal {
+        if let Some(e) = self.entries.get(self.selected) {
+            self.cwd = self.cwd.join(&e.name);
+            self.selected = 0;
+            DiskSignal::Rescan
+        } else {
+            DiskSignal::Stay
         }
     }
 
@@ -338,6 +350,29 @@ mod tests {
                 _ => panic!("{key:?} should produce GoTo"),
             }
         }
+    }
+
+    #[test]
+    fn box_at_hit_tests_and_click_enters() {
+        let mut dv = DiskView::new(PathBuf::from("/tmp/work"));
+        dv.scanning = false;
+        dv.entries = vec![
+            DiskEntry { name: "a".into(), size: 1, files: vec![] },
+            DiskEntry { name: "b".into(), size: 1, files: vec![] },
+        ];
+        // Two side-by-side boxes.
+        dv.rects = vec![
+            Rect { x: 0, y: 0, width: 10, height: 5 },
+            Rect { x: 10, y: 0, width: 10, height: 5 },
+        ];
+        assert_eq!(dv.box_at(3, 2), Some(0), "point inside the first box");
+        assert_eq!(dv.box_at(15, 4), Some(1), "point inside the second box");
+        assert_eq!(dv.box_at(25, 2), None, "a miss returns None");
+        // Selecting a box (as a mouse click does) then entering it dives in.
+        dv.selected = 1;
+        assert!(matches!(dv.enter_selected(), DiskSignal::Rescan));
+        assert_eq!(dv.cwd, PathBuf::from("/tmp/work/b"));
+        assert_eq!(dv.selected, 0, "selection resets after diving");
     }
 
     #[test]

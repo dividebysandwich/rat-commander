@@ -287,6 +287,24 @@ impl AppState {
         self.dialog = Some(Dialog::Progress(ProgressDialog::new(id, "Imaging")));
     }
 
+    /// Apply a [`DiskSignal`] from the disk explorer (shared by the key and mouse
+    /// handlers): close, rescan the current directory, or leave the explorer and
+    /// point the active panel at a chosen directory.
+    pub(in crate::app::state) async fn apply_disk_signal(&mut self, sig: DiskSignal) {
+        match sig {
+            DiskSignal::Stay => {}
+            DiskSignal::Close => self.diskview = None,
+            DiskSignal::Rescan => self.start_disk_scan(),
+            DiskSignal::GoTo(path) => {
+                self.diskview = None;
+                let backend = self.registry.local();
+                self.active_panel()
+                    .try_enter(VfsPath::local(path), backend, None)
+                    .await;
+            }
+        }
+    }
+
     /// Open the full-screen disk-usage explorer at the active panel's directory.
     pub(in crate::app::state) fn open_disk_explorer(&mut self) {
         let p = &self.panels[self.active];

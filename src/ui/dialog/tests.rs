@@ -936,3 +936,36 @@ fn button_labels_fall_back_to_text_for_unrenderable_scripts() {
     assert!(!all_renderable(&["キャンセル"])); // Japanese (ja.toml Cancel)
     assert!(!all_renderable(&["OK", "取消"])); // any unsupported member fails the row
 }
+
+#[test]
+fn find_dialog_mouse_toggles_focuses_and_submits() {
+    // Box: centered(80x24, 66, 13) → x=7, y=5; inner_x=8, inner.y=6; half=32.
+    // Rows within: fields at 7/10/12, checkbox rows at 14/15, OK/Cancel at 16.
+    let area = Rect::new(0, 0, 80, 24);
+    let mut d = FindDialog::new("/tmp".into());
+    // "Find recursively" (row 14, left half) toggles off; "Case sensitive"
+    // (row 14, right half) toggles on.
+    assert!(matches!(d.handle_click(area, 12, 14), DialogResult::None));
+    assert!(matches!(d.handle_click(area, 50, 14), DialogResult::None));
+    // Clicking OK (left half of the button row) submits with the updated flags.
+    match d.handle_click(area, 20, 16) {
+        DialogResult::Submit(Submit::Find(p)) => {
+            assert!(!p.recursive, "recursively was unchecked by the click");
+            assert!(p.case_sensitive, "case-sensitive was checked by the click");
+            assert_eq!(p.file_name, "*");
+        }
+        _ => panic!("clicking OK should submit a Find"),
+    }
+    // The right half of the button row cancels; a click outside does nothing.
+    let mut d = FindDialog::new("/tmp".into());
+    assert!(matches!(d.handle_click(area, 60, 16), DialogResult::Cancel));
+    assert!(matches!(d.handle_click(area, 0, 0), DialogResult::None));
+    // Clicking the Content field (row 12) focuses it, so typing edits `content`.
+    let mut d = FindDialog::new("/tmp".into());
+    assert!(matches!(d.handle_click(area, 20, 12), DialogResult::None));
+    d.handle_key(key(KeyCode::Char('x')));
+    match d.handle_key(key(KeyCode::Enter)) {
+        DialogResult::Submit(Submit::Find(p)) => assert_eq!(p.content, "x"),
+        _ => panic!("expected a Find submit"),
+    }
+}

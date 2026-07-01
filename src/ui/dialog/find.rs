@@ -53,23 +53,31 @@ impl FindDialog {
 
     const FOCUS_COUNT: usize = 7;
 
+    /// The centered dialog box, matching [`Self::render`], for click hit-testing.
+    fn box_rect(&self, area: Rect) -> Rect {
+        centered(area, 66u16.min(area.width.saturating_sub(2)), 13)
+    }
+
+    /// Build the find request, or cancel when no file-name pattern was given.
+    fn submit(&self) -> DialogResult {
+        if self.file_name.trim().is_empty() {
+            return DialogResult::Cancel;
+        }
+        DialogResult::Submit(Submit::Find(FindParams {
+            start_at: self.start_at.clone(),
+            file_name: self.file_name.clone(),
+            content: self.content.clone(),
+            recursive: self.recursive,
+            case_sensitive: self.case_sensitive,
+            skip_hidden: self.skip_hidden,
+            shell: self.shell,
+        }))
+    }
+
     pub(crate) fn handle_key(&mut self, key: KeyEvent) -> DialogResult {
         match key.code {
             KeyCode::Esc => return DialogResult::Cancel,
-            KeyCode::Enter => {
-                if self.file_name.trim().is_empty() {
-                    return DialogResult::Cancel;
-                }
-                return DialogResult::Submit(Submit::Find(FindParams {
-                    start_at: self.start_at.clone(),
-                    file_name: self.file_name.clone(),
-                    content: self.content.clone(),
-                    recursive: self.recursive,
-                    case_sensitive: self.case_sensitive,
-                    skip_hidden: self.skip_hidden,
-                    shell: self.shell,
-                }));
-            }
+            KeyCode::Enter => return self.submit(),
             KeyCode::Tab | KeyCode::Down => self.focus = (self.focus + 1) % Self::FOCUS_COUNT,
             KeyCode::BackTab | KeyCode::Up => {
                 self.focus = (self.focus + Self::FOCUS_COUNT - 1) % Self::FOCUS_COUNT
@@ -87,6 +95,64 @@ impl FindDialog {
                 2 => edit_text(&mut self.content, &mut self.content_cursor, key),
                 _ => {}
             },
+        }
+        DialogResult::None
+    }
+
+    /// Route a left click: focus the clicked field (placing the caret near the
+    /// click), toggle a clicked checkbox, or activate OK/Cancel. Mirrors the row
+    /// layout in [`Self::render`]. Clicks outside the box do nothing.
+    pub(crate) fn handle_click(&mut self, area: Rect, col: u16, row: u16) -> DialogResult {
+        let rect = self.box_rect(area);
+        if col < rect.x || col >= rect.x + rect.width || row < rect.y || row >= rect.y + rect.height {
+            return DialogResult::None;
+        }
+        let inner_x = rect.x + 1;
+        let half = (rect.width - 2) / 2;
+        // Place the caret at the clicked character within a text field.
+        let caret_at = |value: &str| (col.saturating_sub(inner_x) as usize).min(value.chars().count());
+        // Row offset within the interior (see `render`: fields at 1/4/6, the two
+        // checkbox rows at 8/9, and the OK/Cancel row at 10).
+        match row as i32 - (rect.y + 1) as i32 {
+            1 => {
+                self.focus = 0;
+                self.start_cursor = caret_at(&self.start_at);
+            }
+            4 => {
+                self.focus = 1;
+                self.name_cursor = caret_at(&self.file_name);
+            }
+            6 => {
+                self.focus = 2;
+                self.content_cursor = caret_at(&self.content);
+            }
+            8 => {
+                if col < inner_x + half {
+                    self.focus = 3;
+                    self.recursive = !self.recursive;
+                } else {
+                    self.focus = 4;
+                    self.case_sensitive = !self.case_sensitive;
+                }
+            }
+            9 => {
+                if col < inner_x + half {
+                    self.focus = 5;
+                    self.skip_hidden = !self.skip_hidden;
+                } else {
+                    self.focus = 6;
+                    self.shell = !self.shell;
+                }
+            }
+            10 => {
+                // Button row: OK on the left half, Cancel on the right.
+                return if col < rect.x + rect.width / 2 {
+                    self.submit()
+                } else {
+                    DialogResult::Cancel
+                };
+            }
+            _ => {}
         }
         DialogResult::None
     }

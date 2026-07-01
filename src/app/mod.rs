@@ -285,7 +285,7 @@ async fn toggle_subshell(
     // Take the terminal back for the panels.
     {
         let out = term.backend_mut();
-        queue!(out, EnterAlternateScreen, EnableMouseCapture, DisableAnyMotion)?;
+        queue!(out, EnterAlternateScreen, EnableMouseCapture)?;
         if state.kbd_enhanced {
             let _ = queue!(
                 out,
@@ -333,31 +333,6 @@ async fn run_oneshot_shell(term: &mut Term, state: &mut AppState, cwd: &std::pat
     Ok(())
 }
 
-/// Turn off any-motion (`?1003`) mouse tracking that [`EnableMouseCapture`]
-/// enables. The app only reacts to clicks, drags and scroll — never bare pointer
-/// motion — so all-motion reporting just floods the event loop with `Moved`
-/// events (e.g. every time the pointer returns to the window to refocus it,
-/// which pegged a core while the disk-explorer treemap was open). Button (`1000`),
-/// drag (`1002`) and SGR (`1006`) tracking stay on, so clicks and drag-select
-/// still work. ANSI only; Windows uses the console API for mouse input.
-struct DisableAnyMotion;
-
-impl ratatui::crossterm::Command for DisableAnyMotion {
-    fn write_ansi(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
-        f.write_str("\x1b[?1003l")
-    }
-
-    #[cfg(windows)]
-    fn execute_winapi(&self) -> std::io::Result<()> {
-        Ok(())
-    }
-
-    #[cfg(windows)]
-    fn is_ansi_code_supported(&self) -> bool {
-        false
-    }
-}
-
 /// Set up the terminal, returning the terminal handle and whether the enhanced
 /// keyboard protocol was enabled (so key release/repeat and standalone-modifier
 /// events are reported — used to live-update the editor's F-key labels while
@@ -365,7 +340,7 @@ impl ratatui::crossterm::Command for DisableAnyMotion {
 fn setup_terminal() -> Result<(Term, bool)> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture, DisableAnyMotion)?;
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let kbd = supports_keyboard_enhancement().unwrap_or(false);
     if kbd {
         let _ = execute!(

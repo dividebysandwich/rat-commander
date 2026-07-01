@@ -118,7 +118,7 @@ fn render_header(f: &mut Frame, area: Rect, selected: Option<&DiskEntry>, total:
 }
 
 fn render_footer(f: &mut Frame, area: Rect, theme: &Theme) {
-    let hint = "←↑↓→ move   Enter: open   g / Ctrl-Enter: go to dir   Backspace: up   Esc: close";
+    let hint = "←↑↓→/click move   Enter/dbl-click open   g go to dir   Bksp up   Esc close";
     // Draw as a highlighted bar (like the F-key row) so it's clearly visible.
     let line = pad_right(&format!(" {hint}"), area.width as usize);
     f.render_widget(
@@ -777,7 +777,7 @@ mod tests {
         }
         assert!(s.contains("Disk Explorer"), "title");
         assert!(s.contains("big"), "largest box labeled");
-        assert!(s.contains("Backspace"), "footer guidance");
+        assert!(s.contains("click") && s.contains("Esc close"), "footer guidance (incl. mouse)");
         assert!(s.contains("▶") && s.contains("of total"), "selected-box header");
         assert_eq!(dv.rects.len(), 2, "geometry recorded for navigation");
     }

@@ -61,7 +61,10 @@ The mouse works throughout:
 - Click a **menu-bar title** to open it and an entry to run it.
 - Click the bottom **F-key bar** to run that function.
 - Click **OK / Cancel** (or **Yes / No**) buttons in dialogs, and the
-  **Abort** button on a scan/search progress dialog.
+  **Abort** button on a scan/search progress dialog. In the **Find file** dialog
+  you can click a field to edit it, a checkbox to toggle it, and OK/Cancel.
+- In the **disk explorer**, click a box to select it and **double-click** to
+  enter that subdirectory.
 
 
 ## Keyboard shortcuts
@@ -600,7 +603,8 @@ visible than with characters. It falls back to character-cell boxes on a plain t
 bar always shows the selected box's name, size and share of the total. **Arrow
 keys** move the selection, **Enter** dives into a subdirectory, **Backspace**
 goes up, **`g`** (or **Ctrl-Enter**) exits and points the active panel at the
-selected directory, **Esc** closes. Symlinks are never followed or counted.
+selected directory, **Esc** closes. With the **mouse**, click a box to select it
+and **double-click** to dive into it. Symlinks are never followed or counted.
 
 
 ## Process explorer

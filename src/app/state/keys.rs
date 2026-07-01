@@ -108,18 +108,7 @@ impl AppState {
         }
         if self.diskview.is_some() {
             let sig = self.diskview.as_mut().unwrap().handle_key(key);
-            match sig {
-                DiskSignal::Stay => {}
-                DiskSignal::Close => self.diskview = None,
-                DiskSignal::Rescan => self.start_disk_scan(),
-                DiskSignal::GoTo(path) => {
-                    self.diskview = None;
-                    let backend = self.registry.local();
-                    self.active_panel()
-                        .try_enter(VfsPath::local(path), backend, None)
-                        .await;
-                }
-            }
+            self.apply_disk_signal(sig).await;
             return Flow::Continue;
         }
         if self.diffview.is_some() {
