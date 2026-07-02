@@ -453,10 +453,13 @@ and replace, undo/redo, syntax highlighting, and an in-place hex editor.
 
 **Launching straight into the editor.** Open a file in the editor without going
 through the panels by starting the program as **`rc /edit <file>`** (a missing
-file opens an empty buffer so you can create it). The packages and installers
-also set up an **`rcedit`** shortcut — a symlink to `rc` on Linux/macOS, a small
-`rcedit.cmd` on Windows — so **`rcedit <file>`** does the same thing. In this
-mode, closing the editor exits the program (it does not drop to the panels).
+file opens an empty buffer so you can create it). Omit the filename entirely —
+**`rc /edit`** — to start on a blank, untitled buffer; the first save then acts
+as **Save as**, prompting you for a name. The packages and installers also set
+up an **`rcedit`** shortcut — a symlink to `rc` on Linux/macOS, a small
+`rcedit.cmd` on Windows — so **`rcedit <file>`** (or bare **`rcedit`**) does the
+same thing. In this mode, closing the editor exits the program (it does not drop
+to the panels).
 
 **Marking a block.** Mark text either with **Shift+arrows** (and
 **Shift+Ctrl-arrows**) while moving, or with **F3** to start/end a mark. A

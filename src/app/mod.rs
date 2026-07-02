@@ -25,7 +25,7 @@ use std::io::{self, Stdout, Write};
 type Term = Terminal<CrosstermBackend<Stdout>>;
 
 /// Set up, run, and tear down the application.
-pub async fn run(edit_file: Option<std::path::PathBuf>) -> Result<()> {
+pub async fn run(startup: crate::Startup) -> Result<()> {
     // Load user themes (generating themes.toml from the presets on first run)
     // before the initial theme is derived from the config.
     crate::ui::theme::load_user_themes();
@@ -39,9 +39,18 @@ pub async fn run(edit_file: Option<std::path::PathBuf>) -> Result<()> {
 
     // `rc /edit <file>` (or the `rcedit` shim) opens straight into the editor;
     // closing it then exits the program (rather than dropping to the panels).
-    if let Some(file) = edit_file {
-        state.edit_only = true;
-        state.open_path_in_editor(file).await;
+    // With no file, a fresh unnamed buffer opens instead (first save prompts
+    // for a name via "Save as").
+    match startup {
+        crate::Startup::Panels => {}
+        crate::Startup::Edit(file) => {
+            state.edit_only = true;
+            state.open_path_in_editor(file).await;
+        }
+        crate::Startup::EditNew => {
+            state.edit_only = true;
+            state.open_new_editor();
+        }
     }
 
     let (mut term, kbd) = setup_terminal()?;

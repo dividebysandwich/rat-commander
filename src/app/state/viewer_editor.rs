@@ -13,7 +13,11 @@ impl AppState {
                 self.reload_all().await;
             }
             EditorSignal::Save { close_after } => {
-                if close_after {
+                if self.editor.as_ref().is_some_and(|e| e.is_unnamed()) {
+                    // No filename yet → go straight to "Save as" (nothing to
+                    // confirm, since there's no named file to overwrite).
+                    self.open_save_as(None);
+                } else if close_after {
                     self.save_editor(true).await;
                 } else {
                     let name = self.editor.as_ref().map(|e| e.name.clone()).unwrap_or_default();
@@ -180,6 +184,15 @@ impl AppState {
         self.editor = Some(ed);
     }
 
+    /// Open the editor on a fresh, unnamed buffer (`rc /edit` with no file). It
+    /// has no path yet, so the first save is redirected to "Save as" (see
+    /// [`Self::save_editor`]).
+    pub(crate) fn open_new_editor(&mut self) {
+        let mut ed = EditorState::new_unnamed();
+        ed.enable_syntax(self.dark_ui());
+        self.editor = Some(ed);
+    }
+
     /// Stream a (remote/archive) file to a local temp file for view/edit, showing
     /// a cancellable progress dialog. Delivers `FileFetched` on success.
     fn start_fetch(
@@ -237,6 +250,13 @@ impl AppState {
         let Some(ed) = self.editor.as_ref() else {
             return;
         };
+        // A fresh, unnamed buffer has no path to write to — send the user to
+        // "Save as" to choose a filename first (`close_after` can't be honored
+        // here; the user saves, then quits again once the buffer has a name).
+        if ed.is_unnamed() {
+            self.open_save_as(None);
+            return;
+        }
         // Hex mode writes only the changed bytes in place — never rewrite the
         // whole (possibly huge) file from the text buffer.
         if ed.is_hex() {
@@ -283,18 +303,19 @@ impl AppState {
         let Some(ed) = self.editor.as_ref() else {
             return;
         };
-        let local = ed.path.scheme == "file";
-        let dir = if local {
-            ed.path
-                .path
-                .parent()
-                .map(|p| p.to_path_buf())
-                .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")))
+        let cwd = || std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        // An unnamed buffer has no meaningful directory or name to prefill:
+        // start in the working directory with an empty name field.
+        let (dir, name) = if ed.is_unnamed() {
+            (cwd(), String::new())
+        } else if ed.path.scheme == "file" {
+            let dir = ed.path.path.parent().map(|p| p.to_path_buf()).unwrap_or_else(cwd);
+            (dir, ed.name.clone())
         } else {
             // The browser is local-only, so a remote-edited file saves to disk.
-            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+            (cwd(), ed.name.clone())
         };
-        self.dialog = Some(Dialog::SaveAs(SaveAsDialog::new(dir, ed.name.clone(), error)));
+        self.dialog = Some(Dialog::SaveAs(SaveAsDialog::new(dir, name, error)));
     }
 
     /// Write the editor buffer to `dest` (from the "Save as" dialog) and retarget
@@ -315,6 +336,7 @@ impl AppState {
                 if let Some(ed) = self.editor.as_mut() {
                     ed.path = new_path.clone();
                     ed.name = name;
+                    ed.set_named(); // it now has a filename; future saves write in place
                     ed.mark_saved();
                     ed.enable_syntax(dark); // re-detect syntax for the new name
                 }

@@ -1212,6 +1212,51 @@ async fn editor_save_as_writes_and_retargets() {
 }
 
 #[tokio::test]
+async fn edit_with_no_file_opens_unnamed_buffer_that_saves_via_save_as() {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("rc_new_{}_{nanos}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+
+    // `rc /edit` with no file → a fresh, unnamed buffer.
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.open_new_editor();
+    let ed = st.editor.as_ref().expect("a blank editor should open");
+    assert!(ed.is_unnamed(), "a no-file editor buffer starts unnamed");
+    assert!(ed.contents().is_empty(), "the blank buffer starts empty");
+
+    // Pressing Save (F2) must route to the "Save as" browser rather than write
+    // silently (there is no filename to write to yet).
+    st.apply_editor_signal(crate::editor::EditorSignal::Save { close_after: false }).await;
+    assert!(
+        matches!(st.dialog, Some(Dialog::SaveAs(_))),
+        "saving an unnamed buffer opens the Save-as dialog"
+    );
+
+    // The quit-time save path is guarded too (Save changes? → yes).
+    st.dialog = None;
+    st.save_editor(true).await;
+    assert!(
+        matches!(st.dialog, Some(Dialog::SaveAs(_))),
+        "save-and-close also redirects an unnamed buffer to Save as"
+    );
+
+    // Completing "Save as" writes the file and the buffer is no longer unnamed.
+    let dest = dir.join("chosen.txt");
+    st.do_save_as(dest.clone()).await;
+    assert_eq!(std::fs::read_to_string(&dest).unwrap(), "", "buffer written to the chosen path");
+    let ed = st.editor.as_ref().unwrap();
+    assert!(!ed.is_unnamed(), "the buffer is named after Save as");
+    assert_eq!(ed.name, "chosen.txt", "editor name set from the chosen path");
+    assert_eq!(ed.path, VfsPath::local(&dest), "editor path set from the chosen path");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
 async fn disk_mounter_opens_and_prompts_for_path() {
     let (tx, _rx) = async_bridge::channel();
     let mut st = AppState::new(tx);

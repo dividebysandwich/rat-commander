@@ -88,6 +88,9 @@ pub struct EditorState {
     /// Modifiers on the last key event, so the F-key bar can show the alternate
     /// F2 / F9 labels ("Save as" / "Wrap") while Shift or Ctrl is held.
     hint_mods: KeyModifiers,
+    /// A fresh buffer with no filename yet (`rc /edit` with no file). Its first
+    /// save is redirected to "Save as"; cleared once a path is chosen.
+    unnamed: bool,
 }
 
 /// Above this size a file is opened straight into hex mode (text mode loads the
@@ -146,7 +149,28 @@ impl EditorState {
             top_sub: 0,
             help_open: false,
             hint_mods: KeyModifiers::NONE,
+            unnamed: false,
         }
+    }
+
+    /// A fresh, unnamed buffer (`rc /edit` with no file). It carries no path, so
+    /// the first save is routed through "Save as" to obtain a filename. The name
+    /// is a display-only placeholder for the status line.
+    pub fn new_unnamed() -> Self {
+        let mut ed = EditorState::new("[No Name]".to_string(), VfsPath::local_cwd(), "");
+        ed.unnamed = true;
+        ed
+    }
+
+    /// Whether this is a fresh buffer with no filename yet.
+    pub fn is_unnamed(&self) -> bool {
+        self.unnamed
+    }
+
+    /// Clear the unnamed flag once the buffer has been assigned a path (via
+    /// "Save as"), so subsequent saves write in place.
+    pub fn set_named(&mut self) {
+        self.unnamed = false;
     }
 
     /// Track held Shift/Ctrl from a key event to drive the F-key bar's alternate

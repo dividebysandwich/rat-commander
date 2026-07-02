@@ -60,18 +60,13 @@ fn main() {
 
     // Start directly in the editor when invoked as `rc /edit <file>` (or
     // `--edit`), or through the `rcedit` shim — a symlink (Unix) or `.cmd`
-    // (Windows) that points back at this binary.
-    let edit_file = match editor_startup(
+    // (Windows) that points back at this binary. With no file, the editor
+    // opens on a fresh, unnamed buffer whose first save prompts for a name.
+    let startup = editor_startup(
         argv.first().map(|s| s.as_os_str()),
         argv.get(1).map(|s| s.as_os_str()),
         argv.get(2).map(|s| s.as_os_str()),
-    ) {
-        Ok(f) => f,
-        Err(()) => {
-            eprintln!("usage: rc /edit <file>");
-            std::process::exit(2);
-        }
-    };
+    );
 
     let rt = match tokio::runtime::Runtime::new() {
         Ok(rt) => rt,
@@ -81,7 +76,7 @@ fn main() {
         }
     };
     rt.block_on(async {
-        if let Err(e) = app::run(edit_file).await {
+        if let Err(e) = app::run(startup).await {
             // Terminal is already restored by `app::run` on its way out.
             eprintln!("rat-commander error: {e}");
             std::process::exit(1);
@@ -89,33 +84,49 @@ fn main() {
     });
 }
 
-/// Decide whether to start in editor mode from the program name (`argv0`) and the
-/// first two arguments. Returns the file to edit (`Some`) or the normal
-/// file-manager start (`None`); `Err(())` means `/edit` was given with no file (a
-/// usage error). Editor mode triggers when invoked as `rcedit` (any extension) or
-/// when the first argument is `/edit` / `--edit`.
+/// How the program should start, decided from the command line.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Startup {
+    /// Normal file-manager start (the two panels).
+    Panels,
+    /// Open the editor straight on this file, then exit when it closes.
+    Edit(std::path::PathBuf),
+    /// Open the editor on a fresh, unnamed buffer (no file was given); its
+    /// first save is routed through "Save as" so the user picks a filename.
+    EditNew,
+}
+
+/// Decide how to start from the program name (`argv0`) and the first two
+/// arguments. Editor mode triggers when invoked as `rcedit` (any extension) or
+/// when the first argument is `/edit` / `--edit`; a following file name selects
+/// [`Startup::Edit`], and its absence selects [`Startup::EditNew`] (a blank
+/// buffer). Anything else is the normal [`Startup::Panels`] start.
 fn editor_startup(
     argv0: Option<&std::ffi::OsStr>,
     arg1: Option<&std::ffi::OsStr>,
     arg2: Option<&std::ffi::OsStr>,
-) -> Result<Option<std::path::PathBuf>, ()> {
+) -> Startup {
+    let edit_or_new = |file: Option<&std::ffi::OsStr>| match file {
+        Some(f) => Startup::Edit(std::path::PathBuf::from(f)),
+        None => Startup::EditNew,
+    };
     let invoked_as_edit = argv0
         .map(std::path::Path::new)
         .and_then(|p| p.file_stem())
         .map(|s| s.eq_ignore_ascii_case("rcedit"))
         .unwrap_or(false);
     if invoked_as_edit {
-        return Ok(arg1.map(std::path::PathBuf::from));
+        return edit_or_new(arg1);
     }
     match arg1.and_then(|s| s.to_str()) {
-        Some("/edit" | "--edit") => arg2.map(|f| Some(std::path::PathBuf::from(f))).ok_or(()),
-        _ => Ok(None),
+        Some("/edit" | "--edit") => edit_or_new(arg2),
+        _ => Startup::Panels,
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::editor_startup;
+    use super::{Startup, editor_startup};
     use std::ffi::OsStr;
     use std::path::PathBuf;
 
@@ -125,25 +136,29 @@ mod tests {
 
     #[test]
     fn rc_without_edit_starts_normally() {
-        assert_eq!(editor_startup(Some(os("rc")), None, None), Ok(None));
-        assert_eq!(editor_startup(Some(os("/usr/bin/rc")), Some(os("somedir")), None), Ok(None));
+        assert_eq!(editor_startup(Some(os("rc")), None, None), Startup::Panels);
+        assert_eq!(
+            editor_startup(Some(os("/usr/bin/rc")), Some(os("somedir")), None),
+            Startup::Panels
+        );
     }
 
     #[test]
     fn edit_flag_takes_the_following_file() {
         assert_eq!(
             editor_startup(Some(os("rc")), Some(os("/edit")), Some(os("notes.txt"))),
-            Ok(Some(PathBuf::from("notes.txt")))
+            Startup::Edit(PathBuf::from("notes.txt"))
         );
         assert_eq!(
             editor_startup(Some(os("rc")), Some(os("--edit")), Some(os("a.rs"))),
-            Ok(Some(PathBuf::from("a.rs")))
+            Startup::Edit(PathBuf::from("a.rs"))
         );
     }
 
     #[test]
-    fn edit_flag_without_a_file_is_a_usage_error() {
-        assert_eq!(editor_startup(Some(os("rc")), Some(os("/edit")), None), Err(()));
+    fn edit_flag_without_a_file_opens_a_blank_buffer() {
+        assert_eq!(editor_startup(Some(os("rc")), Some(os("/edit")), None), Startup::EditNew);
+        assert_eq!(editor_startup(Some(os("rc")), Some(os("--edit")), None), Startup::EditNew);
     }
 
     #[test]
@@ -154,11 +169,11 @@ mod tests {
         for argv0 in ["rcedit", "/usr/bin/rcedit", "rcedit.exe", "rcedit.cmd"] {
             assert_eq!(
                 editor_startup(Some(os(argv0)), Some(os("file.txt")), None),
-                Ok(Some(PathBuf::from("file.txt"))),
+                Startup::Edit(PathBuf::from("file.txt")),
                 "argv0={argv0}"
             );
         }
-        // `rcedit` with no file falls back to the normal start.
-        assert_eq!(editor_startup(Some(os("rcedit")), None, None), Ok(None));
+        // `rcedit` with no file opens a blank buffer (like `rc /edit`).
+        assert_eq!(editor_startup(Some(os("rcedit")), None, None), Startup::EditNew);
     }
 }
