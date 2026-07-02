@@ -40,6 +40,26 @@ impl AppState {
         });
     }
 
+    /// Spawn a background reverse-DNS lookup for `ip`; its result arrives via
+    /// [`AppEvent::ReverseDnsResolved`]. (The view already marks the IP pending.)
+    pub(in crate::app::state) fn start_reverse_dns(&mut self, ip: String) {
+        if self.netview.is_none() {
+            return;
+        }
+        let tx = self.tx.clone();
+        tokio::spawn(async move {
+            let host = crate::net::resolve_dns(ip.clone()).await;
+            let _ = tx.send(AppEvent::ReverseDnsResolved { ip, host }).await;
+        });
+    }
+
+    /// Store a completed reverse-DNS lookup in the view's cache.
+    pub(in crate::app::state) fn apply_reverse_dns(&mut self, ip: String, host: Option<String>) {
+        if let Some(nv) = self.netview.as_mut() {
+            nv.set_dns(ip, host);
+        }
+    }
+
     /// Apply a completed scan (ignoring results from a superseded generation).
     pub(in crate::app::state) fn apply_network_scanned(
         &mut self,

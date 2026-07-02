@@ -9,7 +9,7 @@ use crate::ops::{OpKind, OpRequest, TaskHandle, TaskId, spawn_op};
 use crate::diff::{DiffSignal, DiffView};
 use crate::disk::{DiskSignal, DiskView};
 use crate::mount::{MountSignal, MountView};
-use crate::net::{NetSignal, NetView};
+use crate::net::{NetSignal, NetView, Pane};
 use crate::panel::sort::SortKey;
 use crate::panel::{Panel, ViewFormat};
 use crate::proc::{ProcSignal, ProcView};

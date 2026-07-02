@@ -38,6 +38,8 @@ pub enum Slot {
     Button(u16),
     /// The network-explorer connection-rate graph in the details popup.
     NetRate,
+    /// The network-explorer overview diagram (service-card grid).
+    NetDiagram,
 }
 
 struct Cached {

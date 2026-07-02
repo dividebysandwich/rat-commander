@@ -48,7 +48,9 @@ The installed executable is named **`rc`** for quick typing.
 - **Network connections** (Linux) — listening ports with their programs and all
   active connections with their type, service, live per-connection traffic rate
   (with a sparkline) and a details view; filter, sort, kill the owning process,
-  and an optional root password for full visibility.
+  and an optional root password for full visibility. A **per-service overview
+  diagram** (Tab) groups connections into colour-coded cards showing each peer IP
+  and its direction, with clickable/navigable addresses and reverse-DNS lookups.
 - **Look & feel** — many color themes (fully customizable via `themes.toml`),
   truecolor animated gradients, an optional CPU/memory status widget, and a
   configurable **F2 user menu**.

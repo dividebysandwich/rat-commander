@@ -97,9 +97,35 @@ impl AppState {
             return Flow::Continue;
         }
 
-        // Network explorer: the wheel scrolls the focused pane; other events are
-        // swallowed so they can't reach the hidden panels underneath.
+        // Network explorer. In the overview diagram a left click selects the IP
+        // node under the pointer and opens its details (with reverse-DNS); the
+        // wheel scrolls the grid. In the list panes the wheel scrolls the focused
+        // pane. Other events are swallowed so they can't reach the hidden panels.
         if let Some(nv) = self.netview.as_mut() {
+            if nv.focus == Pane::Overview {
+                let mut sig = NetSignal::Stay;
+                match ev.kind {
+                    MouseEventKind::Down(MouseButton::Left) => {
+                        if let Some(i) = nv.node_at(col, row) {
+                            nv.overview_cursor = i;
+                            if let Some((ci, ii)) = nv.overview_nodes.get(i).map(|(c, r, _)| (*c, *r)) {
+                                sig = nv.open_ip_detail_at(ci, ii);
+                            }
+                        }
+                    }
+                    MouseEventKind::ScrollDown => {
+                        let _ = nv.handle_key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE));
+                    }
+                    MouseEventKind::ScrollUp => {
+                        let _ = nv.handle_key(KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE));
+                    }
+                    _ => {}
+                }
+                if let NetSignal::ResolveDns(ip) = sig {
+                    self.start_reverse_dns(ip);
+                }
+                return Flow::Continue;
+            }
             let code = match ev.kind {
                 MouseEventKind::ScrollDown => Some(KeyCode::Down),
                 MouseEventKind::ScrollUp => Some(KeyCode::Up),

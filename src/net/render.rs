@@ -1,6 +1,6 @@
 //! Rendering of the [`NetView`] network-connections explorer.
 
-use super::{NetView, ProtoFilter, Socket};
+use super::{Dir, NetView, Pane, Proto3, ProtoFilter, ServiceCard, Socket};
 use crate::ui::dialog::centered;
 use crate::ui::graphics::{raster, Gfx, Slot};
 use crate::ui::theme::Theme;
@@ -8,7 +8,7 @@ use crate::util::bytes::human_size;
 use crate::util::text::{ellipsize, pad_left, pad_right};
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph, Wrap};
 
@@ -45,23 +45,42 @@ pub fn render(f: &mut Frame, area: Rect, nv: &mut NetView, theme: &Theme, gfx: O
         return;
     }
 
+    let mut gfx = gfx;
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(1), // summary
-            Constraint::Percentage(40),
-            Constraint::Min(3),
+            Constraint::Min(3),    // body (two panes, or the overview diagram)
             Constraint::Length(1), // footer
         ])
         .split(inner);
 
     render_summary(f, rows[0], nv, theme);
-    render_pane(f, rows[1], nv, 0, theme);
-    render_pane(f, rows[2], nv, 1, theme);
-    render_footer(f, rows[3], nv, theme);
+    if nv.focus == Pane::Overview {
+        // The IP-details popup is drawn as cells on top of the diagram. A
+        // terminal-graphics diagram packs each row's kitty placeholders into the
+        // grid's left column, so when the diagram data changes it repaints the
+        // whole row width — over the popup, whose (unchanged) cells the frame diff
+        // won't re-emit. While the popup is open, fall back to the ASCII card grid
+        // (plain cells) so the popup always composites correctly on top.
+        let og = if nv.ip_detail.is_some() { None } else { gfx.as_deref_mut() };
+        render_overview(f, rows[1], nv, theme, og);
+    } else {
+        nv.overview_nodes.clear();
+        let panes = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(40), Constraint::Min(3)])
+            .split(rows[1]);
+        render_pane(f, panes[0], nv, 0, theme);
+        render_pane(f, panes[1], nv, 1, theme);
+    }
+    render_footer(f, rows[2], nv, theme);
 
     if nv.detail.is_some() {
         render_detail(f, inner, nv, theme, gfx);
+    }
+    if nv.ip_detail.is_some() {
+        render_ip_detail(f, inner, nv, theme);
     }
 }
 
@@ -282,7 +301,11 @@ fn render_footer(f: &mut Frame, area: Rect, nv: &NetView, theme: &Theme) {
         );
         return;
     }
-    let hint = " / filter  s/S sort  p proto  e estab  h loopback  k/K kill  ⏎ details  Tab pane  r refresh  Esc close";
+    let hint = if nv.focus == Pane::Overview {
+        " arrows move  ⏎ IP details  k/K kill  / filter  p proto  e estab  h loopback  Tab view  r refresh  Esc close"
+    } else {
+        " / filter  s/S sort  p proto  e estab  h loopback  k/K kill  ⏎ details  Tab view  r refresh  Esc close"
+    };
     f.render_widget(
         Paragraph::new(Line::from(Span::styled(pad_right(hint, area.width as usize), theme.fkey_label)))
             .style(theme.fkey_label),
@@ -496,5 +519,324 @@ fn center(f: &mut Frame, area: Rect, text: &str, theme: &Theme) {
     f.render_widget(
         Paragraph::new(Line::from(text)).alignment(Alignment::Center).style(theme.panel_base()),
         Rect { y, height: 1, ..area },
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Overview diagram (service-card grid)
+// ---------------------------------------------------------------------------
+
+/// Max IP rows shown per card before an overflow line.
+const MAX_IPS: usize = 8;
+/// Card width in cells.
+const CARD_W: u16 = 34;
+
+/// Color for a protocol mix (TCP=cyan, UDP=green, both=yellow).
+fn proto_color(theme: &Theme, p: Proto3) -> Color {
+    match p {
+        Proto3::Tcp => theme.symlink_fg,
+        Proto3::Udp => theme.exec_fg,
+        Proto3::Both => theme.marked_fg,
+    }
+}
+
+fn dir_glyph(dir: Dir) -> &'static str {
+    match dir {
+        Dir::In => "◀",
+        Dir::Out => "▶",
+    }
+}
+
+fn render_overview(f: &mut Frame, area: Rect, nv: &mut NetView, theme: &Theme, gfx: Option<&mut Gfx>) {
+    nv.overview_cards = nv.build_cards();
+
+    // Legend line.
+    let leg = |t: &str, c: Color| Span::styled(t.to_string(), Style::default().fg(c).bg(theme.panel_bg));
+    let base = Style::default().fg(theme.panel_fg).bg(theme.panel_bg);
+    let legend = Line::from(vec![
+        Span::styled(" ", base),
+        leg("TCP", theme.symlink_fg),
+        Span::styled("  ", base),
+        leg("UDP", theme.exec_fg),
+        Span::styled("  ", base),
+        leg("TCP+UDP", theme.marked_fg),
+        Span::styled("     ◀ inbound   ▶ outbound", base),
+    ]);
+    f.render_widget(Paragraph::new(legend).style(theme.panel_base()), Rect { height: 1, ..area });
+
+    let grid = Rect {
+        x: area.x,
+        y: area.y + 1,
+        width: area.width,
+        height: area.height.saturating_sub(1),
+    };
+    nv.overview_grid = grid;
+    if nv.overview_cards.is_empty() {
+        nv.overview_nodes.clear();
+        center(f, grid, "(no active connections)", theme);
+        return;
+    }
+
+    let (boxes, nodes, total_h) = layout_cards(grid, &nv.overview_cards);
+    nv.overview_nodes = nodes;
+    if nv.overview_cursor >= nv.overview_nodes.len() {
+        nv.overview_cursor = nv.overview_nodes.len().saturating_sub(1);
+    }
+    // Keep the selected node visible.
+    let visible = grid.height as usize;
+    if let Some((_, _, r)) = nv.overview_nodes.get(nv.overview_cursor) {
+        let sy = r.y as usize;
+        if sy < nv.overview_scroll {
+            nv.overview_scroll = sy;
+        } else if sy >= nv.overview_scroll + visible {
+            nv.overview_scroll = sy + 1 - visible;
+        }
+    }
+    nv.overview_scroll = nv.overview_scroll.min(total_h.saturating_sub(visible));
+    let scroll = nv.overview_scroll;
+
+    if let Some(g) = gfx.filter(|g| g.available()) {
+        draw_overview_graphics(f, grid, nv, &boxes, scroll, theme, g);
+    } else {
+        draw_overview_ascii(f, grid, nv, &boxes, scroll, theme);
+    }
+}
+
+/// Flow cards into a responsive grid; returns card boxes and IP-node rects in
+/// *virtual* coordinates (absolute x, y = row from the grid top) plus total rows.
+#[allow(clippy::type_complexity)]
+fn layout_cards(
+    grid: Rect,
+    cards: &[ServiceCard],
+) -> (Vec<(usize, Rect)>, Vec<(usize, usize, Rect)>, usize) {
+    let card_w = CARD_W.min(grid.width.max(1));
+    let gap = 1u16;
+    let cols = ((grid.width + gap) / (card_w + gap)).max(1) as usize;
+    let mut boxes = Vec::new();
+    let mut nodes = Vec::new();
+    let (mut vy, mut col, mut row_h) = (0u16, 0usize, 0u16);
+    for (ci, card) in cards.iter().enumerate() {
+        let shown = card.ips.len().min(MAX_IPS);
+        let overflow = card.ips.len() > MAX_IPS;
+        let ch = 2 + shown as u16 + overflow as u16; // top+bottom border + ip rows + overflow
+        if col >= cols {
+            col = 0;
+            vy += row_h + 1;
+            row_h = 0;
+        }
+        let x = grid.x + col as u16 * (card_w + gap);
+        boxes.push((ci, Rect { x, y: vy, width: card_w, height: ch }));
+        for r in 0..shown {
+            nodes.push((ci, r, Rect { x: x + 1, y: vy + 1 + r as u16, width: card_w - 2, height: 1 }));
+        }
+        row_h = row_h.max(ch);
+        col += 1;
+    }
+    (boxes, nodes, (vy + row_h) as usize)
+}
+
+fn selected_node(nv: &NetView) -> Option<(usize, usize)> {
+    nv.overview_nodes.get(nv.overview_cursor).map(|(c, r, _)| (*c, *r))
+}
+
+/// Reverse-DNS suffix for an IP row, once resolved.
+fn dns_suffix(nv: &NetView, ip: &str) -> String {
+    match nv.dns.get(ip) {
+        Some(Some(h)) => format!("  {h}"),
+        _ => String::new(),
+    }
+}
+
+fn draw_overview_ascii(f: &mut Frame, grid: Rect, nv: &NetView, boxes: &[(usize, Rect)], scroll: usize, theme: &Theme) {
+    let sel = selected_node(nv);
+    let top = grid.y as i32;
+    let bottom = (grid.y + grid.height) as i32;
+    for (ci, vr) in boxes {
+        let card = &nv.overview_cards[*ci];
+        let color = proto_color(theme, card.proto);
+        let border = Style::default().fg(color).bg(theme.panel_bg);
+        let inner_w = vr.width.saturating_sub(2) as usize;
+        let shown = card.ips.len().min(MAX_IPS);
+        let overflow = card.ips.len() > MAX_IPS;
+        for rr in 0..vr.height {
+            let sy_i = top + vr.y as i32 - scroll as i32 + rr as i32;
+            if sy_i < top || sy_i >= bottom {
+                continue;
+            }
+            let sy = sy_i as u16;
+            let rowrect = Rect { x: vr.x, y: sy, width: vr.width, height: 1 };
+            let line = if rr == 0 {
+                // Top border with the service title.
+                let title = format!(" {} :{} {} ", card.proto.label(), card.port, card.name);
+                let title = ellipsize(&title, inner_w);
+                let dashes = inner_w.saturating_sub(title.chars().count());
+                Line::from(Span::styled(format!("┌{title}{}┐", "─".repeat(dashes)), border.add_modifier(Modifier::BOLD)))
+            } else if rr as usize == vr.height as usize - 1 {
+                Line::from(Span::styled(format!("└{}┘", "─".repeat(inner_w)), border))
+            } else if overflow && rr as usize == 1 + shown {
+                let extra = card.ips.len() - shown;
+                let txt = pad_right(&format!(" … +{extra} more"), inner_w);
+                Line::from(vec![
+                    Span::styled("│", border),
+                    Span::styled(txt, Style::default().fg(theme.panel_fg).bg(theme.panel_bg)),
+                    Span::styled("│", border),
+                ])
+            } else {
+                let r = rr as usize - 1;
+                let ip = &card.ips[r];
+                let content = format!("{} {}{}", dir_glyph(ip.dir), ip.ip, dns_suffix(nv, &ip.ip));
+                let content = pad_right(&ellipsize(&content, inner_w), inner_w);
+                let is_sel = sel == Some((*ci, r));
+                let style = if is_sel {
+                    theme.dialog_selection
+                } else {
+                    Style::default().fg(theme.panel_fg).bg(theme.panel_bg)
+                };
+                Line::from(vec![
+                    Span::styled("│", border),
+                    Span::styled(content, style),
+                    Span::styled("│", border),
+                ])
+            };
+            f.render_widget(Paragraph::new(line), rowrect);
+        }
+    }
+}
+
+fn draw_overview_graphics(
+    f: &mut Frame,
+    grid: Rect,
+    nv: &NetView,
+    boxes: &[(usize, Rect)],
+    scroll: usize,
+    theme: &Theme,
+    g: &mut Gfx,
+) {
+    use std::hash::{Hash, Hasher};
+    let (cw, ch) = g.cell();
+    let total_rows = boxes.iter().map(|(_, r)| r.y + r.height).max().unwrap_or(0) as u32;
+    let img_w = (grid.width as u32 * cw).max(1);
+    let full_h = (total_rows * ch).max(1);
+    let win_h = (grid.height as u32 * ch).max(1);
+    let sel = selected_node(nv);
+
+    // Signature so the image is only rebuilt when something visible changes.
+    let mut hh = std::collections::hash_map::DefaultHasher::new();
+    (grid.width, grid.height, scroll as u64).hash(&mut hh);
+    (sel.map(|(a, b)| (a as u64, b as u64))).hash(&mut hh);
+    for (ci, _) in boxes {
+        let card = &nv.overview_cards[*ci];
+        (card.dir as u8, card.port, card.name.as_str(), card.proto.label()).hash(&mut hh);
+        for ip in card.ips.iter().take(MAX_IPS) {
+            (ip.ip.as_str(), matches!(ip.dir, Dir::In), nv.dns.get(&ip.ip).cloned().flatten()).hash(&mut hh);
+        }
+    }
+    let sig = hh.finish();
+
+    let bg = raster::rgb(theme.panel_bg);
+    g.draw_cached(f, grid, Slot::NetDiagram, sig, || {
+        let mut full = raster::canvas(img_w, full_h, bg);
+        for (ci, vr) in boxes {
+            let card = &nv.overview_cards[*ci];
+            let color = raster::rgb(proto_color(theme, card.proto));
+            let ox = (vr.x - grid.x) as u32 * cw;
+            let oy = vr.y as u32 * ch;
+            let bw = vr.width as u32 * cw;
+            let bh = vr.height as u32 * ch;
+            raster::pillow_into(&mut full, ox, oy, bw, bh, raster::over(bg, color, 0.18), &[], Some(color));
+            let title = format!("{} :{} {}", card.proto.label(), card.port, card.name);
+            let tpx = (ch as f32 * 0.62).clamp(11.0, 20.0);
+            raster::draw_text(&mut full, ox as i32 + 6, oy as i32 + 2, &title, color, None, tpx);
+            let shown = card.ips.len().min(MAX_IPS);
+            let px = (ch as f32 * 0.58).clamp(10.0, 18.0);
+            for r in 0..shown {
+                let ip = &card.ips[r];
+                let ny = oy + (1 + r as u32) * ch;
+                let is_sel = sel == Some((*ci, r));
+                if is_sel {
+                    let selc = theme.dialog_selection.bg.unwrap_or(theme.panel_border_active);
+                    raster::fill_rect(&mut full, ox + 2, ny, bw.saturating_sub(4), ch, raster::rgb(selc));
+                }
+                let glyph = if matches!(ip.dir, Dir::In) { "<" } else { ">" };
+                let text = format!("{glyph} {}{}", ip.ip, dns_suffix(nv, &ip.ip));
+                let fg = if is_sel {
+                    raster::rgb(theme.dialog_selection.fg.unwrap_or(theme.panel_bg))
+                } else {
+                    raster::rgb(theme.panel_fg)
+                };
+                raster::draw_text(&mut full, ox as i32 + 8, ny as i32 + 2, &text, fg, None, px);
+            }
+        }
+        // Crop to the visible window (whole-image scroll).
+        let y0 = (scroll as u32 * ch).min(full_h.saturating_sub(1));
+        let hcrop = win_h.min(full_h - y0).max(1);
+        let cropped = image::imageops::crop_imm(&full, 0, y0, img_w, hcrop).to_image();
+        let mut out = raster::canvas(img_w, win_h, bg);
+        image::imageops::overlay(&mut out, &cropped, 0, 0);
+        out
+    });
+}
+
+/// The IP-details popup opened from the overview (with reverse-DNS).
+fn render_ip_detail(f: &mut Frame, area: Rect, nv: &NetView, theme: &Theme) {
+    let Some(d) = &nv.ip_detail else {
+        return;
+    };
+    let w = 66u16.min(area.width.saturating_sub(4));
+    let h = 12u16.min(area.height.saturating_sub(2));
+    let rect = centered(area, w, h);
+    f.render_widget(Clear, rect);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(theme.panel_border_active).bg(theme.dialog_bg))
+        .title(Span::styled(
+            " IP details ",
+            Style::default().fg(theme.dialog_title).bg(theme.dialog_bg).add_modifier(Modifier::BOLD),
+        ))
+        .style(Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg));
+    let ib = block.inner(rect);
+    f.render_widget(block, rect);
+    if ib.height < 6 {
+        return;
+    }
+    let base = Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg);
+    let host = match nv.dns.get(&d.ip) {
+        Some(Some(h)) => h.clone(),
+        Some(None) => "(no PTR record)".to_string(),
+        None => "resolving…".to_string(),
+    };
+    let dir = if matches!(d.dir, Dir::In) { "inbound (remote → us)" } else { "outbound (us → remote)" };
+    let progs = if d.programs.is_empty() { "-".to_string() } else { d.programs.join(", ") };
+    let rows = [
+        format!("IP        {}", d.ip),
+        format!("Host      {host}"),
+        format!("Service   :{} {} ({})", d.port, d.service, d.proto.label()),
+        format!("Direction {dir}"),
+        format!("Program   {progs}"),
+        format!("Sockets   {}", d.count),
+        format!(
+            "Traffic   in {}  out {}   ({}/s)",
+            human_size(d.rx),
+            human_size(d.tx),
+            human_size(d.rate)
+        ),
+    ];
+    for (i, line) in rows.iter().enumerate() {
+        let y = ib.y + i as u16;
+        if y >= ib.y + ib.height {
+            break;
+        }
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(ellipsize(line, ib.width as usize), base))).style(base),
+            Rect { x: ib.x, y, width: ib.width, height: 1 },
+        );
+    }
+    let by = ib.y + ib.height - 1;
+    f.render_widget(
+        Paragraph::new(Line::from(Span::styled("Esc / Enter to close", base)))
+            .alignment(Alignment::Center)
+            .style(base),
+        Rect { x: ib.x, y: by, width: ib.width, height: 1 },
     );
 }

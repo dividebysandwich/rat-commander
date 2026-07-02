@@ -120,6 +120,7 @@ impl AppState {
                 NetSignal::Kill { pid, program, force } => {
                     self.dialog = Some(Dialog::Confirm(ConfirmDialog::kill(pid, &program, force)));
                 }
+                NetSignal::ResolveDns(ip) => self.start_reverse_dns(ip),
             }
             return Flow::Continue;
         }

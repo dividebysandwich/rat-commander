@@ -691,10 +691,12 @@ connection at a glance.
 **user mode**, where the connection lists are still complete but a program name
 is shown only for your own sockets.
 
-- **Tab** / **←→** switch the focused list; **↑↓ / PgUp/PgDn / Home/End** (and
-  the mouse wheel) scroll it.
-- **`/`** starts a live **filter** — type to narrow both lists by program,
-  address, port, state or service; **Enter** keeps it, **Esc** clears it.
+- **Tab** cycles the three views: **Listening ports → Connections → Overview
+  diagram**. In the two lists, **←→** switch the focused list and **↑↓ /
+  PgUp/PgDn / Home/End** (and the mouse wheel) scroll it.
+- **`/`** starts a live **filter** — type to narrow the lists by program,
+  address, port, state or service; **Enter** keeps it, **Esc** clears it. The
+  filter also reshapes the overview diagram.
 - **`s`** cycles the focused list's **sort** column, **`S`** reverses it.
 - **`p`** cycles the protocol filter (all → tcp → udp), **`e`** toggles
   established-only, **`h`** toggles hiding loopback sockets.
@@ -705,6 +707,24 @@ is shown only for your own sockets.
   force-kills it (SIGKILL) — both ask to confirm.
 - **`r`** refreshes now, **`+`/`-`** change the auto-refresh interval, **Esc**
   closes the view.
+
+**Overview diagram.** The third view (reach it with **Tab**) arranges the active
+connections into a **responsive grid of service cards** — one card per service,
+titled by its `proto :port name`. Each card lists the IP addresses talking to
+that service, with a **◀** for **inbound** peers (someone connected to a port you
+listen on) and a **▶** for **outbound** ones (you connected out). Colour encodes
+the protocol: **cyan = TCP**, **green = UDP**, **yellow = both**. The diagram is
+drawn with true terminal graphics when available, and with box-drawing characters
+otherwise.
+
+- **↑↓←→** move the cursor between IP addresses (nearest in that direction);
+  **Home/End** jump to the first/last; **PgUp/PgDn** and the mouse wheel scroll.
+- **Enter** or a **mouse click** on an address opens an **IP details** popup —
+  direction, service, owning program(s), socket count, cumulative and live
+  traffic, and a **reverse-DNS** hostname (resolved in the background via the
+  system resolver; shows *resolving…* until it arrives, then caches the result).
+- **`k` / `K`** act on the selected address's owning process, exactly as in the
+  lists.
 
 Data comes from `ss` (iproute2); the tool is offered only on Linux. The root
 password, if given, is held in memory for the session so periodic refreshes can

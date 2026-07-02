@@ -93,6 +93,11 @@ pub enum AppEvent {
         generation: u64,
         result: Result<Scan, String>,
     },
+    /// A reverse-DNS lookup for a peer IP finished (`host` = `None` = no PTR).
+    ReverseDnsResolved {
+        ip: String,
+        host: Option<String>,
+    },
     /// A view/edit fetch streamed a (remote/archive) file to a local temp file;
     /// the handler opens it (paged viewer, or editor targeting `orig_path`).
     FileFetched {

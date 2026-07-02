@@ -305,6 +305,15 @@ pub fn sweep_bar(w: u32, h: u32, pos: f64, block: f64, band: Rgb, track: Rgb, bg
     img
 }
 
+/// Fill an axis-aligned rectangle with a solid color, clipped to the image.
+pub fn fill_rect(img: &mut RgbaImage, x: u32, y: u32, w: u32, h: u32, color: Rgb) {
+    for yy in y..(y + h).min(img.height()) {
+        for xx in x..(x + w).min(img.width()) {
+            img.put_pixel(xx, yy, Rgba([color.0, color.1, color.2, 255]));
+        }
+    }
+}
+
 /// A themed push-button "face": a rounded (pill) body filled with `fill` under a
 /// soft vertical gloss and a bevelled top/bottom rim, sitting over background
 /// `bg` with a drop shadow toward the bottom-right. When `glow` is `Some` the

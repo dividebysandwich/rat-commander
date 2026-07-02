@@ -74,7 +74,12 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
         return;
     }
     if let Some(nv) = state.netview.as_mut() {
-        crate::net::render::render(f, area, nv, &theme, state.gfx.as_mut());
+        // The overview diagram auto-refreshes; its full-width terminal-graphics
+        // image would repaint over a modal dialog on the next update (the diff
+        // won't re-emit the dialog's unchanged cells). Render the net view without
+        // graphics while a dialog is up so the dialog composites correctly.
+        let net_gfx = if state.dialog.is_some() { None } else { state.gfx.as_mut() };
+        crate::net::render::render(f, area, nv, &theme, net_gfx);
         if let Some(d) = &mut state.dialog {
             d.render(f, area, &theme, state.gfx.as_mut());
         }

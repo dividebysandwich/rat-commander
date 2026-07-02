@@ -162,6 +162,142 @@ fn renders_both_panes_without_panic() {
 }
 
 #[test]
+fn build_cards_classifies_and_groups() {
+    let mut nv = NetView::new(false, None);
+    nv.apply(parse_ss(SAMPLE));
+    let cards = nv.build_cards();
+    // Listeners on :22 and :68 ⇒ the :22 connection is inbound; :443/:80 have no
+    // matching listener ⇒ outbound (named by the peer/server port).
+    assert_eq!(cards.len(), 3, "one card per (dir, service)");
+    let inbound = cards.iter().find(|c| matches!(c.dir, Dir::In)).unwrap();
+    assert_eq!(inbound.port, 22);
+    assert_eq!(inbound.name, "ssh");
+    assert!(matches!(inbound.proto, Proto3::Tcp));
+    assert_eq!(inbound.ips.len(), 1);
+    assert_eq!(inbound.ips[0].ip, "10.0.0.2");
+    assert!(matches!(inbound.ips[0].dir, Dir::In));
+    // Inbound sorts before outbound.
+    assert!(matches!(cards[0].dir, Dir::In));
+    // The 443→10.0.0.9:4444 connection is outbound, keyed by the peer port 4444.
+    let out = cards.iter().find(|c| c.ips.iter().any(|r| r.ip == "10.0.0.9")).unwrap();
+    assert!(matches!(out.dir, Dir::Out));
+    assert_eq!(out.port, 4444);
+}
+
+#[test]
+fn build_cards_unions_protocols_and_dedupes_ips() {
+    let mut nv = NetView::new(false, None);
+    nv.listening = vec![Socket { proto: "tcp".into(), local: "0.0.0.0:8080".into(), ..Default::default() }];
+    // Same service + same peer host over TCP and UDP ⇒ one card, one IP, both protos.
+    nv.connections = vec![
+        Socket {
+            proto: "tcp".into(),
+            local: "10.0.0.1:8080".into(),
+            peer: "1.2.3.4:1111".into(),
+            state: "ESTAB".into(),
+            ..Default::default()
+        },
+        Socket {
+            proto: "udp".into(),
+            local: "10.0.0.1:8080".into(),
+            peer: "1.2.3.4:2222".into(),
+            state: "ESTAB".into(),
+            ..Default::default()
+        },
+    ];
+    nv.rebuild_views();
+    let cards = nv.build_cards();
+    assert_eq!(cards.len(), 1);
+    assert!(matches!(cards[0].dir, Dir::In));
+    assert_eq!(cards[0].port, 8080);
+    assert!(matches!(cards[0].proto, Proto3::Both), "TCP+UDP union");
+    assert_eq!(cards[0].ips.len(), 1, "same peer host deduped");
+    assert_eq!(cards[0].ips[0].ip, "1.2.3.4");
+    assert_eq!(cards[0].ips[0].count, 2);
+    assert!(matches!(cards[0].ips[0].proto, Proto3::Both));
+}
+
+#[test]
+fn getent_output_parses_hostname() {
+    assert_eq!(
+        parse_getent("1.2.3.4       host.example.com other-alias\n", "1.2.3.4"),
+        Some("host.example.com".to_string())
+    );
+    assert_eq!(parse_getent("", "1.2.3.4"), None, "empty ⇒ no PTR");
+    assert_eq!(parse_getent("1.2.3.4\n", "1.2.3.4"), None, "address only ⇒ no name");
+}
+
+#[test]
+fn overview_renders_hit_tests_and_opens_details() {
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    let mut nv = NetView::new(false, None);
+    nv.apply(parse_ss(SAMPLE));
+    nv.focus = Pane::Overview;
+    let theme = crate::ui::theme::Theme::mc();
+    let mut t = Terminal::new(TestBackend::new(120, 32)).unwrap();
+    t.draw(|f| render::render(f, f.area(), &mut nv, &theme, None)).unwrap();
+    let b = t.backend().buffer();
+    let mut s = String::new();
+    for y in 0..b.area.height {
+        for x in 0..b.area.width {
+            s.push_str(b[(x, y)].symbol());
+        }
+    }
+    assert!(s.contains(":22"), "a service card titled by port");
+    assert!(s.contains("10.0.0.2"), "a connected IP is listed");
+    assert!(s.contains('◀'), "inbound arrow glyph");
+    assert!(s.contains('▶'), "outbound arrow glyph");
+
+    // The render populated the node rects; hit-test the first node.
+    assert!(!nv.overview_nodes.is_empty(), "nodes filled for hit-testing");
+    let (ci, ii, r) = nv.overview_nodes[0];
+    let g = nv.overview_grid;
+    let hit = nv.node_at(r.x, g.y + r.y);
+    assert_eq!(hit, Some(0), "click on a node row selects it");
+
+    // Opening the node shows the IP-details popup and asks for a reverse lookup.
+    let sig = nv.open_ip_detail_at(ci, ii);
+    assert!(nv.ip_detail.is_some(), "details popup opened");
+    assert!(matches!(sig, NetSignal::ResolveDns(_)), "uncached IP triggers a lookup");
+    // A cached result satisfies the popup; a second open no longer re-resolves.
+    let ip = nv.ip_detail.as_ref().unwrap().ip.clone();
+    nv.set_dns(ip, Some("cached.example".into()));
+    assert!(matches!(nv.open_ip_detail_at(ci, ii), NetSignal::Stay));
+}
+
+#[test]
+fn overview_graphics_path_does_not_panic() {
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    let mut nv = NetView::new(false, None);
+    nv.apply(parse_ss(SAMPLE));
+    nv.focus = Pane::Overview;
+    let theme = crate::ui::theme::Theme::mc();
+    let mut gfx = crate::ui::graphics::Gfx::test_halfblocks();
+    let mut t = Terminal::new(TestBackend::new(120, 32)).unwrap();
+    t.draw(|f| render::render(f, f.area(), &mut nv, &theme, Some(&mut gfx))).unwrap();
+    // Narrow widths must not panic either (single-column flow, clamped card width).
+    let mut narrow = Terminal::new(TestBackend::new(24, 16)).unwrap();
+    narrow.draw(|f| render::render(f, f.area(), &mut nv, &theme, Some(&mut gfx))).unwrap();
+}
+
+#[test]
+fn tab_cycles_through_the_overview() {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let key = |c| KeyEvent::new(c, KeyModifiers::NONE);
+    let mut nv = NetView::new(false, None);
+    nv.apply(parse_ss(SAMPLE));
+    assert_eq!(nv.focus, Pane::Listening);
+    nv.handle_key(key(KeyCode::Tab));
+    assert_eq!(nv.focus, Pane::Connections);
+    nv.handle_key(key(KeyCode::Tab));
+    assert_eq!(nv.focus, Pane::Overview);
+    nv.handle_key(key(KeyCode::Tab));
+    assert_eq!(nv.focus, Pane::Listening, "TAB wraps back to the first pane");
+}
+
+#[test]
 fn details_popup_opens_and_closes() {
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     let key = |c| KeyEvent::new(c, KeyModifiers::NONE);

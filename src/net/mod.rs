@@ -16,8 +16,9 @@
 pub mod render;
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
+use ratatui::layout::Rect;
 use std::cmp::Ordering;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::LazyLock;
 use std::time::Instant;
 
@@ -75,18 +76,23 @@ pub struct Scan {
     pub connections: Vec<Socket>,
 }
 
-/// Which of the two lists has the keyboard focus (cursor + scrolling).
+/// Which view has the keyboard focus. TAB cycles through all three.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pane {
     Listening,
     Connections,
+    /// The full-body service-card overview diagram.
+    Overview,
 }
 
 impl Pane {
+    /// Index of the backing list (0 = listening, 1 = connections). The overview
+    /// is not a list; it maps to 1 only so shared code never indexes out of range
+    /// — overview paths are handled before any `idx()` use.
     fn idx(self) -> usize {
         match self {
             Pane::Listening => 0,
-            Pane::Connections => 1,
+            Pane::Connections | Pane::Overview => 1,
         }
     }
 }
@@ -161,6 +167,81 @@ pub struct DetailState {
     pub info: DetailInfo,
 }
 
+// ---------------------------------------------------------------------------
+// Overview diagram model
+// ---------------------------------------------------------------------------
+
+/// Traffic direction of a connection relative to this host.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Dir {
+    /// A remote peer connected to one of our listening services.
+    In,
+    /// We connected out to a remote service.
+    Out,
+}
+
+/// The protocol mix of a service card or IP row (drives its color).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Proto3 {
+    Tcp,
+    Udp,
+    Both,
+}
+
+impl Proto3 {
+    fn of(has_tcp: bool, has_udp: bool) -> Proto3 {
+        match (has_tcp, has_udp) {
+            (true, true) => Proto3::Both,
+            (false, true) => Proto3::Udp,
+            _ => Proto3::Tcp,
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Proto3::Tcp => "TCP",
+            Proto3::Udp => "UDP",
+            Proto3::Both => "TCP+UDP",
+        }
+    }
+}
+
+/// One remote IP connected to a service (a selectable node in the diagram).
+#[derive(Debug, Clone)]
+pub struct IpRow {
+    pub ip: String,
+    pub dir: Dir,
+    pub proto: Proto3,
+    /// Number of sockets to/from this IP for the service.
+    pub count: usize,
+    /// Combined in+out rate (bytes/sec) across those sockets.
+    pub rate: u64,
+}
+
+/// One service box: a port/service plus the IPs connected to it.
+#[derive(Debug, Clone)]
+pub struct ServiceCard {
+    pub dir: Dir,
+    pub port: u32,
+    pub name: String,
+    pub proto: Proto3,
+    pub ips: Vec<IpRow>,
+}
+
+/// Aggregated info shown when an IP node is opened (with async reverse-DNS).
+#[derive(Debug, Clone)]
+pub struct IpDetail {
+    pub ip: String,
+    pub dir: Dir,
+    pub port: u32,
+    pub service: String,
+    pub proto: Proto3,
+    pub count: usize,
+    pub rx: u64,
+    pub tx: u64,
+    pub rate: u64,
+    pub programs: Vec<String>,
+}
+
 /// What handling a key asks the app to do.
 pub enum NetSignal {
     Stay,
@@ -170,6 +251,8 @@ pub enum NetSignal {
     /// Kill the owning process of the selected socket (`force` ⇒ SIGKILL). The
     /// app confirms first.
     Kill { pid: i32, program: String, force: bool },
+    /// Kick off a reverse-DNS lookup for this IP (result arrives via an event).
+    ResolveDns(String),
 }
 
 pub struct NetView {
@@ -196,6 +279,23 @@ pub struct NetView {
 
     // --- details popup ---
     pub detail: Option<DetailState>,
+
+    // --- overview diagram ---
+    /// Cards built for the last overview render (card grid, per service).
+    pub overview_cards: Vec<ServiceCard>,
+    /// Selectable IP nodes from the last overview render: `(card, ip, screen rect)`.
+    pub overview_nodes: Vec<(usize, usize, Rect)>,
+    pub overview_cursor: usize,
+    /// Virtual rows scrolled off the top of the card grid.
+    pub overview_scroll: usize,
+    /// The card-grid screen area from the last render (for click→node mapping).
+    pub overview_grid: Rect,
+    /// The open IP-detail popup (overview), if any.
+    pub ip_detail: Option<IpDetail>,
+    /// Reverse-DNS cache: `Some(host)` resolved, `None` = no PTR record.
+    pub dns: HashMap<String, Option<String>>,
+    /// IPs with an in-flight reverse-DNS lookup (avoids duplicate requests).
+    pub dns_pending: HashSet<String>,
 
     // --- rate tracking ---
     /// Previous cumulative `(rx, tx)` per connection key.
@@ -244,6 +344,14 @@ impl NetView {
             established_only: false,
             hide_loopback: false,
             detail: None,
+            overview_cards: Vec::new(),
+            overview_nodes: Vec::new(),
+            overview_cursor: 0,
+            overview_scroll: 0,
+            overview_grid: Rect::default(),
+            ip_detail: None,
+            dns: HashMap::new(),
+            dns_pending: HashSet::new(),
             prev: HashMap::new(),
             last_instant: None,
             rate_history: HashMap::new(),
@@ -468,10 +576,16 @@ impl NetView {
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> NetSignal {
-        // The details popup captures keys first: anything dismisses it.
+        // A details popup (socket or IP) captures keys first: anything dismisses it.
         if self.detail.is_some() {
             if matches!(key.code, KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q')) {
                 self.detail = None;
+            }
+            return NetSignal::Stay;
+        }
+        if self.ip_detail.is_some() {
+            if matches!(key.code, KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q')) {
+                self.ip_detail = None;
             }
             return NetSignal::Stay;
         }
@@ -506,8 +620,8 @@ impl NetView {
                 self.filtering = true;
                 self.filter_cursor = self.filter.chars().count();
             }
-            KeyCode::Char('s') => self.cycle_sort(false),
-            KeyCode::Char('S') => self.cycle_sort(true),
+            KeyCode::Char('s') if self.focus != Pane::Overview => self.cycle_sort(false),
+            KeyCode::Char('S') if self.focus != Pane::Overview => self.cycle_sort(true),
             KeyCode::Char('p') | KeyCode::Char('P') => {
                 self.proto_filter = self.proto_filter.next();
                 self.rebuild_views();
@@ -522,7 +636,12 @@ impl NetView {
             }
             KeyCode::Char('k') => return self.kill_request(false),
             KeyCode::Char('K') => return self.kill_request(true),
-            KeyCode::Enter => self.open_detail(),
+            KeyCode::Enter => {
+                if self.focus == Pane::Overview {
+                    return self.open_ip_detail();
+                }
+                self.open_detail();
+            }
             KeyCode::Char('+') | KeyCode::Char('=') => {
                 self.interval_ms = (self.interval_ms + 500).min(60_000);
             }
@@ -534,13 +653,39 @@ impl NetView {
         NetSignal::Stay
     }
 
+    /// TAB cycles Listening → Connections → Overview → Listening.
+    fn cycle_focus(&mut self) {
+        self.focus = match self.focus {
+            Pane::Listening => Pane::Connections,
+            Pane::Connections => Pane::Overview,
+            Pane::Overview => Pane::Listening,
+        };
+    }
+
     /// Cursor / pane navigation shared between normal and filter modes.
     fn navigate(&mut self, code: KeyCode) {
+        if code == KeyCode::Tab {
+            self.cycle_focus();
+            return;
+        }
+        // Overview: arrows move spatially between IP nodes; PgUp/PgDn scroll.
+        if self.focus == Pane::Overview {
+            match code {
+                KeyCode::Left | KeyCode::Right | KeyCode::Up | KeyCode::Down => self.move_node(code),
+                KeyCode::Home => self.overview_cursor = 0,
+                KeyCode::End => self.overview_cursor = self.overview_nodes.len().saturating_sub(1),
+                KeyCode::PageUp => self.overview_scroll = self.overview_scroll.saturating_sub(1),
+                KeyCode::PageDown => self.overview_scroll += 1,
+                _ => {}
+            }
+            return;
+        }
         match code {
-            KeyCode::Tab | KeyCode::Left | KeyCode::Right => {
+            // Left/Right switch between the two list panes (TAB also reaches Overview).
+            KeyCode::Left | KeyCode::Right => {
                 self.focus = match self.focus {
                     Pane::Listening => Pane::Connections,
-                    Pane::Connections => Pane::Listening,
+                    _ => Pane::Listening,
                 };
             }
             KeyCode::Up => {
@@ -571,8 +716,66 @@ impl NetView {
         }
     }
 
+    /// Move the overview cursor to the nearest IP node in `dir` (spatial nav,
+    /// mirroring the disk explorer). Uses the node rects from the last render.
+    fn move_node(&mut self, dir: KeyCode) {
+        if self.overview_nodes.is_empty() {
+            return;
+        }
+        let cur_i = self.overview_cursor.min(self.overview_nodes.len() - 1);
+        let cur = center(self.overview_nodes[cur_i].2);
+        let mut best: Option<(f32, usize)> = None;
+        for (i, (_, _, r)) in self.overview_nodes.iter().enumerate() {
+            if i == cur_i {
+                continue;
+            }
+            let c = center(*r);
+            let (dx, dy) = (c.0 - cur.0, c.1 - cur.1);
+            let in_dir = match dir {
+                KeyCode::Left => dx < -0.5,
+                KeyCode::Right => dx > 0.5,
+                KeyCode::Up => dy < -0.5,
+                KeyCode::Down => dy > 0.5,
+                _ => false,
+            };
+            if !in_dir {
+                continue;
+            }
+            let (primary, perp) = match dir {
+                KeyCode::Left | KeyCode::Right => (dx.abs(), dy.abs()),
+                _ => (dy.abs(), dx.abs()),
+            };
+            let score = primary + perp * 2.0;
+            if best.is_none_or(|(b, _)| score < b) {
+                best = Some((score, i));
+            }
+        }
+        if let Some((_, i)) = best {
+            self.overview_cursor = i;
+        }
+    }
+
+    /// The IP node under a screen point (overview hit-testing). Node rects are
+    /// stored with an absolute x but a *virtual* y (row from the grid top); the
+    /// click's screen row is converted using the grid origin + scroll.
+    pub fn node_at(&self, col: u16, row: u16) -> Option<usize> {
+        let g = self.overview_grid;
+        if row < g.y || row >= g.y + g.height || col < g.x || col >= g.x + g.width {
+            return None;
+        }
+        let vy = (row - g.y) as usize + self.overview_scroll;
+        self.overview_nodes
+            .iter()
+            .position(|(_, _, r)| col >= r.x && col < r.x + r.width && r.y as usize == vy)
+    }
+
     fn kill_request(&self, force: bool) -> NetSignal {
-        match self.selected() {
+        let target = if self.focus == Pane::Overview {
+            self.overview_selected_socket()
+        } else {
+            self.selected()
+        };
+        match target {
             Some(s) if s.pid.is_some() => NetSignal::Kill {
                 pid: s.pid.unwrap() as i32,
                 program: if s.program.is_empty() { "?".to_string() } else { s.program.clone() },
@@ -589,6 +792,181 @@ impl NetView {
         let info = s.pid.map(load_detail_info).unwrap_or_default();
         self.detail = Some(DetailState { key: socket_key(&s), sock: s, info });
     }
+
+    /// The set of local ports we listen on (for inbound/outbound classification).
+    fn listen_ports(&self) -> HashSet<u32> {
+        self.listening.iter().map(|s| port_of(&s.local)).collect()
+    }
+
+    /// Group the (filtered) connections into per-service cards for the overview.
+    pub fn build_cards(&self) -> Vec<ServiceCard> {
+        let listen = self.listen_ports();
+        let mut groups: HashMap<(u8, u32), CardAcc> = HashMap::new();
+        for &i in &self.view[1] {
+            let s = &self.connections[i];
+            let lport = port_of(&s.local);
+            let (dir, port) = if listen.contains(&lport) {
+                (Dir::In, lport)
+            } else {
+                (Dir::Out, port_of(&s.peer))
+            };
+            let udp = s.proto.starts_with("udp");
+            let name = service_name(port as u16, if udp { "udp" } else { "tcp" });
+            let acc = groups.entry((dir as u8, port)).or_insert_with(|| CardAcc {
+                dir,
+                port,
+                name: String::new(),
+                has_tcp: false,
+                has_udp: false,
+                ips: HashMap::new(),
+            });
+            if acc.name.is_empty() && !name.is_empty() {
+                acc.name = name;
+            }
+            if udp {
+                acc.has_udp = true;
+            } else {
+                acc.has_tcp = true;
+            }
+            let ip = host_of(&s.peer);
+            let e = acc.ips.entry(ip).or_default();
+            if udp {
+                e.has_udp = true;
+            } else {
+                e.has_tcp = true;
+            }
+            e.count += 1;
+            e.rate += s.rate();
+        }
+        let mut cards: Vec<ServiceCard> = groups
+            .into_values()
+            .map(|a| {
+                let mut ips: Vec<IpRow> = a
+                    .ips
+                    .into_iter()
+                    .map(|(ip, e)| IpRow {
+                        ip,
+                        dir: a.dir,
+                        proto: Proto3::of(e.has_tcp, e.has_udp),
+                        count: e.count,
+                        rate: e.rate,
+                    })
+                    .collect();
+                ips.sort_by(|x, y| y.rate.cmp(&x.rate).then(x.ip.cmp(&y.ip)));
+                ServiceCard {
+                    dir: a.dir,
+                    port: a.port,
+                    name: a.name,
+                    proto: Proto3::of(a.has_tcp, a.has_udp),
+                    ips,
+                }
+            })
+            .collect();
+        cards.sort_by_key(|a| (a.dir as u8, a.port));
+        cards
+    }
+
+    /// The representative socket (with a pid) behind the selected overview node.
+    fn overview_selected_socket(&self) -> Option<&Socket> {
+        let &(card, ip, _) = self.overview_nodes.get(self.overview_cursor)?;
+        let c = self.overview_cards.get(card)?;
+        let row = c.ips.get(ip)?;
+        let listen = self.listen_ports();
+        self.connections.iter().find(|s| {
+            let lport = port_of(&s.local);
+            let (dir, port) = if listen.contains(&lport) {
+                (Dir::In, lport)
+            } else {
+                (Dir::Out, port_of(&s.peer))
+            };
+            dir as u8 == c.dir as u8 && port == c.port && host_of(&s.peer) == row.ip && s.pid.is_some()
+        })
+    }
+
+    /// Open the IP-details popup for the selected overview node, returning a
+    /// `ResolveDns` signal when the IP still needs a reverse-DNS lookup.
+    fn open_ip_detail(&mut self) -> NetSignal {
+        let Some(&(card, ip, _)) = self.overview_nodes.get(self.overview_cursor) else {
+            return NetSignal::Stay;
+        };
+        self.open_ip_detail_at(card, ip)
+    }
+
+    /// Build and show the IP-details popup for card `card`, IP row `ip`.
+    pub fn open_ip_detail_at(&mut self, card: usize, ip: usize) -> NetSignal {
+        let Some(c) = self.overview_cards.get(card) else {
+            return NetSignal::Stay;
+        };
+        let Some(row) = c.ips.get(ip) else {
+            return NetSignal::Stay;
+        };
+        let (dir, port, service, proto, count, rate, ipaddr) =
+            (c.dir, c.port, c.name.clone(), row.proto, row.count, row.rate, row.ip.clone());
+        // Aggregate the matching connections for programs + cumulative bytes.
+        let listen = self.listen_ports();
+        let (mut rx, mut tx, mut programs) = (0u64, 0u64, Vec::<String>::new());
+        for s in &self.connections {
+            let lport = port_of(&s.local);
+            let (sdir, sport) = if listen.contains(&lport) {
+                (Dir::In, lport)
+            } else {
+                (Dir::Out, port_of(&s.peer))
+            };
+            if sdir as u8 == dir as u8 && sport == port && host_of(&s.peer) == ipaddr {
+                rx += s.rx.unwrap_or(0);
+                tx += s.tx.unwrap_or(0);
+                if !s.program.is_empty() && !programs.contains(&s.program) {
+                    programs.push(s.program.clone());
+                }
+            }
+        }
+        self.ip_detail = Some(IpDetail { ip: ipaddr.clone(), dir, port, service, proto, count, rx, tx, rate, programs });
+        // Trigger a reverse-DNS lookup if we don't have one yet.
+        if ipaddr != "*"
+            && !ipaddr.is_empty()
+            && !self.dns.contains_key(&ipaddr)
+            && !self.dns_pending.contains(&ipaddr)
+        {
+            self.dns_pending.insert(ipaddr.clone());
+            return NetSignal::ResolveDns(ipaddr);
+        }
+        NetSignal::Stay
+    }
+
+    /// Store a completed reverse-DNS result.
+    pub fn set_dns(&mut self, ip: String, host: Option<String>) {
+        self.dns_pending.remove(&ip);
+        self.dns.insert(ip, host);
+    }
+}
+
+/// Accumulators used by [`NetView::build_cards`].
+struct CardAcc {
+    dir: Dir,
+    port: u32,
+    name: String,
+    has_tcp: bool,
+    has_udp: bool,
+    ips: HashMap<String, IpAcc>,
+}
+
+#[derive(Default)]
+struct IpAcc {
+    has_tcp: bool,
+    has_udp: bool,
+    count: usize,
+    rate: u64,
+}
+
+/// Center point of a rect (for spatial navigation).
+fn center(r: Rect) -> (f32, f32) {
+    (r.x as f32 + r.width as f32 / 2.0, r.y as f32 + r.height as f32 / 2.0)
+}
+
+/// The host part of an `addr:port` token (brackets stripped for IPv6).
+fn host_of(addr: &str) -> String {
+    let h = addr.rsplit_once(':').map(|(a, _)| a).unwrap_or(addr);
+    h.trim_start_matches('[').trim_end_matches(']').to_string()
 }
 
 /// Compare two sockets by `key` (ascending); the caller reverses if needed.
@@ -730,6 +1108,39 @@ const SS_ARGS: [&str; 7] = ["-t", "-u", "-n", "-a", "-p", "-i", "-O"];
 pub async fn scan(password: Option<String>) -> Result<Scan, String> {
     let out = run_ss(password).await?;
     Ok(parse_ss(&out))
+}
+
+/// Reverse-DNS an IP via `getent hosts <ip>` (uses the system resolver / NSS, so
+/// no extra dependency and no `socket` feature needed). `None` when there is no
+/// PTR record or the lookup fails. The canonical name is the getent line's 2nd
+/// field; a bare address echoed back (no name) is treated as "no PTR".
+pub async fn resolve_dns(ip: String) -> Option<String> {
+    let out = tokio::process::Command::new("getent")
+        .arg("hosts")
+        .arg(&ip)
+        .output()
+        .await
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    parse_getent(&String::from_utf8_lossy(&out.stdout), &ip)
+}
+
+/// Extract the hostname from `getent hosts` output (`<addr> <name> [aliases…]`),
+/// ignoring a line that only echoes the address back.
+fn parse_getent(out: &str, ip: &str) -> Option<String> {
+    for line in out.lines() {
+        let mut f = line.split_whitespace();
+        let _addr = f.next()?;
+        if let Some(name) = f.next()
+            && !name.is_empty()
+            && name != ip
+        {
+            return Some(name.to_string());
+        }
+    }
+    None
 }
 
 async fn run_ss(password: Option<String>) -> Result<String, String> {

@@ -299,6 +299,9 @@ impl AppState {
             AppEvent::NetworkScanned { generation, result } => {
                 self.apply_network_scanned(generation, result);
             }
+            AppEvent::ReverseDnsResolved { ip, host } => {
+                self.apply_reverse_dns(ip, host);
+            }
             AppEvent::DiskScanned { generation, entries } => {
                 if let Some(dv) = self.diskview.as_mut()
                     && dv.generation == generation
