@@ -113,3 +113,13 @@ rtl = true
 "Yes" = "بله"
 "No" = "خیر"
 "Execute" = "اجرا"
+
+# -- Checksum / network / sessions (recent features) --
+"Chec&ksum..." = "چک‌سام… (&K)"
+"Checksum" = "چک‌سام"
+"Network &connections..." = "اتصالات شبکه… (&C)"
+"Go &local (keep session)" = "رفتن به محلی (حفظ نشست) (&L)"
+
+# -- Network password dialog --
+"Network connections" = "اتصالات شبکه"
+"Root password (blank = user mode, limited visibility):" = "گذرواژه‌ی root (خالی = حالت کاربر، دید محدود):"

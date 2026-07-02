@@ -404,6 +404,25 @@ impl Dialog {
                 if let Some(res) = d.click_choice(area, col, row) {
                     return res;
                 }
+                // A click on the OK/Cancel button row: focus that button first so
+                // the synthetic Enter/Esc submits or cancels the form instead of
+                // acting on the currently-focused field (e.g. opening a dropdown).
+                let rect = centered(
+                    area,
+                    60u16.min(area.width.saturating_sub(4)),
+                    d.form.field_count() as u16 + 4,
+                );
+                let in_box = col >= rect.x
+                    && col < rect.x + rect.width
+                    && row >= rect.y
+                    && row < rect.y + rect.height;
+                let button_row = rect.y + rect.height.saturating_sub(2);
+                if in_box && row == button_row {
+                    let primary = col < rect.x + rect.width / 2;
+                    d.focus_button(primary);
+                    let code = if primary { KeyCode::Enter } else { KeyCode::Esc };
+                    return self.handle_key(KeyEvent::new(code, KeyModifiers::NONE));
+                }
             }
             _ => {}
         }

@@ -109,3 +109,13 @@ code = "sr"
 "Yes" = "Da"
 "No" = "Ne"
 "Execute" = "Izvrši"
+
+# -- Checksum / network / sessions (recent features) --
+"Chec&ksum..." = "Kontrolni zbir… (&K)"
+"Checksum" = "Kontrolni zbir"
+"Network &connections..." = "Mrežne veze… (&C)"
+"Go &local (keep session)" = "Idi na lokalno (zadrži sesiju) (&L)"
+
+# -- Network password dialog --
+"Network connections" = "Mrežne veze"
+"Root password (blank = user mode, limited visibility):" = "Root lozinka (prazno = korisnički režim, ograničena vidljivost):"

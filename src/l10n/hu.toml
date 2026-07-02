@@ -109,3 +109,13 @@ code = "hu"
 "Yes" = "Igen"
 "No" = "Nem"
 "Execute" = "Végrehajtás"
+
+# -- Checksum / network / sessions (recent features) --
+"Chec&ksum..." = "Ellenőrző összeg… (&K)"
+"Checksum" = "Ellenőrző összeg"
+"Network &connections..." = "Hálózati kapcsolatok… (&C)"
+"Go &local (keep session)" = "Helyi nézet (munkamenet megtartása) (&L)"
+
+# -- Network password dialog --
+"Network connections" = "Hálózati kapcsolatok"
+"Root password (blank = user mode, limited visibility):" = "Root jelszó (üres = felhasználói mód, korlátozott láthatóság):"

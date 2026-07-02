@@ -115,3 +115,12 @@ code = "de"
 "Yes" = "Ja"
 "No" = "Nein"
 "Execute" = "Ausführen"
+
+# -- Checksum / network / sessions (recent features) --
+"Checksum" = "Prüfsumme"
+"Network &connections..." = "Netzwer&kverbindungen..."
+"Go &local (keep session)" = "&Lokal (Sitzung behalten)"
+
+# -- Network password dialog --
+"Network connections" = "Netzwerkverbindungen"
+"Root password (blank = user mode, limited visibility):" = "Root-Passwort (leer = Benutzermodus, eingeschränkte Sichtbarkeit):"

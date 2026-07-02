@@ -109,3 +109,13 @@ code = "cs"
 "Yes" = "Ano"
 "No" = "Ne"
 "Execute" = "Spustit"
+
+# -- Checksum / network / sessions (recent features) --
+"Chec&ksum..." = "Kontrolní součet… (&K)"
+"Checksum" = "Kontrolní součet"
+"Network &connections..." = "Síťová připojení… (&C)"
+"Go &local (keep session)" = "Přejít na místní (ponechat relaci) (&L)"
+
+# -- Network password dialog --
+"Network connections" = "Síťová připojení"
+"Root password (blank = user mode, limited visibility):" = "Heslo roota (prázdné = uživatelský režim, omezená viditelnost):"

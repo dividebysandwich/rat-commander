@@ -109,3 +109,13 @@ code = "hi"
 "Yes" = "हाँ"
 "No" = "नहीं"
 "Execute" = "चलाएँ"
+
+# -- Checksum / network / sessions (recent features) --
+"Chec&ksum..." = "चेकसम… (&K)"
+"Checksum" = "चेकसम"
+"Network &connections..." = "नेटवर्क कनेक्शन… (&C)"
+"Go &local (keep session)" = "स्थानीय पर जाएँ (सत्र रखें) (&L)"
+
+# -- Network password dialog --
+"Network connections" = "नेटवर्क कनेक्शन"
+"Root password (blank = user mode, limited visibility):" = "रूट पासवर्ड (खाली = उपयोगकर्ता मोड, सीमित दृश्यता):"

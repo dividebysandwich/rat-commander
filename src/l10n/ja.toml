@@ -109,3 +109,13 @@ code = "ja"
 "Yes" = "はい"
 "No" = "いいえ"
 "Execute" = "実行"
+
+# -- Checksum / network / sessions (recent features) --
+"Chec&ksum..." = "チェックサム…(&K)"
+"Checksum" = "チェックサム"
+"Network &connections..." = "ネットワーク接続…(&C)"
+"Go &local (keep session)" = "ローカルへ (セッション保持)(&L)"
+
+# -- Network password dialog --
+"Network connections" = "ネットワーク接続"
+"Root password (blank = user mode, limited visibility):" = "root パスワード（空欄 = ユーザーモード、表示が制限されます）："

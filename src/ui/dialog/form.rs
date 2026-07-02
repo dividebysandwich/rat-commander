@@ -480,6 +480,19 @@ impl FormDialog {
         self.form.focus = 3; // password
     }
 
+    /// Move focus onto the OK (`primary`) or Cancel button slot. Used when the
+    /// mouse clicks a button so the synthetic Enter/Esc submits or cancels the
+    /// form rather than acting on the field that happened to be focused (e.g.
+    /// opening a Choice dropdown). Also closes any open Choice dropdown.
+    pub(crate) fn focus_button(&mut self, primary: bool) {
+        for field in &mut self.form.fields {
+            if let Field::Choice { open, .. } = field {
+                *open = false;
+            }
+        }
+        self.form.focus = if primary { self.form.ok_slot() } else { self.form.cancel_slot() };
+    }
+
     /// Route a click for the connect dropdown. Returns `Some` if the click hit
     /// the chevron or a dropdown entry (or dismissed an open dropdown).
     pub(crate) fn click_dropdown(&mut self, col: u16, row: u16) -> Option<DialogResult> {

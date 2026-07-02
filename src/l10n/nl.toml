@@ -109,3 +109,13 @@ code = "nl"
 "Yes" = "Ja"
 "No" = "Nee"
 "Execute" = "Uitvoeren"
+
+# -- Checksum / network / sessions (recent features) --
+"Chec&ksum..." = "Controlesom… (&K)"
+"Checksum" = "Controlesom"
+"Network &connections..." = "Netwerkverbindingen… (&C)"
+"Go &local (keep session)" = "Naar lokaal (sessie behouden) (&L)"
+
+# -- Network password dialog --
+"Network connections" = "Netwerkverbindingen"
+"Root password (blank = user mode, limited visibility):" = "Root-wachtwoord (leeg = gebruikersmodus, beperkte zichtbaarheid):"

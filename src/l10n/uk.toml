@@ -109,3 +109,13 @@ code = "uk"
 "Yes" = "Так"
 "No" = "Ні"
 "Execute" = "Виконати"
+
+# -- Checksum / network / sessions (recent features) --
+"Chec&ksum..." = "Контрольна сума… (&K)"
+"Checksum" = "Контрольна сума"
+"Network &connections..." = "Мережеві з'єднання… (&C)"
+"Go &local (keep session)" = "Перейти до локального (зберегти сеанс) (&L)"
+
+# -- Network password dialog --
+"Network connections" = "Мережеві з'єднання"
+"Root password (blank = user mode, limited visibility):" = "Пароль root (порожньо = режим користувача, обмежена видимість):"

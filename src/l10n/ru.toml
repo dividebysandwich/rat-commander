@@ -109,3 +109,13 @@ code = "ru"
 "Yes" = "Да"
 "No" = "Нет"
 "Execute" = "Выполнить"
+
+# -- Checksum / network / sessions (recent features) --
+"Chec&ksum..." = "Контрольная сумма… (&K)"
+"Checksum" = "Контрольная сумма"
+"Network &connections..." = "Сетевые соединения… (&C)"
+"Go &local (keep session)" = "Перейти к локальному (сохранить сеанс) (&L)"
+
+# -- Network password dialog --
+"Network connections" = "Сетевые соединения"
+"Root password (blank = user mode, limited visibility):" = "Пароль root (пусто = пользовательский режим, ограниченная видимость):"

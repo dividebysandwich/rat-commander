@@ -109,3 +109,13 @@ code = "zh-Hans"
 "Yes" = "是"
 "No" = "否"
 "Execute" = "执行"
+
+# -- Checksum / network / sessions (recent features) --
+"Chec&ksum..." = "校验和…(&K)"
+"Checksum" = "校验和"
+"Network &connections..." = "网络连接…(&C)"
+"Go &local (keep session)" = "切换到本地 (保留会话)(&L)"
+
+# -- Network password dialog --
+"Network connections" = "网络连接"
+"Root password (blank = user mode, limited visibility):" = "root 密码（留空 = 用户模式，可见范围有限）："

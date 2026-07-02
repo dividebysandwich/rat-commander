@@ -109,3 +109,13 @@ code = "fr"
 "Yes" = "Oui"
 "No" = "Non"
 "Execute" = "Exécuter"
+
+# -- Checksum / network / sessions (recent features) --
+"Chec&ksum..." = "Somme de contrôle… (&K)"
+"Checksum" = "Somme de contrôle"
+"Network &connections..." = "Connexions réseau… (&C)"
+"Go &local (keep session)" = "Passer en local (garder la session) (&L)"
+
+# -- Network password dialog --
+"Network connections" = "Connexions réseau"
+"Root password (blank = user mode, limited visibility):" = "Mot de passe root (vide = mode utilisateur, visibilité limitée) :"

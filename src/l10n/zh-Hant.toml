@@ -109,3 +109,13 @@ code = "zh-Hant"
 "Yes" = "是"
 "No" = "否"
 "Execute" = "執行"
+
+# -- Checksum / network / sessions (recent features) --
+"Chec&ksum..." = "校驗和…(&K)"
+"Checksum" = "校驗和"
+"Network &connections..." = "網路連線…(&C)"
+"Go &local (keep session)" = "切換到本機 (保留工作階段)(&L)"
+
+# -- Network password dialog --
+"Network connections" = "網路連線"
+"Root password (blank = user mode, limited visibility):" = "root 密碼（留空 = 使用者模式，可見範圍有限）："

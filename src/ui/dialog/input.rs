@@ -164,7 +164,7 @@ impl InputDialog {
         let rect = centered(area, w, 7);
         draw_shadow(f, rect, theme);
         f.render_widget(Clear, rect);
-        let block = dialog_block(&self.title, theme);
+        let block = dialog_block(&crate::l10n::trd(&self.title), theme);
         let inner = block.inner(rect);
         f.render_widget(block, rect);
 
@@ -174,7 +174,7 @@ impl InputDialog {
             .split(inner);
 
         f.render_widget(
-            Paragraph::new(Line::from(self.prompt.clone()))
+            Paragraph::new(Line::from(crate::l10n::trd(&self.prompt)))
                 .style(Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg)),
             rows[0],
         );

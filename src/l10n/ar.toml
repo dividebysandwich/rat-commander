@@ -113,3 +113,13 @@ rtl = true
 "Yes" = "نعم"
 "No" = "لا"
 "Execute" = "تنفيذ"
+
+# -- Checksum / network / sessions (recent features) --
+"Chec&ksum..." = "المجموع الاختباري… (&K)"
+"Checksum" = "المجموع الاختباري"
+"Network &connections..." = "اتصالات الشبكة… (&C)"
+"Go &local (keep session)" = "الانتقال إلى المحلي (إبقاء الجلسة) (&L)"
+
+# -- Network password dialog --
+"Network connections" = "اتصالات الشبكة"
+"Root password (blank = user mode, limited visibility):" = "كلمة مرور الجذر (فارغ = وضع المستخدم، رؤية محدودة):"

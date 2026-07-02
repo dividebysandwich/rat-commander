@@ -118,3 +118,13 @@ code = "en"
 "Yes" = "Yes"
 "No" = "No"
 "Execute" = "Execute"
+
+# -- Checksum / network / sessions (recent features) --
+"Chec&ksum..." = "Chec&ksum..."
+"Checksum" = "Checksum"
+"Network &connections..." = "Network &connections..."
+"Go &local (keep session)" = "Go &local (keep session)"
+
+# -- Network password dialog --
+"Network connections" = "Network connections"
+"Root password (blank = user mode, limited visibility):" = "Root password (blank = user mode, limited visibility):"

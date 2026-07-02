@@ -780,6 +780,43 @@ fn form_ok_cancel_buttons_are_keyboard_navigable() {
 }
 
 #[test]
+fn form_ok_button_click_submits_over_a_focused_choice_field() {
+    use ratatui::layout::Rect;
+    let cfg = crate::config::Config::default();
+    let area = Rect::new(0, 0, 80, 24);
+    // Settings' first field (the default focus) is the Theme *Choice*: a bare
+    // Enter there opens its dropdown. A mouse click on OK must still submit the
+    // form rather than acting on that field. Geometry mirrors `click_bounds`:
+    // 11 settings fields → box height 11 + 4.
+    let w = 60u16.min(area.width - 4);
+    let h = 11u16 + 4;
+    let x = area.x + (area.width - w) / 2;
+    let y = area.y + (area.height - h) / 2;
+    let button_row = y + h - 2;
+
+    let mut dlg = Dialog::Form(FormDialog::settings(&cfg, true));
+    match dlg.handle_click(area, x + 5, button_row) {
+        DialogResult::Submit(Submit::Settings(_)) => {}
+        _ => panic!("clicking OK should submit the settings form"),
+    }
+
+    // A click on the Cancel (right) half cancels.
+    let mut dlg = Dialog::Form(FormDialog::settings(&cfg, true));
+    assert!(matches!(
+        dlg.handle_click(area, x + w - 5, button_row),
+        DialogResult::Cancel
+    ));
+
+    // A click that isn't on the button row leaves the dialog open (here, the
+    // Theme choice row) — it must not submit or cancel.
+    let mut dlg = Dialog::Form(FormDialog::settings(&cfg, true));
+    assert!(matches!(
+        dlg.handle_click(area, x + 5, y + 2),
+        DialogResult::None
+    ));
+}
+
+#[test]
 fn checksum_form_submits_algorithm_and_comparison() {
     use crate::util::checksum::ChecksumKind;
     // The form defaults to SHA-256 with no comparison; the file name is in the title.
