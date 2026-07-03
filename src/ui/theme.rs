@@ -452,6 +452,17 @@ impl Theme {
         let dialog_surface = surface;
         let menu_surface = mix(p.bg, p.blue, 0.40);
 
+        // The top menu bar and bottom F-key bar are the Midnight Commander
+        // themes' signature teal; every other theme draws them from the middle of
+        // its own accent gradient (the same colour the truecolor bars fade
+        // through) so the chrome matches the theme instead of a stock cyan.
+        let (bar_bg, bar_bg_fg) = if is_mc {
+            (p.cyan, p.bg)
+        } else {
+            let mid = mix(p.bright_blue, p.bright_magenta, 0.5);
+            (mid, best_contrast(mid, p.black, p.bright_white))
+        };
+
         let mut theme = Theme {
             name: p.name.to_string(),
             truecolor,
@@ -477,8 +488,8 @@ impl Theme {
             doc_fg: p.yellow,
             image_fg: p.bright_cyan,
             media_fg: p.bright_green,
-            menubar: Style::default().bg(p.cyan).fg(p.bg),
-            fkey_label: Style::default().bg(p.cyan).fg(p.bg),
+            menubar: Style::default().bg(bar_bg).fg(bar_bg_fg),
+            fkey_label: Style::default().bg(bar_bg).fg(bar_bg_fg),
             // Function-key numbers sit on a solid, contrasting "key cap" so they
             // stand out from the colored label cells.
             fkey_num: Style::default()
@@ -1060,6 +1071,26 @@ mod tests {
     fn no_truecolor_means_solid_bar() {
         let t = Theme::by_name("Nord", false);
         assert_eq!(t.gradient_at(0, 10), t.gradient_at(9, 10));
+    }
+
+    #[test]
+    fn non_mc_menu_bar_follows_the_accent_gradient_not_raw_cyan() {
+        // Non-cyan themes no longer paint the menu/F-key bar with their raw
+        // `cyan` palette slot; it sits at the middle of the theme's accent
+        // gradient (the colour the truecolor bars fade through).
+        for name in ["Dracula", "Nord", "Gruvbox Dark", "Tokyo Night"] {
+            let t = Theme::by_name(name, true);
+            let p = PALETTES.iter().find(|p| p.name == name).unwrap();
+            assert_ne!(t.menubar.bg, Some(p.cyan), "{name} menu bar should not use the raw cyan slot");
+            // It sits at the middle of the theme's accent gradient, so the F9 bar
+            // reads like the rest of the theme's chrome — and matches the F-key bar.
+            assert_eq!(t.menubar.bg, t.fkey_label.bg, "{name} menu and F-key bars match");
+            assert_eq!(
+                t.menubar.bg,
+                Some(mix(p.bright_blue, p.bright_magenta, 0.5)),
+                "{name} bar = accent-gradient midpoint",
+            );
+        }
     }
 
     #[test]

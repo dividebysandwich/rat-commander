@@ -656,3 +656,4 @@ mod tests {
         assert!(matches!(m.handle_key(key('c')), MenuSignal::Activate(MenuAction::Copy)));
     }
 }
+
