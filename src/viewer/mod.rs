@@ -123,8 +123,11 @@ pub struct ViewerState {
     top: usize,
     /// Horizontal scroll (text, non-wrap).
     h_offset: usize,
-    /// Current search query (remembered in memory across F7 presses).
+    /// Current search query (drives "find next" during this session).
     query: String,
+    /// Term the F7 prompt opens pre-filled with — the last committed search,
+    /// seeded from the app-wide memory so it survives across files/reopenings.
+    search_seed: String,
     /// When `Some`, the F7 search prompt is capturing input.
     search_input: Option<String>,
     /// Caret position within `search_input` (char index).
@@ -168,6 +171,7 @@ impl ViewerState {
             top: 0,
             h_offset: 0,
             query: String::new(),
+            search_seed: String::new(),
             search_input: None,
             search_cursor: 0,
             search_selected: false,
@@ -206,6 +210,7 @@ impl ViewerState {
             top: 0,
             h_offset: 0,
             query: String::new(),
+            search_seed: String::new(),
             search_input: None,
             search_cursor: 0,
             search_selected: false,
@@ -336,6 +341,16 @@ impl ViewerState {
         total.saturating_sub(1)
     }
 
+    /// Seed the F7 prompt's pre-filled term from the app-wide search memory.
+    pub fn set_search_seed(&mut self, seed: String) {
+        self.search_seed = seed;
+    }
+
+    /// The last search term (for writing back to the app-wide search memory).
+    pub fn search_seed(&self) -> &str {
+        &self.search_seed
+    }
+
     pub fn handle_key(&mut self, key: KeyEvent) -> ViewerSignal {
         // Search prompt captures input first.
         if self.search_input.is_some() {
@@ -360,11 +375,11 @@ impl ViewerState {
                 self.markdown_render = !self.markdown_render;
             }
             KeyCode::F(7) => {
-                // Reopen pre-filled with the remembered query, fully marked so a
+                // Reopen pre-filled with the remembered term, fully marked so a
                 // keystroke replaces it (same as the copy/rename input).
-                self.search_input = Some(self.query.clone());
-                self.search_cursor = self.query.chars().count();
-                self.search_selected = !self.query.is_empty();
+                self.search_input = Some(self.search_seed.clone());
+                self.search_cursor = self.search_seed.chars().count();
+                self.search_selected = !self.search_seed.is_empty();
             }
             KeyCode::Char('n') => self.find_next(),
             KeyCode::Down => self.scroll(1),
@@ -467,6 +482,7 @@ impl ViewerState {
             KeyCode::Esc => self.search_input = None,
             KeyCode::Enter => {
                 if let Some(q) = self.search_input.take() {
+                    self.search_seed = q.clone();
                     self.query = q;
                     self.last_match = None;
                     self.find_next();

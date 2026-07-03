@@ -59,6 +59,7 @@ impl AppState {
             last_click: None,
             details: Default::default(),
             pending_focus: None,
+            search_memory: Default::default(),
             edit_only: false,
             kbd_enhanced: false,
         }
@@ -336,6 +337,7 @@ impl AppState {
                                     Some(temp.clone()),
                                 );
                                 v.enable_syntax(dark);
+                                v.set_search_seed(self.search_memory.viewer_query.clone());
                                 self.viewer = Some(v);
                             }
                             Ok(Err(e)) => {

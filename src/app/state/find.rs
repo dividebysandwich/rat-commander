@@ -11,20 +11,29 @@ impl AppState {
     }
 
     /// Build the editor's search/replace dialog, prefilled (and marked) with the
-    /// last-used search and replacement terms — in Hex mode when the editor is.
+    /// app-wide remembered search and replacement terms — in Hex mode when the
+    /// editor is in hex mode.
     pub(in crate::app::state) fn editor_search_dialog(&self, replace: bool) -> SearchReplaceDialog {
+        let m = &self.search_memory;
         match self.editor.as_ref() {
             Some(ed) if ed.is_hex() => {
-                SearchReplaceDialog::new_hex(replace, ed.last_hex_search(), ed.last_replacement())
+                SearchReplaceDialog::new_hex(replace, m.hex_search.clone(), m.replacement.clone())
             }
-            Some(ed) => {
-                SearchReplaceDialog::new(replace, ed.last_search_pattern(), ed.last_replacement())
-            }
-            None => SearchReplaceDialog::new(replace, String::new(), String::new()),
+            _ => SearchReplaceDialog::new(replace, m.search.clone(), m.replacement.clone()),
         }
     }
 
     pub(in crate::app::state) fn apply_search_replace(&mut self, p: SearchReplaceParams) {
+        // Remember the terms app-wide so future search dialogs (this file or the
+        // next) reopen prefilled with them.
+        if p.hex {
+            self.search_memory.hex_search = p.search.clone();
+        } else {
+            self.search_memory.search = p.search.clone();
+        }
+        if p.replace {
+            self.search_memory.replacement = p.replacement.clone();
+        }
         if let Some(ed) = self.editor.as_mut() {
             if ed.is_hex() {
                 ed.apply_hex_search_replace(p.replace, &p.search, &p.replacement, p.hex, p.backwards);

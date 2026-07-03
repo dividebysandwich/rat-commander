@@ -93,6 +93,10 @@ impl AppState {
         }
         if self.viewer.is_some() {
             let sig = self.viewer.as_mut().unwrap().handle_key(key);
+            // Remember a committed search app-wide (prefills future prompts).
+            if let Some(v) = self.viewer.as_ref() {
+                self.search_memory.viewer_query = v.search_seed().to_string();
+            }
             self.apply_viewer_signal(sig);
             return Flow::Continue;
         }

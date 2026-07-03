@@ -97,6 +97,22 @@ enum PrivExec {
     SudoPassword(String, String),
 }
 
+/// In-memory (non-persistent) search/replace terms, kept on [`AppState`] so the
+/// editor and viewer prefill their search dialogs with the last-used values even
+/// across files and reopenings. Editor and viewer keep separate slots since the
+/// editor stores mode-processed patterns (regex/wildcard) the viewer can't reuse.
+#[derive(Default)]
+pub(in crate::app::state) struct SearchMemory {
+    /// Editor text-mode search pattern (as last submitted).
+    pub search: String,
+    /// Editor replacement string.
+    pub replacement: String,
+    /// Editor hex-mode search string.
+    pub hex_search: String,
+    /// Viewer search query.
+    pub viewer_query: String,
+}
+
 pub struct AppState {
     pub panels: [Panel; 2],
     /// Index of the active panel (0 = left/top, 1 = right/bottom).
@@ -190,6 +206,9 @@ pub struct AppState {
     /// surviving file above a delete, or the newly renamed/moved item. Stored as
     /// `(panel index, entry name)`.
     pending_focus: Option<(usize, String)>,
+    /// Search/replace terms remembered in memory across editor and viewer
+    /// sessions (even on different files), used to prefill their search dialogs.
+    pub(in crate::app::state) search_memory: SearchMemory,
     /// Launched via `rc /edit <file>` (or the `rcedit` shim): the program opens
     /// straight into the editor and exits when it is closed.
     pub edit_only: bool,

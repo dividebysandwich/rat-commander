@@ -537,6 +537,37 @@ async fn rename_focuses_active_panel_when_both_show_same_dir() {
     std::fs::remove_dir_all(&root).ok();
 }
 
+/// Editor search/replace terms are remembered on `AppState`, so they survive
+/// across editor sessions (and different files) to prefill the next dialog.
+#[tokio::test]
+async fn editor_search_terms_persist_app_wide() {
+    use crate::ui::dialog::{SearchReplaceParams, Submit};
+    let params = |search: &str, replacement: &str, hex: bool, replace: bool| SearchReplaceParams {
+        replace,
+        search: search.into(),
+        replacement: replacement.into(),
+        regex: false,
+        case_sensitive: false,
+        whole_words: false,
+        backwards: false,
+        hex,
+    };
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+
+    // A text replace records both terms (no live editor required for the memory).
+    st.handle_submit(Submit::SearchReplace(params("foo", "bar", false, true))).await;
+    assert_eq!(st.search_memory.search, "foo");
+    assert_eq!(st.search_memory.replacement, "bar");
+
+    // A later hex search fills its own slot without disturbing the text terms.
+    st.handle_submit(Submit::SearchReplace(params("48 65", "", true, false))).await;
+    assert_eq!(st.search_memory.hex_search, "48 65");
+    assert_eq!(st.search_memory.search, "foo", "text search preserved");
+    assert_eq!(st.search_memory.replacement, "bar", "replacement preserved");
+}
+
 /// Creating a directory refreshes the *other* panel too when it shows the same
 /// location, so the new entry appears there without a manual reload.
 #[tokio::test]

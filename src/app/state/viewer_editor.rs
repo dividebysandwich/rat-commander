@@ -80,6 +80,7 @@ impl AppState {
                 Ok(Ok((file, len, line_starts, scanned))) => {
                     let mut v = ViewerState::from_scanned(name, file, len, line_starts, scanned, None);
                     v.enable_syntax(dark);
+                    v.set_search_seed(self.search_memory.viewer_query.clone());
                     self.viewer = Some(v);
                 }
                 Ok(Err(e)) => self.show_error(format!("cannot open file: {e}")),
