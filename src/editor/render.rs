@@ -296,9 +296,9 @@ fn render_status(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) {
 /// Render the text body. Returns the hardware cursor position, if on screen.
 fn render_text(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) -> Option<Position> {
     let normal = Style::default().fg(theme.text_fg).bg(theme.panel_bg);
-    let block_style = Style::default()
-        .fg(ratatui::style::Color::Black)
-        .bg(ratatui::style::Color::Cyan);
+    // The selected block follows the theme's selection bar (like the panel
+    // cursor) rather than a hardcoded colour.
+    let block_style = theme.cursor;
     let block = ed.block_range();
     let cols = area.width as usize;
 
@@ -426,9 +426,9 @@ fn ensure_visible_wrapped(ed: &mut EditorState) {
 /// hardware cursor position, if on screen.
 fn render_text_wrapped(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) -> Option<Position> {
     let normal = Style::default().fg(theme.text_fg).bg(theme.panel_bg);
-    let block_style = Style::default()
-        .fg(ratatui::style::Color::Black)
-        .bg(ratatui::style::Color::Cyan);
+    // The selected block follows the theme's selection bar (like the panel
+    // cursor) rather than a hardcoded colour.
+    let block_style = theme.cursor;
     let marker_style = Style::default().fg(theme.header_fg).bg(theme.panel_bg);
     let block = ed.block_range();
     let cols = area.width as usize;

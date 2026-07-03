@@ -1296,6 +1296,30 @@ mod tests {
         EditorState::new("t".into(), VfsPath::local("/tmp/x"), text)
     }
 
+    #[test]
+    fn block_selection_follows_theme_not_hardcoded_cyan() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        // Mark a block from the start of "hello" (F3, then extend a few chars).
+        let mut e = ed("hello");
+        e.handle_key(key(KeyCode::F(3)));
+        for _ in 0..3 {
+            e.handle_key(key(KeyCode::Right));
+        }
+        let theme = crate::ui::theme::Theme::mc();
+        let mut t = Terminal::new(TestBackend::new(20, 6)).unwrap();
+        t.draw(|f| crate::editor::render::render(f, f.area(), &mut e, &theme)).unwrap();
+        let b = t.backend().buffer();
+        // The first selected cell ('h') is painted with the theme's selection
+        // bar, not a hardcoded colour.
+        let cell = (0..b.area.height)
+            .flat_map(|y| (0..b.area.width).map(move |x| (x, y)))
+            .find(|&(x, y)| b[(x, y)].symbol() == "h")
+            .expect("'h' rendered");
+        assert_eq!(Some(b[cell].bg), theme.cursor.bg, "selection uses the theme cursor bar");
+        assert_eq!(Some(b[cell].fg), theme.cursor.fg, "selection uses the theme cursor fg");
+    }
+
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::NONE)
     }
