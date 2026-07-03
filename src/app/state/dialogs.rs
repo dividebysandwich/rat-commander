@@ -100,11 +100,18 @@ impl AppState {
     pub(in crate::app::state) async fn handle_submit(&mut self, submit: Submit) {
         match submit {
             Submit::MkDir(name) => {
-                let path = self.panels[self.active].cwd.join(&name);
-                let backend = self.panels[self.active].backend.clone();
+                let active = self.active;
+                let path = self.panels[active].cwd.join(&name);
+                let backend = self.panels[active].backend.clone();
                 match backend.mkdir(&path).await {
                     Ok(()) => {
-                        let _ = self.panels[self.active].reload_keeping(Some(&name)).await;
+                        let _ = self.panels[active].reload_keeping(Some(&name)).await;
+                        // Mirror the new directory into the other panel when it is
+                        // showing the same location, keeping its own cursor.
+                        let other = self.other_index();
+                        if self.panels[other].cwd == self.panels[active].cwd {
+                            let _ = self.panels[other].reload_keeping(None).await;
+                        }
                     }
                     Err(e) => self.show_error(format!("mkdir failed: {e}")),
                 }
@@ -116,7 +123,7 @@ impl AppState {
                 if targets.iter().any(|t| t.is_archive()) {
                     self.start_archive_remove(targets);
                 } else {
-                    self.start_op(OpKind::Delete, targets, None, None);
+                    self.start_op(OpKind::Delete, targets, None, None, None);
                 }
             }
             Submit::Compress(sources, name) => self.start_compress(sources, name),
@@ -421,7 +428,7 @@ impl AppState {
         if self.config.confirm_delete {
             self.dialog = Some(Dialog::Confirm(ConfirmDialog::delete(targets)));
         } else {
-            self.start_op(OpKind::Delete, targets, None, None);
+            self.start_op(OpKind::Delete, targets, None, None, None);
         }
     }
 

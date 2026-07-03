@@ -109,7 +109,12 @@ impl Engine {
 
                 for src in &req.sources {
                     self.check_cancel()?;
-                    let dst = dst_dir.join(src.file_name());
+                    // A rename supplies the exact target name; otherwise the
+                    // source keeps its own name inside the destination directory.
+                    let dst = match &req.dst_name {
+                        Some(name) => dst_dir.join(name),
+                        None => dst_dir.join(src.file_name()),
+                    };
 
                     // Refuse to copy/move something onto itself or into one of
                     // its own subdirectories (which would truncate the file or
@@ -469,6 +474,7 @@ mod tests {
             sources: vec![VfsPath::local(&src)],
             dst_fs: Some(fs.clone()),
             dst_dir: Some(VfsPath::local(&dst_dir)),
+            dst_name: None,
             overwrite_all: false,
         };
         // The app would create dst_dir first; mirror that here.
@@ -510,6 +516,7 @@ mod tests {
             sources: vec![VfsPath::local(&src)],
             dst_fs: Some(fs.clone()),
             dst_dir: Some(VfsPath::local(&dst_dir)),
+            dst_name: None,
             overwrite_all: false,
         };
         let handle = tokio::spawn(run(7, req, tx, CancelToken::new(), reply_rx));
@@ -568,6 +575,7 @@ mod tests {
                 sources: vec![VfsPath::local(&file)],
                 dst_fs: Some(fs.clone()),
                 dst_dir: Some(VfsPath::local(&root)),
+            dst_name: None,
                 overwrite_all: false,
             };
             let outcome = run(9, req, tx, CancelToken::new(), reply_rx).await;
@@ -596,6 +604,7 @@ mod tests {
             sources: vec![VfsPath::local(&dir)],
             dst_fs: Some(fs.clone()),
             dst_dir: Some(VfsPath::local(&dir)),
+            dst_name: None,
             overwrite_all: false,
         };
         let outcome = run(10, req, tx, CancelToken::new(), reply_rx).await;
@@ -620,6 +629,7 @@ mod tests {
             sources: vec![VfsPath::local(&victim)],
             dst_fs: None,
             dst_dir: None,
+            dst_name: None,
             overwrite_all: false,
         };
         let (_reply_tx, reply_rx) = mpsc::channel(1);

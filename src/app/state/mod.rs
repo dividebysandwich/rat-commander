@@ -186,9 +186,10 @@ pub struct AppState {
     /// Details format): what to show about the *other* panel's cursor/selection,
     /// plus the background size-scan bookkeeping. Index = the panel displaying it.
     pub details: [crate::details::DetailsData; 2],
-    /// After a delete completes, place the active panel's cursor on this entry
-    /// (the surviving file just above the deleted one) instead of the top.
-    pending_focus: Option<String>,
+    /// After an operation completes, place a panel's cursor on a named entry: the
+    /// surviving file above a delete, or the newly renamed/moved item. Stored as
+    /// `(panel index, entry name)`.
+    pending_focus: Option<(usize, String)>,
     /// Launched via `rc /edit <file>` (or the `rcedit` shim): the program opens
     /// straight into the editor and exits when it is closed.
     pub edit_only: bool,
@@ -296,8 +297,14 @@ fn dest_vfspath(dest: &str, other_cwd: &VfsPath, active_cwd: &VfsPath) -> VfsPat
             VfsPath::local_cwd()
         };
         resolve_dest_on(dest, &base)
-    } else {
+    } else if Path::new(dest).is_absolute() {
+        // An absolute path lands on the destination (other) panel's backend.
         resolve_dest_on(dest, other_cwd)
+    } else {
+        // A bare name or relative path is resolved against the *source* panel —
+        // mc-style, so `F6` + a new name renames in place rather than moving to
+        // the opposite panel.
+        resolve_dest_on(dest, active_cwd)
     }
 }
 

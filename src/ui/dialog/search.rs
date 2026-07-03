@@ -25,8 +25,12 @@ pub struct SearchReplaceDialog {
     pub(crate) replace: bool,
     search: String,
     search_cursor: usize,
+    /// The whole search field is marked (pre-filled): typing replaces it.
+    search_selected: bool,
     replacement: String,
     repl_cursor: usize,
+    /// The whole replacement field is marked (pre-filled): typing replaces it.
+    repl_selected: bool,
     mode: usize, // 0 Normal, 1 Regex, 2 Hex, 3 Wildcard
     case_sensitive: bool,
     backwards: bool,
@@ -45,14 +49,19 @@ enum SrFocus {
 }
 
 impl SearchReplaceDialog {
-    pub fn new(replace: bool, initial: String) -> Self {
+    pub fn new(replace: bool, initial: String, initial_replacement: String) -> Self {
         let search_cursor = initial.chars().count();
+        let repl_cursor = initial_replacement.chars().count();
+        let search_selected = !initial.is_empty();
+        let repl_selected = !initial_replacement.is_empty();
         SearchReplaceDialog {
             replace,
             search: initial,
             search_cursor,
-            replacement: String::new(),
-            repl_cursor: 0,
+            search_selected,
+            replacement: initial_replacement,
+            repl_cursor,
+            repl_selected,
             mode: 0,
             case_sensitive: false,
             backwards: false,
@@ -64,8 +73,8 @@ impl SearchReplaceDialog {
     }
 
     /// Like `new`, but starting in Hex mode (for the editor's hex search).
-    pub fn new_hex(replace: bool, initial: String) -> Self {
-        let mut d = Self::new(replace, initial);
+    pub fn new_hex(replace: bool, initial: String, initial_replacement: String) -> Self {
+        let mut d = Self::new(replace, initial, initial_replacement);
         d.mode = 2;
         d
     }
@@ -105,8 +114,18 @@ impl SearchReplaceDialog {
                 }
             }
             _ => match self.cur() {
-                SrFocus::Search => edit_text(&mut self.search, &mut self.search_cursor, key),
-                SrFocus::Repl => edit_text(&mut self.replacement, &mut self.repl_cursor, key),
+                SrFocus::Search => edit_text_marked(
+                    &mut self.search,
+                    &mut self.search_cursor,
+                    &mut self.search_selected,
+                    key,
+                ),
+                SrFocus::Repl => edit_text_marked(
+                    &mut self.replacement,
+                    &mut self.repl_cursor,
+                    &mut self.repl_selected,
+                    key,
+                ),
                 _ => {}
             },
         }
@@ -160,9 +179,10 @@ impl SearchReplaceDialog {
 
         f.render_widget(Paragraph::new(Span::styled("Enter search string:", base)), line_at(y));
         y += 1;
-        if let Some(p) = draw_input_field(
+        let search_focused = matches!(self.cur(), SrFocus::Search);
+        if let Some(p) = draw_input_field_ex(
             f, line_at(y), &self.search, self.search_cursor,
-            matches!(self.cur(), SrFocus::Search), false, theme,
+            search_focused, false, search_focused && self.search_selected, theme,
         ) {
             caret = Some(p);
         }
@@ -173,9 +193,10 @@ impl SearchReplaceDialog {
                 line_at(y),
             );
             y += 1;
-            if let Some(p) = draw_input_field(
+            let repl_focused = matches!(self.cur(), SrFocus::Repl);
+            if let Some(p) = draw_input_field_ex(
                 f, line_at(y), &self.replacement, self.repl_cursor,
-                matches!(self.cur(), SrFocus::Repl), false, theme,
+                repl_focused, false, repl_focused && self.repl_selected, theme,
             ) {
                 caret = Some(p);
             }
@@ -246,4 +267,41 @@ fn wildcard_to_regex(pattern: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::crossterm::event::KeyModifiers;
+
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    #[test]
+    fn prefilled_terms_are_marked_and_typing_replaces() {
+        // Reopened with remembered search + replacement, both marked.
+        let mut d = SearchReplaceDialog::new(true, "old".into(), "repl".into());
+        assert!(d.search_selected && d.repl_selected);
+
+        // Typing in the (focused) search field replaces the whole marked term,
+        // leaving the remembered replacement intact.
+        d.handle_key(key(KeyCode::Char('n')));
+        d.handle_key(key(KeyCode::Char('e')));
+        d.handle_key(key(KeyCode::Char('w')));
+        assert!(!d.search_selected);
+        let p = d.params();
+        assert_eq!(p.search, "new");
+        assert_eq!(p.replacement, "repl");
+    }
+
+    #[test]
+    fn cursor_move_clears_mark_so_typing_appends() {
+        let mut d = SearchReplaceDialog::new(false, "abc".into(), String::new());
+        assert!(d.search_selected);
+        d.handle_key(key(KeyCode::End)); // drops the mark, keeps the text
+        assert!(!d.search_selected);
+        d.handle_key(key(KeyCode::Char('d')));
+        assert_eq!(d.params().search, "abcd");
+    }
 }

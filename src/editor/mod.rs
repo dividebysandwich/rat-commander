@@ -76,6 +76,8 @@ pub struct EditorState {
     hex: Option<hex::HexEditor>,
     /// Last hex-mode search string (prefilled into the search dialog).
     last_hex_search: String,
+    /// Last replacement string (in-memory), prefilled into the search dialog.
+    last_replacement: String,
     /// Incremental syntax highlighter (text mode), when a syntax matched.
     hl: Option<crate::syntax::Highlighter>,
     /// Virtual (display-only) word wrap: long logical lines are shown across
@@ -144,6 +146,7 @@ impl EditorState {
             mouse_anchor: None,
             hex: None,
             last_hex_search: String::new(),
+            last_replacement: String::new(),
             hl: None,
             wrap: false,
             top_sub: 0,
@@ -282,6 +285,16 @@ impl EditorState {
         self.last_hex_search.clone()
     }
 
+    /// The last text-mode search pattern (to prefill the dialog).
+    pub fn last_search_pattern(&self) -> String {
+        self.last_search.pattern.clone()
+    }
+
+    /// The last replacement string (to prefill the dialog).
+    pub fn last_replacement(&self) -> String {
+        self.last_replacement.clone()
+    }
+
     /// Hex-mode search / replace. `hex` ⇒ the strings are hex bytes (e.g.
     /// "48 65"); otherwise they are literal ASCII bytes. Replace is overwrite-
     /// only, so the replacement must equal the search length.
@@ -323,6 +336,7 @@ impl EditorState {
                 self.status = "Replacement must be the same length (overwrite-only)".to_string();
                 return;
             }
+            self.last_replacement = replacement.to_string();
             let n = h.replace_all(&pat, &rep);
             self.dirty = self.hex.as_ref().unwrap().dirty;
             self.status = format!("Replaced {n} occurrence(s)");
@@ -915,6 +929,7 @@ impl EditorState {
             backwards,
         };
         if replace {
+            self.last_replacement = replacement.to_string();
             let n = self.replace_all(search, replacement, regex, case_sensitive, whole_words);
             self.status = format!("Replaced {n} occurrence(s)");
         } else {

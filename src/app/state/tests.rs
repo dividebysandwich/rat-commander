@@ -320,9 +320,13 @@ fn dest_override_remote_to_local() {
     let d = dest_vfspath("out", &remote, &local_src);
     assert_eq!((d.scheme.as_str(), d.path), ("file", PathBuf::from("/data/out")));
 
-    // A bare path to a *local* destination panel behaves exactly as before.
+    // A bare name resolves against the *source* (active) panel — mc-style, so a
+    // typed new name renames in place instead of moving to the opposite panel.
     let local_dest = VfsPath::local("/a/b");
     let d = dest_vfspath("sub", &local_dest, &remote);
+    assert_eq!((d.scheme.as_str(), d.path), ("scp-0", PathBuf::from("/home/user/sub")));
+    // An absolute path still lands on the destination (other) panel's backend.
+    let d = dest_vfspath("/a/b/sub", &local_dest, &remote);
     assert_eq!((d.scheme.as_str(), d.path), ("file", PathBuf::from("/a/b/sub")));
 }
 
@@ -444,6 +448,123 @@ async fn drain_details(st: &mut AppState, rx: &mut crate::util::async_bridge::Ap
             break;
         }
     }
+}
+
+/// Run a spawned copy/move/delete task to completion, applying its events.
+async fn drain_taskdone(st: &mut AppState, rx: &mut crate::util::async_bridge::AppReceiver) {
+    loop {
+        let ev = rx.recv().await.unwrap();
+        let done = matches!(ev, AppEvent::TaskDone { .. });
+        st.apply_event(ev).await;
+        if done {
+            break;
+        }
+    }
+}
+
+/// F6 on a single directory with a bare new name renames it *in place* (in the
+/// source panel), not into the opposite panel, and lands the cursor on it.
+#[tokio::test]
+async fn f6_bare_name_renames_in_place_and_focuses() {
+    use crate::ui::dialog::Submit;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("rc_rename_{}_{nanos}", std::process::id()));
+    let left = root.join("left");
+    let right = root.join("right");
+    std::fs::create_dir_all(left.join("a")).unwrap();
+    std::fs::create_dir_all(&right).unwrap();
+    std::fs::write(left.join("a/file.txt"), b"hi").unwrap();
+
+    let (tx, mut rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::local(&left);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+    st.panels[1].cwd = VfsPath::local(&right);
+    st.panels[1].backend = st.registry.local();
+    st.panels[1].reload().await.unwrap();
+
+    let src = VfsPath::local(left.join("a"));
+    st.handle_submit(Submit::Move(vec![src], "b".into())).await;
+    drain_taskdone(&mut st, &mut rx).await;
+
+    // "a" was renamed to "b" in place — not nested, and the other panel is untouched.
+    assert!(left.join("b").is_dir(), "renamed dir should exist");
+    assert!(left.join("b/file.txt").is_file(), "contents move with it");
+    assert!(!left.join("a").exists(), "old name is gone");
+    assert!(!left.join("b/a").exists(), "must not create b/a (the old bug)");
+    assert!(!right.join("b").exists(), "opposite panel is not involved");
+
+    // The cursor lands on the freshly renamed entry.
+    let p = &st.panels[0];
+    assert_eq!(p.entries[p.cursor].name, "b");
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// Renaming when both panels show the same directory still lands the *active*
+/// panel's cursor on the new name (not the other panel showing the same dir).
+#[tokio::test]
+async fn rename_focuses_active_panel_when_both_show_same_dir() {
+    use crate::ui::dialog::Submit;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("rc_rn_same_{}_{nanos}", std::process::id()));
+    std::fs::create_dir_all(root.join("a")).unwrap();
+
+    let (tx, mut rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    for i in 0..2 {
+        st.panels[i].cwd = VfsPath::local(&root);
+        st.panels[i].backend = st.registry.local();
+        st.panels[i].reload().await.unwrap();
+    }
+    st.active = 1; // the non-first panel is active
+
+    st.handle_submit(Submit::Move(vec![VfsPath::local(root.join("a"))], "b".into())).await;
+    drain_taskdone(&mut st, &mut rx).await;
+
+    assert!(root.join("b").is_dir());
+    let p = &st.panels[1];
+    assert_eq!(p.entries[p.cursor].name, "b", "active panel cursor should be on the renamed entry");
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// Creating a directory refreshes the *other* panel too when it shows the same
+/// location, so the new entry appears there without a manual reload.
+#[tokio::test]
+async fn mkdir_mirrors_into_other_panel_showing_same_dir() {
+    use crate::ui::dialog::Submit;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("rc_mkdir_{}_{nanos}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    for i in 0..2 {
+        st.panels[i].cwd = VfsPath::local(&root);
+        st.panels[i].backend = st.registry.local();
+        st.panels[i].reload().await.unwrap();
+    }
+    st.active = 0;
+
+    st.handle_submit(Submit::MkDir("fresh".into())).await;
+
+    let has_fresh = |p: &Panel| p.entries.iter().any(|e| e.name == "fresh");
+    assert!(has_fresh(&st.panels[0]), "active panel shows the new dir");
+    assert!(has_fresh(&st.panels[1]), "other panel on the same dir is refreshed too");
+
+    std::fs::remove_dir_all(&root).ok();
 }
 
 #[tokio::test]

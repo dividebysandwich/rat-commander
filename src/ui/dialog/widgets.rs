@@ -61,6 +61,39 @@ pub(crate) fn edit_text(value: &mut String, cursor: &mut usize, key: KeyEvent) {
     }
 }
 
+/// Like [`edit_text`], but honours a "whole field marked" flag (as set when a
+/// field opens pre-filled). While marked, the first typed character replaces the
+/// text, a Backspace/Delete clears it, and any cursor move just drops the mark —
+/// mirroring the copy/rename input's select-all-on-open behaviour.
+pub(crate) fn edit_text_marked(
+    value: &mut String,
+    cursor: &mut usize,
+    selected: &mut bool,
+    key: KeyEvent,
+) {
+    if *selected {
+        match key.code {
+            KeyCode::Char(_) => {
+                value.clear();
+                *cursor = 0;
+                *selected = false;
+                // fall through to insert the typed character
+            }
+            KeyCode::Backspace | KeyCode::Delete => {
+                value.clear();
+                *cursor = 0;
+                *selected = false;
+                return;
+            }
+            KeyCode::Left | KeyCode::Right | KeyCode::Home | KeyCode::End => {
+                *selected = false;
+            }
+            _ => {}
+        }
+    }
+    edit_text(value, cursor, key);
+}
+
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------

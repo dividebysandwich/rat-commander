@@ -10,14 +10,17 @@ impl AppState {
         self.dialog = Some(Dialog::Find(FindDialog::new(start)));
     }
 
-    /// Build the editor's search/replace dialog — in Hex mode (prefilled with
-    /// the last hex search) when the editor is in hex mode.
+    /// Build the editor's search/replace dialog, prefilled (and marked) with the
+    /// last-used search and replacement terms — in Hex mode when the editor is.
     pub(in crate::app::state) fn editor_search_dialog(&self, replace: bool) -> SearchReplaceDialog {
         match self.editor.as_ref() {
             Some(ed) if ed.is_hex() => {
-                SearchReplaceDialog::new_hex(replace, ed.last_hex_search())
+                SearchReplaceDialog::new_hex(replace, ed.last_hex_search(), ed.last_replacement())
             }
-            _ => SearchReplaceDialog::new(replace, String::new()),
+            Some(ed) => {
+                SearchReplaceDialog::new(replace, ed.last_search_pattern(), ed.last_replacement())
+            }
+            None => SearchReplaceDialog::new(replace, String::new(), String::new()),
         }
     }
 

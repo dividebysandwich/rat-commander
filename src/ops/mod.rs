@@ -29,6 +29,10 @@ pub struct OpRequest {
     pub sources: Vec<VfsPath>,
     pub dst_fs: Option<Arc<dyn Vfs>>,
     pub dst_dir: Option<VfsPath>,
+    /// For a single-source rename/move-to-name, the exact final name to give the
+    /// source inside `dst_dir` (instead of keeping its own name). `None` means the
+    /// source is dropped into `dst_dir` under its existing name.
+    pub dst_name: Option<String>,
     /// Overwrite existing destinations without prompting (confirm-overwrite off).
     pub overwrite_all: bool,
 }

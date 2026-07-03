@@ -267,12 +267,19 @@ fn render_hex(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
 
 fn render_footer(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
     if let Some(q) = v.search_input.as_ref() {
+        // Highlight the whole query while it is still marked (pre-filled), so it
+        // reads as "type to replace" — like the copy/rename input field.
+        let text_style = if v.search_selected && !q.is_empty() {
+            Style::default().fg(theme.panel_bg).bg(theme.header_fg)
+        } else {
+            Style::default()
+        };
         let line = Line::from(vec![
             Span::styled("Search: ", Style::default().fg(theme.header_fg)),
-            Span::raw(q.clone()),
+            Span::styled(q.clone(), text_style),
         ]);
         f.render_widget(Paragraph::new(line), area);
-        let cx = area.x + 8 + q.chars().count() as u16;
+        let cx = area.x + 8 + v.search_cursor.min(q.chars().count()) as u16;
         f.set_cursor_position(ratatui::layout::Position::new(cx, area.y));
         return;
     }

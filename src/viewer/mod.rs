@@ -123,10 +123,15 @@ pub struct ViewerState {
     top: usize,
     /// Horizontal scroll (text, non-wrap).
     h_offset: usize,
-    /// Current search query.
+    /// Current search query (remembered in memory across F7 presses).
     query: String,
     /// When `Some`, the F7 search prompt is capturing input.
     search_input: Option<String>,
+    /// Caret position within `search_input` (char index).
+    search_cursor: usize,
+    /// The pre-filled search text is fully marked: the next keystroke replaces it
+    /// (mirrors the copy/rename input); cleared by any cursor move.
+    search_selected: bool,
     /// Byte offset of the last match (for "find next").
     last_match: Option<usize>,
     /// Viewport size, updated by the renderer each frame.
@@ -164,6 +169,8 @@ impl ViewerState {
             h_offset: 0,
             query: String::new(),
             search_input: None,
+            search_cursor: 0,
+            search_selected: false,
             last_match: None,
             view_rows: 1,
             view_cols: 1,
@@ -200,6 +207,8 @@ impl ViewerState {
             h_offset: 0,
             query: String::new(),
             search_input: None,
+            search_cursor: 0,
+            search_selected: false,
             last_match: None,
             view_rows: 1,
             view_cols: 1,
@@ -350,7 +359,13 @@ impl ViewerState {
             KeyCode::F(8) if self.is_markdown && self.mode == ViewMode::Text => {
                 self.markdown_render = !self.markdown_render;
             }
-            KeyCode::F(7) => self.search_input = Some(String::new()),
+            KeyCode::F(7) => {
+                // Reopen pre-filled with the remembered query, fully marked so a
+                // keystroke replaces it (same as the copy/rename input).
+                self.search_input = Some(self.query.clone());
+                self.search_cursor = self.query.chars().count();
+                self.search_selected = !self.query.is_empty();
+            }
             KeyCode::Char('n') => self.find_next(),
             KeyCode::Down => self.scroll(1),
             KeyCode::Up => self.scroll(-1),
@@ -457,17 +472,18 @@ impl ViewerState {
                     self.find_next();
                 }
             }
-            KeyCode::Backspace => {
+            // Full line editing (cursor, Home/End, and select-all-on-open) via the
+            // shared helper, matching the copy/rename input dialog.
+            _ => {
                 if let Some(q) = self.search_input.as_mut() {
-                    q.pop();
+                    crate::ui::dialog::edit_text_marked(
+                        q,
+                        &mut self.search_cursor,
+                        &mut self.search_selected,
+                        key,
+                    );
                 }
             }
-            KeyCode::Char(c) => {
-                if let Some(q) = self.search_input.as_mut() {
-                    q.push(c);
-                }
-            }
-            _ => {}
         }
     }
 
@@ -704,6 +720,41 @@ mod tests {
         let v = ViewerState::new("notes.txt".into(), b"# not a heading\n".to_vec());
         assert!(!v.markdown_active());
         assert_eq!(v.footer_labels()[7], "");
+    }
+
+    #[test]
+    fn f7_reopens_prefilled_marked_and_typing_replaces() {
+        let mut v = ViewerState::new("t".into(), b"alpha beta gamma".to_vec());
+        let press = |v: &mut ViewerState, c: KeyCode| {
+            v.handle_key(KeyEvent::new(c, KeyModifiers::NONE));
+        };
+
+        // First search commits a query.
+        press(&mut v, KeyCode::F(7));
+        for c in "beta".chars() {
+            press(&mut v, KeyCode::Char(c));
+        }
+        press(&mut v, KeyCode::Enter);
+        assert_eq!(v.query, "beta");
+
+        // Reopening pre-fills the remembered query, fully marked.
+        press(&mut v, KeyCode::F(7));
+        assert_eq!(v.search_input.as_deref(), Some("beta"));
+        assert!(v.search_selected, "the pre-filled term is marked");
+
+        // Typing without moving the cursor replaces the whole marked term.
+        press(&mut v, KeyCode::Char('x'));
+        assert_eq!(v.search_input.as_deref(), Some("x"));
+        assert!(!v.search_selected);
+
+        // Reopen, then an arrow drops the mark so typing appends instead.
+        press(&mut v, KeyCode::Enter); // commit "x"
+        press(&mut v, KeyCode::F(7));
+        assert!(v.search_selected);
+        press(&mut v, KeyCode::Home); // clears mark, cursor to start
+        assert!(!v.search_selected);
+        press(&mut v, KeyCode::Char('y'));
+        assert_eq!(v.search_input.as_deref(), Some("yx"), "appends after clearing the mark");
     }
 
     #[test]

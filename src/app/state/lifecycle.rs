@@ -201,13 +201,13 @@ impl AppState {
                     p.selection.clear();
                 }
                 self.reload_all().await;
-                // After a delete, drop the cursor onto the file above the
-                // deleted one rather than letting it snap to the top.
-                if let Some(name) = self.pending_focus.take() {
-                    let p = &mut self.panels[self.active];
-                    if let Some(i) = p.entries.iter().position(|e| e.name == name) {
-                        p.cursor = i;
-                    }
+                // Land the cursor on a remembered entry: the file above a delete,
+                // or the just-renamed/moved item on its destination panel.
+                if let Some((idx, name)) = self.pending_focus.take()
+                    && let Some(p) = self.panels.get_mut(idx)
+                    && let Some(i) = p.entries.iter().position(|e| e.name == name)
+                {
+                    p.cursor = i;
                 }
             }
             AppEvent::PrivilegedDone { ok_msg, result } => {

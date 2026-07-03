@@ -9,14 +9,27 @@ impl AppState {
         // to any registered backend — letting a local path override a remote one.
         let other = self.other_index();
         let active = self.active;
-        let dst_dir = dest_vfspath(dest, &self.panels[other].cwd, &self.panels[active].cwd);
-        let dst_fs = match self.registry.resolve(&dst_dir) {
+        let target = dest_vfspath(dest, &self.panels[other].cwd, &self.panels[active].cwd);
+        let dst_fs = match self.registry.resolve(&target) {
             Ok(b) => b,
             Err(e) => {
                 self.show_error(format!("cannot resolve destination: {e}"));
                 return;
             }
         };
+
+        // mc-style disambiguation: a single source whose typed target is neither an
+        // existing directory nor slash-terminated is a rename/move-to-name — the
+        // last component is the new name and `target`'s parent is the container.
+        // Otherwise the target *is* the directory the sources drop into.
+        let ends_with_sep = dest.ends_with('/') || dest.ends_with(std::path::MAIN_SEPARATOR);
+        let target_is_dir = dst_fs.stat(&target).await.map(|e| e.kind.is_dir()).unwrap_or(false);
+        let rename = sources.len() == 1 && !ends_with_sep && !target_is_dir;
+        let (dst_dir, dst_name) = match (rename, target.parent()) {
+            (true, Some(parent)) => (parent, Some(target.file_name())),
+            _ => (target, None),
+        };
+
         // Only the local backend needs (and supports) creating the directory up
         // front; remote/other backends copy into an existing directory.
         if dst_dir.scheme == "file"
@@ -25,7 +38,23 @@ impl AppState {
             self.show_error(format!("cannot create destination: {e}"));
             return;
         }
-        self.start_op(kind, sources, Some(dst_fs), Some(dst_dir));
+
+        // Land the cursor on the moved/renamed item afterwards. Prefer the active
+        // panel (an in-place rename lands there, and both panels may show the same
+        // directory), falling back to whichever panel shows the destination.
+        if sources.len() == 1 {
+            let name = dst_name.clone().unwrap_or_else(|| sources[0].file_name());
+            let idx = if self.panels[active].cwd == dst_dir {
+                Some(active)
+            } else {
+                self.panels.iter().position(|p| p.cwd == dst_dir)
+            };
+            if let Some(idx) = idx {
+                self.pending_focus = Some((idx, name));
+            }
+        }
+
+        self.start_op(kind, sources, Some(dst_fs), Some(dst_dir), dst_name);
     }
 
     /// The name of the surviving entry the cursor should land on after a delete:
@@ -50,6 +79,7 @@ impl AppState {
         sources: Vec<VfsPath>,
         dst_fs: Option<std::sync::Arc<dyn crate::vfs::Vfs>>,
         dst_dir: Option<VfsPath>,
+        dst_name: Option<String>,
     ) {
         if sources.is_empty() {
             return;
@@ -57,7 +87,8 @@ impl AppState {
         // For a delete, remember the surviving entry just above the deleted one
         // so the cursor lands there (not at the top) once the listing reloads.
         if kind == OpKind::Delete {
-            self.pending_focus = self.delete_anchor(&sources);
+            let active = self.active;
+            self.pending_focus = self.delete_anchor(&sources).map(|n| (active, n));
         }
         let id = self.next_task_id;
         self.next_task_id += 1;
@@ -72,6 +103,7 @@ impl AppState {
             sources,
             dst_fs,
             dst_dir,
+            dst_name,
             overwrite_all: !self.config.confirm_overwrite,
         };
         let handle = spawn_op(id, req, self.tx.clone());

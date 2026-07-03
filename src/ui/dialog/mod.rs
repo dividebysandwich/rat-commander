@@ -28,6 +28,8 @@ mod usermenu;
 // dialog module root.
 pub(crate) use widgets::pulse_fill;
 pub use widgets::centered;
+// Shared marked-input editor, reused by the viewer's footer search prompt.
+pub(crate) use widgets::edit_text_marked;
 
 // Re-exported so the in-module test suite (`mod tests`) can reach these via
 // `use super::*`.
