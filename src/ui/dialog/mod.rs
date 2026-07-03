@@ -409,11 +409,7 @@ impl Dialog {
                 // A click on the OK/Cancel button row: focus that button first so
                 // the synthetic Enter/Esc submits or cancels the form instead of
                 // acting on the currently-focused field (e.g. opening a dropdown).
-                let rect = centered(
-                    area,
-                    60u16.min(area.width.saturating_sub(4)),
-                    d.form.field_count() as u16 + 4,
-                );
+                let rect = d.outer_rect(area);
                 let in_box = col >= rect.x
                     && col < rect.x + rect.width
                     && row >= rect.y
@@ -470,9 +466,7 @@ impl Dialog {
         let aw = area.width;
         let r = match self {
             Dialog::Input(_) => centered(area, 60u16.min(aw.saturating_sub(4)), 7),
-            Dialog::Form(d) => {
-                centered(area, 60u16.min(aw.saturating_sub(4)), d.form.field_count() as u16 + 4)
-            }
+            Dialog::Form(d) => d.outer_rect(area),
             Dialog::SearchReplace(d) => {
                 centered(area, 64u16.min(aw.saturating_sub(2)), if d.replace { 14 } else { 12 })
             }

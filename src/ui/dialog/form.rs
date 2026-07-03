@@ -28,6 +28,15 @@ fn graphics_pref(label: &str) -> String {
     .to_string()
 }
 
+/// The Settings form's three visual groups: `(title, field count)`, in the
+/// order the fields are built in [`FormDialog::settings`]. The field counts must
+/// sum to the number of settings fields.
+const SETTINGS_GROUPS: &[(&str, usize)] = &[
+    ("Language", 2),
+    ("Edit/View", 4),
+    ("Visual", 5),
+];
+
 // ---------------------------------------------------------------------------
 // Form dialog (settings, chmod, chown, symlink)
 // ---------------------------------------------------------------------------
@@ -234,17 +243,23 @@ pub struct FormDialog {
 
 impl FormDialog {
     pub fn settings(cfg: &crate::config::Config, truecolor: bool) -> Self {
+        // Fields are ordered to match the three visual groups drawn by `render`
+        // (see `SETTINGS_GROUPS`): Language, then Edit/View, then Visual. The
+        // submit block below reads them back by these indices.
         let form = Form::new(vec![
-            Field::choice("Theme", crate::ui::theme::palette_names(), &cfg.theme),
+            // --- Language ---
             Field::choice("Language", crate::l10n::available(), &crate::l10n::active_name()),
-            Field::check("Truecolor (gradients)", truecolor),
-            Field::check("Animations", cfg.animation),
-            Field::check("System status widget", cfg.system_status),
+            Field::check("Reshape RTL text", cfg.reshape_rtl),
+            // --- Edit/View ---
             Field::text("External editor", cfg.editor.clone()),
             Field::text("External viewer", cfg.viewer.clone()),
             Field::check("Use internal viewer", cfg.use_internal_viewer),
             Field::check("Use internal editor", cfg.use_internal_editor),
-            Field::check("Reshape RTL text", cfg.reshape_rtl),
+            // --- Visual ---
+            Field::choice("Theme", crate::ui::theme::palette_names(), &cfg.theme),
+            Field::check("Truecolor (gradients)", truecolor),
+            Field::check("Animations", cfg.animation),
+            Field::check("System status widget", cfg.system_status),
             Field::choice(
                 "Graphics",
                 vec![
@@ -637,16 +652,17 @@ impl FormDialog {
         let fields = &self.form.fields;
         let submit = match &self.purpose {
             FormPurpose::Settings => Submit::Settings(SettingsValues {
-                theme: fields[0].as_text().to_string(),
-                language: fields[1].as_text().to_string(),
-                truecolor: fields[2].as_bool(),
-                animation: fields[3].as_bool(),
-                system_status: fields[4].as_bool(),
-                editor: fields[5].as_text().trim().to_string(),
-                viewer: fields[6].as_text().trim().to_string(),
-                use_internal_viewer: fields[7].as_bool(),
-                use_internal_editor: fields[8].as_bool(),
-                reshape_rtl: fields[9].as_bool(),
+                // Indices follow the grouped field order built in `settings()`.
+                language: fields[0].as_text().to_string(),
+                reshape_rtl: fields[1].as_bool(),
+                editor: fields[2].as_text().trim().to_string(),
+                viewer: fields[3].as_text().trim().to_string(),
+                use_internal_viewer: fields[4].as_bool(),
+                use_internal_editor: fields[5].as_bool(),
+                theme: fields[6].as_text().to_string(),
+                truecolor: fields[7].as_bool(),
+                animation: fields[8].as_bool(),
+                system_status: fields[9].as_bool(),
                 graphics: graphics_pref(fields[10].as_text()),
             }),
             FormPurpose::Confirmations => Submit::Confirmations(ConfirmValues {
@@ -725,11 +741,69 @@ impl FormDialog {
         DialogResult::Submit(submit)
     }
 
+    /// The dialog's outer box size for the current form. The Settings form is
+    /// wider and taller to fit its three bordered group boxes; every other form
+    /// keeps the compact one-row-per-field box.
+    fn outer_dims(&self, area: Rect) -> (u16, u16) {
+        if matches!(self.purpose, FormPurpose::Settings) {
+            // Each group box = its fields + 2 border rows; plus a spacer and the
+            // hint/button row inside, and the outer border.
+            let group_rows: u16 = SETTINGS_GROUPS.iter().map(|(_, c)| *c as u16 + 2).sum();
+            let height = group_rows + 1 /* spacer */ + 1 /* hint */ + 2 /* border */;
+            let w = 72u16.min(area.width.saturating_sub(4));
+            (w, height)
+        } else {
+            let height = self.form.fields.len() as u16 + 4;
+            let w = 60u16.min(area.width.saturating_sub(4));
+            (w, height)
+        }
+    }
+
+    /// The centered outer box rect (used by `render` and by click hit-testing).
+    pub(crate) fn outer_rect(&self, area: Rect) -> Rect {
+        let (w, h) = self.outer_dims(area);
+        centered(area, w, h)
+    }
+
+    /// For the Settings form, the three group boxes (title + rect) laid out
+    /// vertically inside `inner`.
+    fn group_boxes(inner: Rect) -> Vec<(&'static str, Rect)> {
+        let mut boxes = Vec::with_capacity(SETTINGS_GROUPS.len());
+        let mut y = inner.y;
+        for (title, count) in SETTINGS_GROUPS {
+            let box_h = *count as u16 + 2;
+            boxes.push((*title, Rect { x: inner.x, y, width: inner.width, height: box_h }));
+            y += box_h;
+        }
+        boxes
+    }
+
+    /// The on-screen row rect for each field. Settings rows sit inside their
+    /// group box (inset by the border); other forms stack one row per field.
+    fn field_rows(&self, inner: Rect) -> Vec<Rect> {
+        if matches!(self.purpose, FormPurpose::Settings) {
+            let mut rows = Vec::with_capacity(self.form.fields.len());
+            for (_, brect) in Self::group_boxes(inner) {
+                let inner_box = Rect {
+                    x: brect.x + 1,
+                    y: brect.y + 1,
+                    width: brect.width.saturating_sub(2),
+                    height: brect.height.saturating_sub(2),
+                };
+                for k in 0..inner_box.height {
+                    rows.push(Rect { y: inner_box.y + k, height: 1, ..inner_box });
+                }
+            }
+            rows
+        } else {
+            (0..self.form.fields.len())
+                .map(|i| Rect { y: inner.y + i as u16, height: 1, ..inner })
+                .collect()
+        }
+    }
+
     pub(crate) fn render(&mut self, f: &mut Frame, area: Rect, theme: &Theme, gfx: Option<&mut Gfx>) {
-        let n = self.form.fields.len() as u16;
-        let height = n + 4;
-        let w = 60u16.min(area.width.saturating_sub(4));
-        let rect = centered(area, w, height);
+        let rect = self.outer_rect(area);
         draw_shadow(f, rect, theme);
         f.render_widget(Clear, rect);
         let block = dialog_block(&crate::l10n::trd(&self.title), theme);
@@ -739,21 +813,33 @@ impl FormDialog {
         let base = Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg);
         let focus_style = theme.dialog_selection;
 
+        // Settings groups its fields into three titled sub-boxes; other forms are
+        // a flat one-row-per-field column. `field_rows` maps each field index to
+        // its on-screen row either way.
+        if matches!(self.purpose, FormPurpose::Settings) {
+            for (title, brect) in Self::group_boxes(inner) {
+                let gblock = Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(theme.dialog_border_fg).bg(theme.dialog_bg))
+                    .title(Span::styled(
+                        format!(" {} ", crate::l10n::trd(title)),
+                        Style::default().fg(theme.dialog_title).bg(theme.dialog_bg),
+                    ))
+                    .style(base);
+                f.render_widget(gblock, brect);
+            }
+        }
+        let rows = self.field_rows(inner);
+
         // The Host field of a connect form gets a ▼ chevron to open the history.
         let connect_host = self.connect.as_ref().is_some_and(|c| !c.history.is_empty());
         let mut host_chevron: Option<Rect> = None;
 
         let mut caret: Option<Position> = None;
         for (i, field) in self.form.fields.iter().enumerate() {
-            let y = inner.y + i as u16;
-            if y >= inner.y + inner.height.saturating_sub(1) {
-                break;
-            }
-            let row = Rect {
-                y,
-                height: 1,
-                ..inner
-            };
+            let row = rows[i];
+            let y = row.y;
             let focused = i == self.form.focus;
             match field {
                 Field::Text {
@@ -837,13 +923,14 @@ impl FormDialog {
         let choice_open = self.form.fields.iter().any(|f| matches!(f, Field::Choice { open: true, .. }));
         for (i, field) in self.form.fields.iter_mut().enumerate() {
             if let Field::Choice { options, sel, top, open: true, .. } = field {
-                let visible = choice_visible_rows(inner, i, options.len());
+                let field_y = rows[i].y;
+                let visible = choice_visible_rows(inner, field_y, options.len());
                 if *sel < *top {
                     *top = *sel;
                 } else if *sel >= *top + visible {
                     *top = *sel + 1 - visible;
                 }
-                render_choice_dropdown(f, inner, i, options, *sel, *top, theme);
+                render_choice_dropdown(f, inner, field_y, options, *sel, *top, theme);
             }
         }
 
@@ -936,9 +1023,7 @@ impl FormDialog {
     /// Recompute the dialog's interior rect (mirrors `render`), for click/scroll
     /// hit-testing of the Choice dropdown.
     fn dialog_inner(&self, area: Rect) -> Rect {
-        let height = self.form.fields.len() as u16 + 4;
-        let w = 60u16.min(area.width.saturating_sub(4));
-        let rect = centered(area, w, height);
+        let rect = self.outer_rect(area);
         Rect {
             x: rect.x + 1,
             y: rect.y + 1,
@@ -952,6 +1037,7 @@ impl FormDialog {
     /// (while open) to close. Returns `Some` if the click was consumed.
     pub(crate) fn click_choice(&mut self, area: Rect, col: u16, row: u16) -> Option<DialogResult> {
         let inner = self.dialog_inner(area);
+        let rows = self.field_rows(inner);
         // An open dropdown: pick the clicked option, or close on an outside click.
         if let Some(fi) = self
             .form
@@ -959,8 +1045,9 @@ impl FormDialog {
             .iter()
             .position(|f| matches!(f, Field::Choice { open: true, .. }))
         {
+            let field_y = rows[fi].y;
             if let Some(Field::Choice { options, idx, open, sel, top, .. }) = self.form.fields.get_mut(fi) {
-                let (rect, visible) = choice_dropdown_geom(inner, fi, options.len());
+                let (rect, visible) = choice_dropdown_geom(inner, field_y, options.len());
                 let (list_x, list_y, list_w) = (rect.x + 1, rect.y + 1, rect.width.saturating_sub(2));
                 if row >= list_y
                     && row < list_y + visible as u16
@@ -979,7 +1066,8 @@ impl FormDialog {
         }
         // No dropdown open: a click on a Choice row opens it.
         let hit = self.form.fields.iter().enumerate().find_map(|(i, f)| {
-            let on_row = row == inner.y + i as u16 && col >= inner.x && col < inner.x + inner.width;
+            let r = rows[i];
+            let on_row = row == r.y && col >= r.x && col < r.x + r.width;
             (matches!(f, Field::Choice { .. }) && on_row).then_some(i)
         });
         if let Some(i) = hit {
@@ -1081,10 +1169,9 @@ impl FormDialog {
 /// are visible. The dropdown normally drops *below* the field, but opens *above*
 /// it when there isn't enough room below (so the last fields in a tall dialog
 /// still show their list on screen).
-fn choice_dropdown_geom(inner: Rect, fi: usize, options_len: usize) -> (Rect, usize) {
-    let field_y = inner.y + fi as u16;
+fn choice_dropdown_geom(inner: Rect, field_y: u16, options_len: usize) -> (Rect, usize) {
     let below = (inner.y + inner.height).saturating_sub(field_y + 1) as usize; // rows under the field
-    let above = fi; // rows over the field, within the dialog interior
+    let above = field_y.saturating_sub(inner.y) as usize; // rows over the field, within the interior
     let want = options_len + 2; // options + top/bottom border
     // Prefer dropping down; flip up only when down can't fit and up has more room.
     let open_up = below < want && above > below;
@@ -1095,17 +1182,17 @@ fn choice_dropdown_geom(inner: Rect, fi: usize, options_len: usize) -> (Rect, us
     (Rect { x: inner.x, y, width: inner.width, height: box_h }, visible)
 }
 
-/// Number of option rows visible in a Choice dropdown for field `fi`.
-fn choice_visible_rows(inner: Rect, fi: usize, options_len: usize) -> usize {
-    choice_dropdown_geom(inner, fi, options_len).1
+/// Number of option rows visible in a Choice dropdown whose field is at `field_y`.
+fn choice_visible_rows(inner: Rect, field_y: u16, options_len: usize) -> usize {
+    choice_dropdown_geom(inner, field_y, options_len).1
 }
 
-/// Draw a Choice field's scrollable dropdown just below its row (field `fi`),
+/// Draw a Choice field's scrollable dropdown just below its row (at `field_y`),
 /// showing options from `top` with `sel` highlighted.
 fn render_choice_dropdown(
     f: &mut Frame,
     inner: Rect,
-    fi: usize,
+    field_y: u16,
     options: &[String],
     sel: usize,
     top: usize,
@@ -1114,7 +1201,7 @@ fn render_choice_dropdown(
     if options.is_empty() {
         return;
     }
-    let (rect, visible) = choice_dropdown_geom(inner, fi, options.len());
+    let (rect, visible) = choice_dropdown_geom(inner, field_y, options.len());
     f.render_widget(Clear, rect);
     let block = Block::default()
         .borders(Borders::ALL)

@@ -1280,8 +1280,11 @@ async fn theme_preview_applies_and_reverts_on_cancel() {
     let original = st.theme.name.clone();
     st.open_settings();
     let key = |c| KeyEvent::new(c, KeyModifiers::NONE);
-    // The Theme choice is the first (focused) field; Enter opens its dropdown,
-    // and moving the highlight previews the theme live.
+    // Theme lives in the "Visual" group (field index 6); Tab down to it, then
+    // Enter opens its dropdown and moving the highlight previews the theme live.
+    for _ in 0..6 {
+        st.handle_key(key(KeyCode::Tab)).await;
+    }
     st.handle_key(key(KeyCode::Enter)).await;
     st.handle_key(key(KeyCode::Down)).await;
     let previewed = st.theme.name.clone();

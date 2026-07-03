@@ -779,17 +779,50 @@ fn form_ok_cancel_buttons_are_keyboard_navigable() {
     assert!(render_has(&mut d, "< OK >"), "Left moves Cancel→OK");
 }
 
+
+
+#[test]
+fn settings_dialog_renders_three_group_boxes() {
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    use ratatui::layout::Rect;
+    let cfg = crate::config::Config::default();
+    let theme = crate::ui::theme::Theme::default();
+    let area = Rect::new(0, 0, 80, 24);
+    let mut d = FormDialog::settings(&cfg, true);
+
+    let mut t = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    t.draw(|f| d.render(f, area, &theme, None)).unwrap();
+    let buf = t.backend().buffer();
+    let mut s = String::new();
+    for y in 0..buf.area.height {
+        for x in 0..buf.area.width {
+            s.push_str(buf[(x, y)].symbol());
+        }
+        s.push('\n');
+    }
+
+    // The three group titles are drawn as sub-box headers.
+    for title in ["Language", "Edit/View", "Visual"] {
+        assert!(s.contains(title), "settings should show the '{title}' group box");
+    }
+    // A representative field from each group is present.
+    for field in ["Reshape RTL text", "External editor", "Theme", "Graphics"] {
+        assert!(s.contains(field), "settings should show the '{field}' field");
+    }
+}
+
 #[test]
 fn form_ok_button_click_submits_over_a_focused_choice_field() {
     use ratatui::layout::Rect;
     let cfg = crate::config::Config::default();
     let area = Rect::new(0, 0, 80, 24);
-    // Settings' first field (the default focus) is the Theme *Choice*: a bare
+    // Settings' first field (the default focus) is the Language *Choice*: a bare
     // Enter there opens its dropdown. A mouse click on OK must still submit the
-    // form rather than acting on that field. Geometry mirrors `click_bounds`:
-    // 11 settings fields → box height 11 + 4.
-    let w = 60u16.min(area.width - 4);
-    let h = 11u16 + 4;
+    // form rather than acting on that field. Geometry mirrors `outer_rect` for
+    // the grouped settings box (three group boxes + spacer + hint + border).
+    let w = 72u16.min(area.width - 4);
+    let h = 21u16;
     let x = area.x + (area.width - w) / 2;
     let y = area.y + (area.height - h) / 2;
     let button_row = y + h - 2;
