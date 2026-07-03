@@ -34,6 +34,10 @@ pub struct InputDialog {
     pub purpose: InputPurpose,
     /// Render the buffer masked (password entry).
     pub masked: bool,
+    /// The pre-filled text is fully marked: the next inserted character (or a
+    /// Backspace/Delete) replaces the whole buffer, mimicking GUI selection.
+    /// Any cursor movement clears the mark without deleting.
+    pub selected: bool,
 }
 
 impl InputDialog {
@@ -45,6 +49,7 @@ impl InputDialog {
     ) -> Self {
         let buffer = initial.into();
         let cursor = buffer.chars().count();
+        let selected = !buffer.is_empty();
         InputDialog {
             title: title.into(),
             prompt: prompt.into(),
@@ -52,6 +57,7 @@ impl InputDialog {
             cursor,
             purpose,
             masked: false,
+            selected,
         }
     }
 
@@ -64,6 +70,7 @@ impl InputDialog {
             cursor: 0,
             purpose,
             masked: true,
+            selected: false,
         }
     }
 
@@ -115,13 +122,23 @@ impl InputDialog {
                 DialogResult::Submit(submit)
             }
             KeyCode::Char(c) => {
+                // Typing over a fully-marked pre-fill replaces it.
+                if self.selected {
+                    self.buffer.clear();
+                    self.cursor = 0;
+                    self.selected = false;
+                }
                 let b = self.byte_at(self.cursor);
                 self.buffer.insert(b, c);
                 self.cursor += 1;
                 DialogResult::None
             }
             KeyCode::Backspace => {
-                if self.cursor > 0 {
+                if self.selected {
+                    self.buffer.clear();
+                    self.cursor = 0;
+                    self.selected = false;
+                } else if self.cursor > 0 {
                     let start = self.byte_at(self.cursor - 1);
                     self.buffer.remove(start);
                     self.cursor -= 1;
@@ -129,18 +146,26 @@ impl InputDialog {
                 DialogResult::None
             }
             KeyCode::Delete => {
-                let len = self.buffer.chars().count();
-                if self.cursor < len {
-                    let start = self.byte_at(self.cursor);
-                    self.buffer.remove(start);
+                if self.selected {
+                    self.buffer.clear();
+                    self.cursor = 0;
+                    self.selected = false;
+                } else {
+                    let len = self.buffer.chars().count();
+                    if self.cursor < len {
+                        let start = self.byte_at(self.cursor);
+                        self.buffer.remove(start);
+                    }
                 }
                 DialogResult::None
             }
             KeyCode::Left => {
+                self.selected = false;
                 self.cursor = self.cursor.saturating_sub(1);
                 DialogResult::None
             }
             KeyCode::Right => {
+                self.selected = false;
                 let len = self.buffer.chars().count();
                 if self.cursor < len {
                     self.cursor += 1;
@@ -148,10 +173,12 @@ impl InputDialog {
                 DialogResult::None
             }
             KeyCode::Home => {
+                self.selected = false;
                 self.cursor = 0;
                 DialogResult::None
             }
             KeyCode::End => {
+                self.selected = false;
                 self.cursor = self.buffer.chars().count();
                 DialogResult::None
             }
@@ -183,9 +210,16 @@ impl InputDialog {
             height: 1,
             ..rows[1]
         };
-        if let Some(pos) =
-            draw_input_field(f, field, &self.buffer, self.cursor, true, self.masked, theme)
-        {
+        if let Some(pos) = draw_input_field_ex(
+            f,
+            field,
+            &self.buffer,
+            self.cursor,
+            true,
+            self.masked,
+            self.selected,
+            theme,
+        ) {
             f.set_cursor_position(pos);
         }
 

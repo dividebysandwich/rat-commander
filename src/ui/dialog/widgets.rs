@@ -351,6 +351,22 @@ pub(crate) fn draw_input_field(
     masked: bool,
     theme: &Theme,
 ) -> Option<Position> {
+    draw_input_field_ex(f, area, value, cursor, focused, masked, false, theme)
+}
+
+/// Like [`draw_input_field`], but renders the whole value highlighted when
+/// `selected` is set (mimics a GUI "all text marked" state, where the next
+/// keystroke replaces the pre-filled text).
+pub(crate) fn draw_input_field_ex(
+    f: &mut Frame,
+    area: Rect,
+    value: &str,
+    cursor: usize,
+    focused: bool,
+    masked: bool,
+    selected: bool,
+    theme: &Theme,
+) -> Option<Position> {
     let total = area.width as usize;
     if total < 4 {
         return None;
@@ -367,12 +383,17 @@ pub(crate) fn draw_input_field(
         value.chars().collect()
     };
     let shown: String = shown.chars().skip(start).take(inner_w).collect();
-    let mut padded = shown.clone();
-    while padded.chars().count() < inner_w {
-        padded.push(' ');
-    }
+    let shown_len = shown.chars().count();
+    let pad: String = " ".repeat(inner_w.saturating_sub(shown_len));
+    // When the whole value is marked, draw the text with reversed input colours.
+    let text_style = if selected && !shown.is_empty() {
+        Style::default().fg(theme.input_bg).bg(theme.input_fg)
+    } else {
+        field_style
+    };
     let line = Line::from(vec![
-        Span::styled(padded, field_style),
+        Span::styled(shown, text_style),
+        Span::styled(pad, field_style),
         Span::styled(
             "[^]",
             Style::default().fg(theme.dialog_title).bg(theme.input_bg),
