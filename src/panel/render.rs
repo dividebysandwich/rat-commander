@@ -44,6 +44,7 @@ pub fn render_panel(
     active: bool,
     details: &crate::details::DetailsData,
     theme: &Theme,
+    brief_columns: usize,
 ) {
     let border_color = if active {
         theme.panel_border_active
@@ -104,12 +105,12 @@ pub fn render_panel(
 
     match panel.format {
         ViewFormat::Full => render_full(f, list_area, panel, active, theme),
-        ViewFormat::Brief => render_brief(f, list_area, panel, active, theme),
+        ViewFormat::Brief => render_brief(f, list_area, panel, active, theme, brief_columns),
         ViewFormat::Details => unreachable!("Details is rendered earlier and returns"),
     }
 
     // Record geometry for mouse hit-testing (offset is now post-render).
-    let (body, brief, columns, cell_w) = match panel.format {
+    let (body, brief, columns, rows, cell_w) = match panel.format {
         ViewFormat::Details => unreachable!("Details is rendered earlier and returns"),
         ViewFormat::Full => (
             Rect {
@@ -119,12 +120,14 @@ pub fn render_panel(
             },
             false,
             1usize,
+            1usize,
             list_area.width,
         ),
         ViewFormat::Brief => {
             let w = list_area.width as usize;
-            let cw = 16usize.min(w.max(1));
-            (list_area, true, (w / cw).max(1), cw as u16)
+            let cols = brief_columns.clamp(1, w.max(1));
+            let cw = (w / cols).max(1);
+            (list_area, true, cols, list_area.height as usize, cw as u16)
         }
     };
     panel.hit = Some(crate::panel::PanelHit {
@@ -133,6 +136,7 @@ pub fn render_panel(
         brief,
         offset: panel.offset,
         columns,
+        rows,
         cell_w,
     });
 
@@ -394,35 +398,50 @@ fn render_full(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, theme
     f.render_widget(Paragraph::new(lines), body_area);
 }
 
-fn render_brief(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, theme: &Theme) {
+fn render_brief(
+    f: &mut Frame,
+    area: Rect,
+    panel: &mut Panel,
+    active: bool,
+    theme: &Theme,
+    brief_columns: usize,
+) {
     let width = area.width as usize;
     let rows = area.height as usize;
     if rows == 0 {
         return;
     }
-    let cell_w = 16usize.min(width.max(1));
-    let columns = (width / cell_w).max(1);
+    // Exactly `brief_columns` columns (clamped to what the panel width allows),
+    // each an equal share of the width.
+    let columns = brief_columns.clamp(1, width.max(1));
+    let cell_w = (width / columns).max(1);
     // A page is the full grid of visible cells (rows × columns).
     panel.page = (rows * columns).max(1);
+    // Record the grid geometry for column-major arrow navigation.
+    panel.cols = columns;
+    panel.brief_rows = rows;
     // Each column reserves one cell for a vertical separator between names.
     let name_w = cell_w.saturating_sub(1).max(1);
     let sep_style = Style::default().fg(theme.panel_border).bg(theme.panel_bg);
 
-    // Keep the cursor's row visible (offset aligned to a row boundary).
-    let cursor_row = panel.cursor / columns;
-    let mut first_row = panel.offset / columns;
-    if cursor_row < first_row {
-        first_row = cursor_row;
-    } else if cursor_row >= first_row + rows {
-        first_row = cursor_row + 1 - rows;
+    // Column-major layout: entries fill top-to-bottom, column by column, so each
+    // screen column holds `rows` consecutive entries. Scroll horizontally by
+    // whole columns to keep the cursor's column on screen (offset is aligned to a
+    // column boundary — a multiple of `rows`).
+    let cursor_col = panel.cursor / rows;
+    let mut first_col = panel.offset / rows;
+    if cursor_col < first_col {
+        first_col = cursor_col;
+    } else if cursor_col >= first_col + columns {
+        first_col = cursor_col + 1 - columns;
     }
-    panel.offset = first_row * columns;
+    panel.offset = first_col * rows;
 
     let mut lines: Vec<Line> = Vec::with_capacity(rows);
     for r in 0..rows {
         let mut spans: Vec<Span> = Vec::with_capacity(columns * 2);
         for c in 0..columns {
-            let idx = (first_row + r) * columns + c;
+            let idx = panel.offset + c * rows + r;
             match panel.entries.get(idx) {
                 Some(e) => {
                     let is_cursor = idx == panel.cursor;
@@ -509,6 +528,25 @@ mod tests {
             symlink_target: None,
             symlink_broken: broken,
         }
+    }
+
+    #[test]
+    fn brief_view_records_configured_column_count() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let theme = Theme::mc();
+        let backend = crate::vfs::registry::Registry::default().local();
+        let mut panel = Panel::new(backend, crate::vfs::VfsPath::local("/tmp"));
+        panel.entries =
+            (0..10).map(|i| entry(&format!("f{i}"), VfsKind::File, 0o644, false)).collect();
+        panel.format = ViewFormat::Brief;
+
+        let mut t = Terminal::new(TestBackend::new(60, 8)).unwrap();
+        // Configured for 3 columns → the renderer must record 3 for grid-aware
+        // arrow navigation, and a page of rows × columns.
+        t.draw(|f| render_brief(f, f.area(), &mut panel, true, &theme, 3)).unwrap();
+        assert_eq!(panel.cols, 3, "renderer records the configured column count");
+        assert_eq!(panel.page, 8 * 3, "page = rows × columns");
     }
 
     #[test]

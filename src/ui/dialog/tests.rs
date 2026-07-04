@@ -781,6 +781,8 @@ fn form_ok_cancel_buttons_are_keyboard_navigable() {
 
 
 
+
+
 #[test]
 fn settings_dialog_renders_three_group_boxes() {
     use ratatui::Terminal;
@@ -822,7 +824,7 @@ fn form_ok_button_click_submits_over_a_focused_choice_field() {
     // form rather than acting on that field. Geometry mirrors `outer_rect` for
     // the grouped settings box (three group boxes + spacer + hint + border).
     let w = 72u16.min(area.width - 4);
-    let h = 21u16;
+    let h = 22u16;
     let x = area.x + (area.width - w) / 2;
     let y = area.y + (area.height - h) / 2;
     let button_row = y + h - 2;

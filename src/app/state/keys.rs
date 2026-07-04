@@ -269,6 +269,9 @@ impl AppState {
             KeyCode::F(9) => self.open_menu(),
 
             // -- Panel navigation --
+            // The Brief view is column-major (entries fill top-to-bottom, column
+            // by column), so a single-step Up/Down moves the cursor *visually*
+            // up/down and rolls over to the previous/next column at a column edge.
             KeyCode::Up => self.active_panel().move_cursor(-1),
             KeyCode::Down => self.active_panel().move_cursor(1),
             KeyCode::PageUp => {
@@ -301,9 +304,31 @@ impl AppState {
                 self.enter_dir().await;
             }
 
-            // -- Command-line editing --
-            KeyCode::Left => self.cmd.move_left(),
-            KeyCode::Right => self.cmd.move_right(),
+            // -- Command-line editing (in the multi-column Brief view, and when
+            //    the command line is empty, Left/Right move sideways by a whole
+            //    column: one column height in entries, clamped to the ends so the
+            //    first column's Left lands on the top-left and the last column's
+            //    Right lands on the very bottom) --
+            KeyCode::Left => {
+                let empty = self.cmd.is_empty();
+                let p = &mut self.panels[self.active];
+                if empty && p.brief_grid() {
+                    let step = p.brief_rows.max(1) as isize;
+                    p.move_cursor(-step);
+                } else {
+                    self.cmd.move_left();
+                }
+            }
+            KeyCode::Right => {
+                let empty = self.cmd.is_empty();
+                let p = &mut self.panels[self.active];
+                if empty && p.brief_grid() {
+                    let step = p.brief_rows.max(1) as isize;
+                    p.move_cursor(step);
+                } else {
+                    self.cmd.move_right();
+                }
+            }
             KeyCode::Backspace => self.cmd.backspace(),
             KeyCode::Delete => self.cmd.delete(),
             KeyCode::Esc => self.cmd.clear(),

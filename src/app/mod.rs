@@ -63,6 +63,8 @@ pub async fn run(startup: crate::Startup) -> Result<()> {
 
     let result = run_loop(&mut term, &mut state, &mut rx, &mut events).await;
 
+    // Remember each panel's view format and sort order for the next session.
+    state.persist_panel_views();
     restore_terminal(&mut term, state.kbd_enhanced)?;
     result
 }

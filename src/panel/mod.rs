@@ -22,6 +22,9 @@ pub struct PanelHit {
     pub brief: bool,
     pub offset: usize,
     pub columns: usize,
+    /// Column height in the Brief grid (entries per screen column); used for the
+    /// column-major click mapping.
+    pub rows: usize,
     pub cell_w: u16,
 }
 
@@ -42,9 +45,10 @@ impl PanelHit {
         }
         let r = (row - self.body.y) as usize;
         let idx = if self.brief {
+            // Column-major: each screen column holds `rows` consecutive entries.
             let cw = self.cell_w.max(1);
             let c = ((col - self.body.x) / cw) as usize;
-            self.offset + r * self.columns + c
+            self.offset + c * self.rows.max(1) + r
         } else {
             self.offset + r
         };
@@ -53,9 +57,10 @@ impl PanelHit {
 }
 
 /// How the listing columns are laid out.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum ViewFormat {
     /// Name, size, mtime columns (single column of rows).
+    #[default]
     Full,
     /// Just names, in multiple columns.
     Brief,
@@ -98,6 +103,11 @@ pub struct Panel {
     pub hit: Option<PanelHit>,
     /// Number of entries visible on screen, set by the renderer; drives PgUp/PgDn.
     pub page: usize,
+    /// Brief-view grid geometry from the last render, for column-major arrow
+    /// navigation: `cols` columns of `brief_rows` entries each (entries fill
+    /// top-to-bottom, column by column). `cols` is 1 in the Full/Details views.
+    pub cols: usize,
+    pub brief_rows: usize,
 }
 
 impl Panel {
@@ -116,6 +126,8 @@ impl Panel {
             disk: None,
             hit: None,
             page: 1,
+            cols: 1,
+            brief_rows: 1,
         }
     }
 
@@ -223,6 +235,12 @@ impl Panel {
         let max = self.entries.len() as isize - 1;
         let next = (self.cursor as isize + delta).clamp(0, max);
         self.cursor = next as usize;
+    }
+
+    /// Whether arrow Left/Right should move between Brief-view columns (rather
+    /// than editing the command line): true only in a multi-column Brief view.
+    pub fn brief_grid(&self) -> bool {
+        self.format == ViewFormat::Brief && self.cols > 1
     }
 
     pub fn move_home(&mut self) {

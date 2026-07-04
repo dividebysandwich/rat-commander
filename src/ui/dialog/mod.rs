@@ -287,6 +287,8 @@ pub struct SettingsValues {
     pub reshape_rtl: bool,
     /// Terminal pixel-graphics preference (`auto|off|kitty|sixel|iterm`).
     pub graphics: String,
+    /// Number of columns in the Brief view.
+    pub brief_columns: usize,
 }
 
 /// Values collected by the Confirmations form (which actions need confirming).

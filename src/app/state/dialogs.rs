@@ -183,6 +183,7 @@ impl AppState {
                 self.config.truecolor = Some(v.truecolor);
                 self.config.animation = v.animation;
                 self.config.system_status = v.system_status;
+                self.config.brief_columns = v.brief_columns;
                 self.truecolor = v.truecolor;
                 // Apply the chosen language (store English as the default => None).
                 crate::l10n::set_active_by_name(&v.language);

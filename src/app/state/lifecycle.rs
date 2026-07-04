@@ -7,9 +7,14 @@ impl AppState {
         let registry = Registry::new();
         let local = registry.local();
         let cwd = VfsPath::local_cwd();
-        let left = Panel::new(local.clone(), cwd.clone());
-        let right = Panel::new(local, cwd.clone());
+        let mut left = Panel::new(local.clone(), cwd.clone());
+        let mut right = Panel::new(local, cwd.clone());
         let config = Config::load();
+        // Restore each panel's remembered listing format and sort order.
+        left.format = config.panels[0].format;
+        left.sort = config.panels[0].sort;
+        right.format = config.panels[1].format;
+        right.sort = config.panels[1].sort;
         let truecolor = config.truecolor.unwrap_or_else(detect_truecolor);
         let theme = Theme::by_name(&config.theme, truecolor);
         AppState {
@@ -63,6 +68,18 @@ impl AppState {
             edit_only: false,
             kbd_enhanced: false,
         }
+    }
+
+    /// Copy each panel's current listing format and sort order into the config
+    /// and persist it, so they are restored on the next run. Called on exit.
+    pub fn persist_panel_views(&mut self) {
+        for i in 0..2 {
+            self.config.panels[i] = crate::config::PanelView {
+                format: self.panels[i].format,
+                sort: self.panels[i].sort,
+            };
+        }
+        let _ = self.config.save();
     }
 
     /// Periodic tick (~100 ms): advances animation and samples system stats.

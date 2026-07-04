@@ -537,6 +537,61 @@ async fn rename_focuses_active_panel_when_both_show_same_dir() {
     std::fs::remove_dir_all(&root).ok();
 }
 
+/// In Brief (multi-column, column-major) view the arrow keys navigate the grid
+/// like Midnight Commander: Down/Up walk down/up a column and roll over to the
+/// next/previous column at a column edge; Left/Right move sideways by a whole
+/// column, clamping the first column's Left to the top-left and the last
+/// column's Right to the very bottom.
+#[tokio::test]
+async fn brief_view_column_major_arrow_navigation() {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("rc_brief_{}_{nanos}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    // 8 files + ".." = 9 entries → columns of height 3: col0=0,1,2  col1=3,4,5
+    // col2=6,7,8.
+    for i in 0..8 {
+        std::fs::write(root.join(format!("f{i}.txt")), b"x").unwrap();
+    }
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+    assert_eq!(st.panels[0].entries.len(), 9, "8 files plus the parent entry");
+    // Brief grid geometry as the renderer would record it: 2 visible columns,
+    // each 3 entries tall.
+    st.panels[0].format = ViewFormat::Brief;
+    st.panels[0].cols = 2;
+    st.panels[0].brief_rows = 3;
+
+    let key = |c| KeyEvent::new(c, KeyModifiers::NONE);
+    macro_rules! at {
+        ($start:expr, $code:expr) => {{
+            st.panels[0].cursor = $start;
+            st.handle_key(key($code)).await;
+            st.panels[0].cursor
+        }};
+    }
+    // Down at a column bottom rolls to the next column's top.
+    assert_eq!(at!(2, KeyCode::Down), 3, "Down wraps col bottom → next col top");
+    // Up at a column top rolls to the previous column's bottom.
+    assert_eq!(at!(3, KeyCode::Up), 2, "Up wraps col top → prev col bottom");
+    // Right/Left move sideways by a whole column (same row).
+    assert_eq!(at!(4, KeyCode::Right), 7, "Right → same row, next column");
+    assert_eq!(at!(7, KeyCode::Left), 4, "Left → same row, previous column");
+    // Left inside the first column lands on the top-left.
+    assert_eq!(at!(1, KeyCode::Left), 0, "Left in first column → top-left");
+    // Right from the last column lands on the very bottom (clamped).
+    assert_eq!(at!(7, KeyCode::Right), 8, "Right in last column → bottom");
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
 /// Editor search/replace terms are remembered on `AppState`, so they survive
 /// across editor sessions (and different files) to prefill the next dialog.
 #[tokio::test]
@@ -859,6 +914,7 @@ async fn double_click_enters_directory() {
     let (tx, _rx) = async_bridge::channel();
     let mut st = AppState::new(tx);
     st.active = 0;
+    st.panels[0].format = ViewFormat::Full;
     st.panels[0].cwd = VfsPath::local(&root);
     st.panels[0].backend = st.registry.local();
     st.panels[0].reload().await.unwrap();
@@ -1116,6 +1172,7 @@ async fn right_drag_inverts_selection_across_files() {
     let (tx, _rx) = async_bridge::channel();
     let mut st = AppState::new(tx);
     st.active = 0;
+    st.panels[0].format = ViewFormat::Full;
     st.panels[0].cwd = VfsPath::local(&root);
     st.panels[0].backend = st.registry.local();
     st.panels[0].reload().await.unwrap();

@@ -39,6 +39,15 @@ impl RemoteHistoryEntry {
     }
 }
 
+/// A panel's remembered view state: its listing format and sort order. Stored
+/// per panel so the two sides restore independently across sessions.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PanelView {
+    pub format: crate::panel::ViewFormat,
+    pub sort: crate::panel::sort::SortConfig,
+}
+
 /// User configuration, serialized to `config.toml`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -86,6 +95,13 @@ pub struct Config {
     pub animation: bool,
     /// Show the CPU/memory status widget in the menu bar.
     pub system_status: bool,
+    /// Number of columns in the Brief (multi-column names) view.
+    /// (Missing from an old config → the struct default, `2`.)
+    pub brief_columns: usize,
+    /// Per-panel view format and sort order, remembered across sessions
+    /// (index 0 = left panel, 1 = right panel).
+    #[serde(default)]
+    pub panels: [PanelView; 2],
     /// Recently used remote connections (most recent first), for the connect
     /// dialog's history dropdown.
     #[serde(default)]
@@ -111,6 +127,8 @@ impl Default for Config {
             truecolor: None,
             animation: true,
             system_status: true,
+            brief_columns: 2,
+            panels: [PanelView::default(); 2],
             recent_remotes: Vec::new(),
         }
     }
@@ -174,6 +192,37 @@ mod tests {
             user: "u".into(),
             path: path.into(),
         }
+    }
+
+    #[test]
+    fn panel_views_round_trip_through_toml() {
+        use crate::panel::ViewFormat;
+        use crate::panel::sort::SortKey;
+
+        let mut c = Config::default();
+        c.panels[0].format = ViewFormat::Brief;
+        c.panels[0].sort.key = SortKey::Size;
+        c.panels[0].sort.reverse = true;
+        c.panels[1].format = ViewFormat::Details;
+        c.panels[1].sort.key = SortKey::Extension;
+
+        // Serialize + parse back, as save()/load() would.
+        let text = toml::to_string_pretty(&c).unwrap();
+        let back: Config = toml::from_str(&text).unwrap();
+
+        assert_eq!(back.panels[0].format, ViewFormat::Brief);
+        assert_eq!(back.panels[0].sort.key, SortKey::Size);
+        assert!(back.panels[0].sort.reverse);
+        assert_eq!(back.panels[1].format, ViewFormat::Details);
+        assert_eq!(back.panels[1].sort.key, SortKey::Extension);
+    }
+
+    #[test]
+    fn old_config_without_panels_field_uses_defaults() {
+        // A config file predating the panel-state field still parses.
+        let back: Config = toml::from_str("theme = \"Nord\"\n").unwrap();
+        assert_eq!(back.panels[0].format, crate::panel::ViewFormat::Full);
+        assert_eq!(back.brief_columns, 2);
     }
 
     #[test]

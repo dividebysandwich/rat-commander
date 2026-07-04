@@ -1,12 +1,14 @@
 //! Sort keys, toggles, and the comparator used to order a directory listing.
 
 use crate::vfs::{VfsEntry, VfsKind};
+use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
 /// The field a listing is ordered by.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum SortKey {
     Unsorted,
+    #[default]
     Name,
     Extension,
     Size,
@@ -44,7 +46,8 @@ impl SortKey {
 }
 
 /// The full sort configuration: key plus the modifier toggles.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(default)]
 pub struct SortConfig {
     pub key: SortKey,
     pub reverse: bool,
