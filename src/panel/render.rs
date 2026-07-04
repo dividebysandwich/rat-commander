@@ -296,11 +296,30 @@ fn ensure_visible(cursor: usize, offset: &mut usize, height: usize) {
     }
 }
 
-fn render_full(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, theme: &Theme) {
-    let width = area.width as usize;
+/// Column widths for the full-format listing — `(name_w, size_w, time_w)` — for
+/// a given interior `width`. The two single-cell `│` separators account for the
+/// `+ 2`. The mini-status uses the same split so its size/date columns line up
+/// with the listing in every view mode.
+fn full_columns(width: usize) -> (usize, usize, usize) {
     let size_w = 8usize;
     let time_w = 12usize;
     let name_w = width.saturating_sub(size_w + time_w + 2).max(4);
+    (name_w, size_w, time_w)
+}
+
+/// The text shown in the size column: `DIR` / `UP--DIR` for directories, a
+/// human-readable size otherwise.
+fn size_field(e: &VfsEntry) -> String {
+    if e.kind == VfsKind::Dir {
+        if e.name == ".." { "UP--DIR" } else { "DIR" }.to_string()
+    } else {
+        human_size(e.size)
+    }
+}
+
+fn render_full(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, theme: &Theme) {
+    let width = area.width as usize;
+    let (name_w, size_w, time_w) = full_columns(width);
 
     // Header row, with vertical separators matching the data rows.
     let header_style = Style::default()
@@ -345,15 +364,7 @@ fn render_full(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, theme
         let is_cursor = idx == panel.cursor;
         let marked = panel.selection.is_marked(&e.name);
 
-        let size_str = if e.kind == VfsKind::Dir {
-            if e.name == ".." {
-                "UP--DIR".to_string()
-            } else {
-                "DIR".to_string()
-            }
-        } else {
-            human_size(e.size)
-        };
+        let size_str = size_field(e);
         let time_str = e.mtime.map(format_time).unwrap_or_default();
 
         if is_cursor && active {
@@ -477,34 +488,49 @@ fn display_name(e: &VfsEntry) -> String {
 }
 
 fn render_mini_status(f: &mut Frame, area: Rect, panel: &Panel, theme: &Theme) {
-    let text = if panel.selection.count() > 0 {
+    let width = area.width as usize;
+    let style = Style::default().fg(theme.panel_border_active).bg(theme.panel_bg);
+    let sep_style = Style::default().fg(theme.panel_border).bg(theme.panel_bg);
+
+    // A multi-file selection: show the count and combined size (a summary, not a
+    // single entry's columns).
+    if panel.selection.count() > 0 {
         let total: u64 = panel
             .entries
             .iter()
             .filter(|e| panel.selection.is_marked(&e.name))
             .map(|e| e.size)
             .sum();
-        format!("{} selected, {}", panel.selection.count(), human_size(total))
-    } else if let Some(e) = panel.current_entry() {
-        let kind = match e.kind {
-            VfsKind::Dir => "<DIR>".to_string(),
-            _ => human_size(e.size),
-        };
-        let link = e
-            .symlink_target
-            .as_ref()
-            .map(|t| format!(" -> {t}"))
-            .unwrap_or_default();
-        format!("{}  {}{}", e.name, kind, link)
-    } else {
-        String::new()
+        let text = format!("{} selected, {}", panel.selection.count(), human_size(total));
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(pad_right(&text, width), style))),
+            area,
+        );
+        return;
+    }
+
+    // The current entry: name, size, and modify time laid out in the same
+    // columns as the full-format listing, so the size/date line up in every view
+    // mode (including Brief).
+    let line = match panel.current_entry() {
+        Some(e) => {
+            let (name_w, size_w, time_w) = full_columns(width);
+            let mut name = display_name(e);
+            if let Some(t) = &e.symlink_target {
+                name.push_str(&format!(" -> {t}"));
+            }
+            let size_str = size_field(e);
+            let time_str = e.mtime.map(format_time).unwrap_or_default();
+            Line::from(vec![
+                Span::styled(pad_right(&name, name_w), style),
+                Span::styled(COL_SEP, sep_style),
+                Span::styled(pad_left(&size_str, size_w), style),
+                Span::styled(COL_SEP, sep_style),
+                Span::styled(pad_left(&time_str, time_w), style),
+            ])
+        }
+        None => Line::from(Span::styled(" ".repeat(width), style)),
     };
-    let line = Line::from(Span::styled(
-        pad_right(&text, area.width as usize),
-        Style::default()
-            .fg(theme.panel_border_active)
-            .bg(theme.panel_bg),
-    ));
     f.render_widget(Paragraph::new(line), area);
 }
 
@@ -527,6 +553,41 @@ mod tests {
             gid: None,
             symlink_target: None,
             symlink_broken: broken,
+        }
+    }
+
+    #[test]
+    fn mini_status_shows_size_and_date_aligned_with_columns() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let theme = Theme::mc();
+        let backend = crate::vfs::registry::Registry::default().local();
+        let mut cur = entry("archive.tar.gz", VfsKind::File, 0o644, false);
+        cur.size = 9_876_543;
+
+        for fmt in [ViewFormat::Full, ViewFormat::Brief] {
+            let mut panel = Panel::new(backend.clone(), crate::vfs::VfsPath::local("/tmp"));
+            panel.entries = vec![entry("readme.txt", VfsKind::File, 0o644, false), cur.clone()];
+            panel.format = fmt;
+            panel.cursor = 1; // the archive is the current entry
+            let mut term = Terminal::new(TestBackend::new(44, 8)).unwrap();
+            term.draw(|t| render_panel(t, t.area(), &mut panel, true, &Default::default(), &theme, 2))
+                .unwrap();
+            let b = term.backend().buffer();
+            let seps = |row: u16| -> Vec<u16> {
+                (1..b.area.width - 1).filter(|&x| b[(x, row)].symbol() == "│").collect()
+            };
+            let mini_row = b.area.height - 2; // last interior row
+            let mini_seps = seps(mini_row);
+            // The two column separators fall at the same x as the full listing's.
+            let (name_w, size_w, _) = full_columns((b.area.width - 2) as usize);
+            let x0 = 1 + name_w as u16;
+            let x1 = x0 + 1 + size_w as u16;
+            assert_eq!(mini_seps, vec![x0, x1], "{fmt:?}: mini-status columns align with the listing");
+            // Size and modify date are both shown.
+            let text: String = (0..b.area.width).map(|x| b[(x, mini_row)].symbol()).collect();
+            assert!(text.contains("9.4M"), "{fmt:?}: size shown in the mini-status");
+            assert!(text.contains("1970"), "{fmt:?}: modify date shown in the mini-status");
         }
     }
 
