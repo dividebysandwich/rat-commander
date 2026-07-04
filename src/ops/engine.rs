@@ -144,8 +144,11 @@ impl Engine {
                         }
                     }
 
-                    self.copy_tree(&req.src_fs, src.clone(), &dst_fs, dst).await?;
-                    if is_move {
+                    let copied = self.copy_tree(&req.src_fs, src.clone(), &dst_fs, dst).await?;
+                    // Only remove the source once it has actually been copied — a
+                    // file skipped at an overwrite conflict must stay put (a
+                    // partly-skipped directory keeps its whole source subtree).
+                    if is_move && copied {
                         self.delete_tree(&req.src_fs, src.clone()).await?;
                     }
                 }
@@ -176,13 +179,18 @@ impl Engine {
         })
     }
 
+    /// Copy `src` onto `dst` (recursively for a directory). Returns whether the
+    /// whole subtree was actually written to the destination — `false` if any
+    /// file was skipped at an overwrite conflict. A caller performing a *move*
+    /// must only delete the source when this is `true`, so a skipped file is
+    /// never removed without a copy having been made.
     fn copy_tree<'a>(
         &'a mut self,
         src_fs: &'a Arc<dyn Vfs>,
         src: VfsPath,
         dst_fs: &'a Arc<dyn Vfs>,
         dst: VfsPath,
-    ) -> BoxFuture<'a, Result<()>> {
+    ) -> BoxFuture<'a, Result<bool>> {
         Box::pin(async move {
             self.check_cancel()?;
             let entry = src_fs.stat(&src).await?;
@@ -190,21 +198,25 @@ impl Engine {
                 VfsKind::Dir => {
                     // Create destination directory (ignore "already exists").
                     let _ = dst_fs.mkdir(&dst).await;
+                    // The directory is fully copied only if every child was.
+                    let mut all_copied = true;
                     for child in src_fs.read_dir(&src).await? {
                         let cs = src.join(&child.name);
                         let cd = dst.join(&child.name);
-                        self.copy_tree(src_fs, cs, dst_fs, cd).await?;
+                        all_copied &= self.copy_tree(src_fs, cs, dst_fs, cd).await?;
                     }
-                    Ok(())
+                    Ok(all_copied)
                 }
                 VfsKind::Symlink => {
-                    // Recreate the link if the destination backend supports it.
-                    if let Some(target) = entry.symlink_target {
-                        let _ = dst_fs.symlink(&target, &dst).await;
-                    }
+                    // Recreate the link if the destination backend supports it;
+                    // only report success (safe to remove the source) if it took.
+                    let recreated = match entry.symlink_target {
+                        Some(target) => dst_fs.symlink(&target, &dst).await.is_ok(),
+                        None => false,
+                    };
                     self.files_done += 1;
                     self.emit(true);
-                    Ok(())
+                    Ok(recreated)
                 }
                 _ => {
                     // Resolve a conflict if the destination file already exists.
@@ -214,19 +226,22 @@ impl Engine {
                     };
                     match action {
                         CopyAction::Skip => {
-                            // Count it as handled so the totals stay consistent.
+                            // Count it as handled so the totals stay consistent,
+                            // but report that nothing was written (don't delete it).
                             self.files_done += 1;
                             self.total_done += entry.size;
                             self.emit(true);
-                            Ok(())
+                            Ok(false)
                         }
                         CopyAction::Overwrite => {
                             self.copy_file(src_fs, &src, dst_fs, &dst, entry.size, entry.mode, false)
-                                .await
+                                .await?;
+                            Ok(true)
                         }
                         CopyAction::Append => {
                             self.copy_file(src_fs, &src, dst_fs, &dst, entry.size, entry.mode, true)
-                                .await
+                                .await?;
+                            Ok(true)
                         }
                     }
                 }

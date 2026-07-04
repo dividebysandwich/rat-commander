@@ -462,6 +462,190 @@ async fn drain_taskdone(st: &mut AppState, rx: &mut crate::util::async_bridge::A
     }
 }
 
+/// F6 on several *selected* files moves them into the other panel: the copies
+/// appear there and the originals are gone from the source.
+#[tokio::test]
+async fn f6_moves_selected_files_and_removes_originals() {
+    use crate::ui::dialog::Submit;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("rc_moveN_{}_{nanos}", std::process::id()));
+    let left = root.join("left");
+    let right = root.join("right");
+    std::fs::create_dir_all(&left).unwrap();
+    std::fs::create_dir_all(&right).unwrap();
+    for n in ["a.txt", "b.txt", "c.txt"] {
+        std::fs::write(left.join(n), b"data").unwrap();
+    }
+
+    let (tx, mut rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::local(&left);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+    st.panels[1].cwd = VfsPath::local(&right);
+    st.panels[1].backend = st.registry.local();
+    st.panels[1].reload().await.unwrap();
+
+    // Select a.txt and b.txt (leave c.txt behind), then Move to the right panel.
+    st.panels[0].selection.mark("a.txt");
+    st.panels[0].selection.mark("b.txt");
+    let sources = st.panels[0].operation_targets();
+    assert_eq!(sources.len(), 2, "two files selected");
+    let dest = right.to_string_lossy().into_owned();
+    st.handle_submit(Submit::Move(sources, dest)).await;
+    drain_taskdone(&mut st, &mut rx).await;
+
+    // Moved: present on the right, gone from the left.
+    assert!(right.join("a.txt").is_file() && right.join("b.txt").is_file(), "copies land in dest");
+    assert!(!left.join("a.txt").exists(), "a.txt removed from source (moved, not copied)");
+    assert!(!left.join("b.txt").exists(), "b.txt removed from source (moved, not copied)");
+    assert!(left.join("c.txt").is_file(), "unselected file stays put");
+    // The source panel's listing is refreshed so the moved files no longer show.
+    let left_names: Vec<&str> = st.panels[0].entries.iter().map(|e| e.name.as_str()).collect();
+    assert!(!left_names.contains(&"a.txt"), "source panel refreshed (a.txt gone from listing)");
+    assert!(!left_names.contains(&"b.txt"), "source panel refreshed (b.txt gone from listing)");
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// Moving onto an existing destination file (which skips the intra-backend
+/// rename fast path and uses copy-then-delete) still removes the source.
+#[tokio::test]
+async fn move_over_existing_file_still_removes_source() {
+    use crate::ui::dialog::Submit;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("rc_moveover_{}_{nanos}", std::process::id()));
+    let left = root.join("left");
+    let right = root.join("right");
+    std::fs::create_dir_all(&left).unwrap();
+    std::fs::create_dir_all(&right).unwrap();
+    std::fs::write(left.join("a.txt"), b"new").unwrap();
+    std::fs::write(right.join("a.txt"), b"old").unwrap(); // conflict at the destination
+
+    let (tx, mut rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.config.confirm_overwrite = false; // overwrite silently (no conflict prompt)
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::local(&left);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+    st.panels[1].cwd = VfsPath::local(&right);
+    st.panels[1].backend = st.registry.local();
+    st.panels[1].reload().await.unwrap();
+
+    let src = VfsPath::local(left.join("a.txt"));
+    st.handle_submit(Submit::Move(vec![src], right.to_string_lossy().into_owned())).await;
+    drain_taskdone(&mut st, &mut rx).await;
+
+    assert_eq!(std::fs::read(right.join("a.txt")).unwrap(), b"new", "destination overwritten");
+    assert!(!left.join("a.txt").exists(), "source removed even when the destination existed");
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// A Move where the user answers "Skip" at an overwrite conflict must NOT delete
+/// the source — previously the skipped file was removed without being copied
+/// (silent data loss).
+#[tokio::test]
+async fn move_skipping_overwrite_conflict_keeps_source() {
+    use crate::ops::progress::OverwriteDecision;
+    use crate::ui::dialog::Submit;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("rc_moveskip_{}_{nanos}", std::process::id()));
+    let left = root.join("left");
+    let right = root.join("right");
+    std::fs::create_dir_all(&left).unwrap();
+    std::fs::create_dir_all(&right).unwrap();
+    std::fs::write(left.join("a.txt"), b"new").unwrap();
+    std::fs::write(right.join("a.txt"), b"old").unwrap(); // conflict at the destination
+
+    let (tx, mut rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.config.confirm_overwrite = true; // force the conflict prompt (regardless of config)
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::local(&left);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+    st.panels[1].cwd = VfsPath::local(&right);
+    st.panels[1].backend = st.registry.local();
+    st.panels[1].reload().await.unwrap();
+
+    let src = VfsPath::local(left.join("a.txt"));
+    st.handle_submit(Submit::Move(vec![src], right.to_string_lossy().into_owned())).await;
+    // Drain events; answer the overwrite conflict with "Skip", finish on TaskDone.
+    loop {
+        let ev = rx.recv().await.unwrap();
+        match ev {
+            AppEvent::Conflict(info) => {
+                let h = st.tasks.get(&info.id).expect("running move task");
+                let _ = h.reply.try_send(OverwriteDecision::SkipOnce);
+            }
+            AppEvent::TaskDone { id, outcome } => {
+                st.apply_event(AppEvent::TaskDone { id, outcome }).await;
+                break;
+            }
+            other => st.apply_event(other).await,
+        }
+    }
+
+    assert!(left.join("a.txt").exists(), "skipped file's source is kept (not deleted)");
+    assert_eq!(std::fs::read(right.join("a.txt")).unwrap(), b"old", "destination left untouched");
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// The full keyboard flow — F6 to open the Move dialog, Enter to accept the
+/// prefilled other-panel destination — moves the selected files (not copies).
+#[tokio::test]
+async fn f6_key_flow_moves_selected_files() {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("rc_f6key_{}_{nanos}", std::process::id()));
+    let left = root.join("left");
+    let right = root.join("right");
+    std::fs::create_dir_all(&left).unwrap();
+    std::fs::create_dir_all(&right).unwrap();
+    for n in ["a.txt", "b.txt"] {
+        std::fs::write(left.join(n), b"data").unwrap();
+    }
+
+    let (tx, mut rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.panels[0].format = ViewFormat::Full;
+    st.panels[0].cwd = VfsPath::local(&left);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+    st.panels[1].cwd = VfsPath::local(&right);
+    st.panels[1].backend = st.registry.local();
+    st.panels[1].reload().await.unwrap();
+    st.panels[0].selection.mark("a.txt");
+    st.panels[0].selection.mark("b.txt");
+
+    let key = |c| KeyEvent::new(c, KeyModifiers::NONE);
+    st.handle_key(key(KeyCode::F(6))).await; // open the Move dialog
+    assert!(matches!(st.dialog, Some(Dialog::Input(_))), "F6 opens the transfer dialog");
+    st.handle_key(key(KeyCode::Enter)).await; // accept the prefilled destination
+    drain_taskdone(&mut st, &mut rx).await;
+
+    assert!(right.join("a.txt").is_file() && right.join("b.txt").is_file(), "files copied to dest");
+    assert!(!left.join("a.txt").exists() && !left.join("b.txt").exists(), "originals removed (moved)");
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
 /// F6 on a single directory with a bare new name renames it *in place* (in the
 /// source panel), not into the opposite panel, and lands the cursor on it.
 #[tokio::test]
