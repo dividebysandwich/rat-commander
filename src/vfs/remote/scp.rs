@@ -55,7 +55,7 @@ async fn exec_capture(handle: &SshHandle, cmd: &str) -> Result<(Vec<u8>, u32)> {
 }
 
 fn path_str(p: &VfsPath) -> String {
-    p.path.to_string_lossy().into_owned()
+    p.posix_path()
 }
 
 fn entry_from(name: String, p: super::ParsedListing) -> VfsEntry {

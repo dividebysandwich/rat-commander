@@ -47,7 +47,7 @@ pub async fn connect(creds: &RemoteCreds) -> Result<Connection> {
 }
 
 fn path_str(p: &VfsPath) -> String {
-    p.path.to_string_lossy().into_owned()
+    p.posix_path()
 }
 
 fn kind_of(ft: FileType) -> VfsKind {

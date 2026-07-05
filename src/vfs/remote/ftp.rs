@@ -43,7 +43,7 @@ pub async fn connect(creds: &RemoteCreds) -> Result<Connection> {
 }
 
 fn path_str(p: &VfsPath) -> String {
-    p.path.to_string_lossy().into_owned()
+    p.posix_path()
 }
 
 fn io_err<E: std::fmt::Display>(e: E) -> std::io::Error {
