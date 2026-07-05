@@ -7,7 +7,7 @@ use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Paragraph, Sparkline};
+use ratatui::widgets::{Block, Paragraph, RenderDirection, Sparkline};
 
 /// Minimum terminal width before the system-status widget is shown.
 pub const STATUS_MIN_WIDTH: u16 = 100;
@@ -134,9 +134,14 @@ pub fn render_status(f: &mut Frame, area: Rect, s: &SysSampler, theme: &Theme) {
     } else {
         theme.exec_fg
     };
-    let data: Vec<u64> = s.cpu_history.iter().copied().collect();
+    // Feed the samples newest-first and draw right-to-left, so the most recent
+    // load sits at the right edge and older samples scroll off to the left. (The
+    // widget only draws `width` bars from the front of the data; feeding it
+    // oldest-first drew the *oldest* bars and hid the newest until they aged in.)
+    let data: Vec<u64> = s.cpu_history.iter().rev().copied().collect();
     let spark = Sparkline::default()
         .data(data)
+        .direction(RenderDirection::RightToLeft)
         .max(100)
         .style(Style::default().fg(spark_color).bg(theme.panel_bg));
     f.render_widget(
@@ -181,5 +186,27 @@ mod tests {
     fn hotkeys_show_only_when_requested() {
         assert_eq!(hotkey_cells(false), 0, "closed/idle bar has no accents");
         assert_eq!(hotkey_cells(true), 5, "armed bar accents L/F/C/O/R");
+    }
+
+    /// The CPU sparkline anchors the *newest* sample at its right edge — older
+    /// (leftmost) samples must not eclipse a fresh spike, which was the bug.
+    #[test]
+    fn cpu_sparkline_shows_newest_at_the_right() {
+        let theme = crate::ui::theme::Theme::mc();
+        let mut s = crate::util::sysinfo::SysSampler::new();
+        // Low history with a fresh 100% spike as the newest (back) sample.
+        for _ in 0..crate::util::sysinfo::HISTORY - 1 {
+            s.cpu_history.push_back(0);
+        }
+        s.cpu_history.push_back(100);
+
+        // Width 34 = STATUS_WIDTH: sparkline occupies x = 5 .. 25 (label 5, mem 9).
+        let mut t = Terminal::new(TestBackend::new(34, 1)).unwrap();
+        t.draw(|f| render_status(f, f.area(), &s, &theme)).unwrap();
+        let b = t.backend().buffer();
+        let rightmost = b[(24u16, 0u16)].symbol().to_string(); // last sparkline cell
+        let leftmost = b[(5u16, 0u16)].symbol().to_string(); // oldest visible cell
+        assert_eq!(rightmost, "█", "the 100% spike renders as a full bar at the right edge");
+        assert_ne!(leftmost, "█", "older (0%) samples stay low on the left");
     }
 }
