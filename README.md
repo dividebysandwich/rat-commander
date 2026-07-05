@@ -59,9 +59,8 @@ The installed executable is named **`rc`** for quick typing.
   graphics protocol, the progress bars, process-explorer graphs, transfer speed
   graph and the disk-explorer **treemap** (a nested "pillow" map of each folder's
   biggest files) are drawn as true-pixel gradient images, falling back
-  automatically to block-character rendering elsewhere (a **Graphics** setting
-  forces or disables it).
-- **Localization** — the UI language is selectable in Settings, with 18
+  automatically to block-character rendering elsewhere (can be forced off in settings).
+- **Localization** — Configurable UI language with 18
   languages built in (English, German, French, Spanish, Portuguese, Dutch,
   Czech, Slovak, Hungarian, Serbian, Ukrainian, Russian, Japanese, Chinese
   traditional & simplified, Hindi, Persian, Arabic); translations live in
@@ -69,6 +68,9 @@ The installed executable is named **`rc`** for quick typing.
   scripts (Arabic, Persian) are shaped and bidi-reordered for display on
   terminals without native bidi support (a **Reshape RTL text** setting turns
   this off when the terminal handles bidi itself).
+- **Windows support** — Full support for windows drives using the familiar
+  Alt-F1/Alt-F2 Norton Commander shortcuts. All features except Drive Manager and
+  Network Connections are available.
 
 For a full, feature-by-feature walkthrough see the **[user manual](doc/MANUAL.md)** —
 also available in-program by pressing **F1**.
