@@ -182,6 +182,7 @@ impl AppState {
             MenuAction::Symlink => self.open_symlink(),
             MenuAction::Compress => self.open_compress(),
             MenuAction::Checksum => self.open_checksum(),
+            MenuAction::BackgroundOps => self.open_background_ops(),
             MenuAction::SelectGroup => self.open_select_group(true),
             MenuAction::UnselectGroup => self.open_select_group(false),
             MenuAction::Invert => self.invert_selection(),

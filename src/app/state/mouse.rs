@@ -157,6 +157,17 @@ impl AppState {
                 if let Some(flow) = self.fkey_bar_click(area, col, row).await {
                     return flow;
                 }
+                // A click on the menu-bar mini progress bar opens the list of
+                // background operations.
+                let menubar_row = Rect { x: area.x, y: area.y, width: area.width, height: 1 };
+                if let Some(mr) = self.menu_progress_rect(menubar_row)
+                    && col >= mr.x
+                    && col < mr.x + mr.width
+                    && row == mr.y
+                {
+                    self.open_background_ops();
+                    return Flow::Continue;
+                }
                 // A click on the menu bar (top row) opens that menu.
                 if let Some(i) = MenuBarState::title_index_at(area, col, row) {
                     self.menu = Some(MenuBarState::new(i, &self.session_list()));

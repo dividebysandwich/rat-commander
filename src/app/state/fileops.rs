@@ -97,6 +97,19 @@ impl AppState {
             OpKind::Move => "Moving",
             OpKind::Delete => "Deleting",
         };
+        // Remote backend schemes this op touches, so a later "To background" can
+        // reopen a browsing connection for FTP (which blocks while transferring).
+        let mut schemes: Vec<String> = Vec::new();
+        let src_scheme = self.panels[self.active].cwd.scheme.clone();
+        if src_scheme != "file" {
+            schemes.push(src_scheme);
+        }
+        if let Some(d) = &dst_dir
+            && d.scheme != "file"
+            && !schemes.contains(&d.scheme)
+        {
+            schemes.push(d.scheme.clone());
+        }
         let req = OpRequest {
             kind,
             src_fs: self.panels[self.active].backend.clone(),
@@ -108,7 +121,72 @@ impl AppState {
         };
         let handle = spawn_op(id, req, self.tx.clone());
         self.tasks.insert(id, handle);
-        self.dialog = Some(Dialog::Progress(ProgressDialog::new(id, verb)));
+        // Track it as a backgroundable transfer (drives the mini bar / list).
+        self.task_progress.insert(id, BgTransfer { verb, update: None, schemes });
+        let mut pd = ProgressDialog::new(id, verb);
+        pd.backgroundable = true;
+        self.dialog = Some(Dialog::Progress(pd));
+    }
+
+    /// One list row per tracked transfer, ordered by id (stable across updates).
+    fn background_rows(&self) -> Vec<BgRow> {
+        let mut rows: Vec<BgRow> = self
+            .task_progress
+            .iter()
+            .map(|(id, t)| {
+                let (done, total, name) = t
+                    .update
+                    .as_ref()
+                    .map(|u| (u.total_done, u.total_total, u.current_name.clone()))
+                    .unwrap_or((0, 0, String::new()));
+                let ratio = if total > 0 { done as f64 / total as f64 } else { 0.0 };
+                let label = if name.is_empty() {
+                    t.verb.to_string()
+                } else {
+                    format!("{}  {name}", t.verb)
+                };
+                BgRow { id: *id, label, ratio }
+            })
+            .collect();
+        rows.sort_by_key(|r| r.id);
+        rows
+    }
+
+    /// Open the "Background operations" list of running transfers.
+    pub(in crate::app::state) fn open_background_ops(&mut self) {
+        let rows = self.background_rows();
+        if rows.is_empty() {
+            self.show_info("Background operations", "No background operations are running.");
+            return;
+        }
+        self.dialog = Some(Dialog::BackgroundOps(BackgroundOpsDialog::new(rows)));
+    }
+
+    /// Refresh the open "Background operations" list from the latest progress so
+    /// its bars advance live. Closes the list once no transfers remain.
+    pub(in crate::app::state) fn refresh_background_ops(&mut self) {
+        if !matches!(self.dialog, Some(Dialog::BackgroundOps(_))) {
+            return;
+        }
+        let rows = self.background_rows();
+        if rows.is_empty() {
+            self.dialog = None;
+        } else if let Some(Dialog::BackgroundOps(d)) = &mut self.dialog {
+            d.set_rows(rows);
+        }
+    }
+
+    /// Rebuild a progress dialog for a (possibly backgrounded) transfer from its
+    /// latest snapshot — used to foreground it (from the list, or when it hits an
+    /// overwrite conflict).
+    pub(in crate::app::state) fn progress_dialog_for(&self, id: TaskId) -> ProgressDialog {
+        let verb = self.task_progress.get(&id).map(|t| t.verb).unwrap_or("Copying");
+        let mut d = ProgressDialog::new(id, verb);
+        d.backgroundable = true;
+        if let Some(u) = self.task_progress.get(&id).and_then(|t| t.update.as_ref()) {
+            d.update(u);
+        }
+        d
     }
 
     /// Open the multi-rename dialog for the currently *selected* files. Requires

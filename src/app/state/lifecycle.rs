@@ -41,6 +41,7 @@ impl AppState {
             sessions: Vec::new(),
             last_local_cwd: [cwd.clone(), cwd],
             tasks: HashMap::new(),
+            task_progress: HashMap::new(),
             next_task_id: 1,
             next_session_id: 0,
             tx,
@@ -185,6 +186,45 @@ impl AppState {
         }
     }
 
+    /// Aggregate progress of the **background** transfers (those not currently
+    /// shown as the foreground progress dialog): `(bytes done, bytes total,
+    /// count)`, or `None` when nothing is running in the background.
+    pub(crate) fn background_summary(&self) -> Option<(u64, u64, usize)> {
+        let foreground = match &self.dialog {
+            Some(Dialog::Progress(p)) => Some(p.id),
+            _ => None,
+        };
+        let (mut done, mut total, mut count) = (0u64, 0u64, 0usize);
+        for (id, t) in &self.task_progress {
+            if Some(*id) == foreground {
+                continue;
+            }
+            count += 1;
+            if let Some(u) = &t.update {
+                done += u.total_done;
+                total += u.total_total;
+            }
+        }
+        (count > 0).then_some((done, total, count))
+    }
+
+    /// The menu-bar rect for the mini background-progress bar (left of the
+    /// system-status widget), or `None` when nothing runs in the background.
+    /// Shared by the renderer and mouse hit-testing so they stay in sync.
+    pub(crate) fn menu_progress_rect(&self, menubar_row: Rect) -> Option<Rect> {
+        self.background_summary()?;
+        let mini_w = 24u16.min(menubar_row.width);
+        let status_shown = self.config.system_status
+            && menubar_row.width >= crate::ui::menubar::STATUS_MIN_WIDTH;
+        let right_edge = if status_shown {
+            menubar_row.x + menubar_row.width.saturating_sub(crate::ui::menubar::STATUS_WIDTH)
+        } else {
+            menubar_row.x + menubar_row.width
+        };
+        let x = right_edge.saturating_sub(mini_w).max(menubar_row.x);
+        Some(Rect { x, y: menubar_row.y, width: mini_w, height: 1 })
+    }
+
     // -- Event handling ----------------------------------------------------
 
     pub async fn apply_event(&mut self, ev: AppEvent) {
@@ -195,22 +235,33 @@ impl AppState {
                 {
                     p.update(&u);
                 }
+                // Keep the background snapshot current even with no visible dialog
+                // (drives the menu-bar mini bar and the Background-operations list).
+                if let Some(t) = self.task_progress.get_mut(&u.id) {
+                    t.update = Some(u);
+                }
+                // Advance the open "Background operations" list live.
+                self.refresh_background_ops();
             }
             AppEvent::Conflict(info) => {
-                // The engine is paused awaiting a decision. Stash the progress
-                // dialog and raise the overwrite prompt over it.
-                if let Some(Dialog::Progress(p)) = self.dialog.take() {
-                    self.stashed_progress = Some(p);
-                }
+                // The engine is paused awaiting a decision. Bring the conflicting
+                // transfer to the foreground (rebuild its progress dialog from the
+                // latest snapshot) and raise the overwrite prompt over it; the
+                // Overwrite reply restores the stashed progress dialog. This works
+                // whether the task was foreground or in the background.
+                self.stashed_progress = Some(self.progress_dialog_for(info.id));
                 self.dialog = Some(Dialog::Overwrite(OverwriteDialog::new(info)));
             }
             AppEvent::TaskDone { id, outcome } => {
                 self.tasks.remove(&id);
+                self.task_progress.remove(&id);
                 if let Some(Dialog::Progress(p)) = &self.dialog
                     && p.id == id
                 {
                     self.dialog = None;
                 }
+                // Drop the finished task from an open "Background operations" list.
+                self.refresh_background_ops();
                 if let TaskOutcome::Failed(msg) = outcome {
                     self.dialog = Some(Dialog::Message(MessageDialog::error(msg)));
                 }

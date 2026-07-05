@@ -67,6 +67,43 @@ pub fn render(f: &mut Frame, area: Rect, theme: &Theme, show_hotkeys: bool) {
     f.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
+/// Render the mini background-transfer progress bar into `area` (one row on the
+/// menu bar): a compact gauge over an opaque panel background, labelled with the
+/// number of running operations and the aggregate percentage. `done`/`total` are
+/// bytes across all background transfers; `count` is how many are running.
+pub fn render_mini_progress(f: &mut Frame, area: Rect, done: u64, total: u64, count: usize, theme: &Theme) {
+    if area.width < 8 || area.height == 0 {
+        return;
+    }
+    // Opaque background so the bar reads over the gradient menu bar.
+    f.render_widget(Block::default().style(Style::default().bg(theme.panel_bg)), area);
+
+    let ratio = if total > 0 { (done as f64 / total as f64).clamp(0.0, 1.0) } else { 0.0 };
+    let label = format!("{count} op{}  {:.0}%", if count == 1 { "" } else { "s" }, ratio * 100.0);
+    let w = area.width as usize;
+    let filled = (ratio * w as f64).round() as usize;
+    let label_chars: Vec<char> = label.chars().take(w).collect();
+    let lstart = (w - label_chars.len()) / 2;
+    let fill_color = theme.panel_border_active;
+    let buf = f.buffer_mut();
+    for x in 0..w {
+        let in_label = x >= lstart && x < lstart + label_chars.len();
+        let lc = if in_label { Some(label_chars[x - lstart]) } else { None };
+        let (ch, fg, bg) = if x < filled {
+            match lc {
+                Some(c) => (c, theme.panel_bg, fill_color),
+                None => ('█', fill_color, theme.panel_bg),
+            }
+        } else {
+            match lc {
+                Some(c) => (c, theme.panel_fg, theme.panel_bg),
+                None => ('░', theme.panel_border, theme.panel_bg),
+            }
+        };
+        buf.set_string(area.x + x as u16, area.y, ch.to_string(), Style::default().fg(fg).bg(bg));
+    }
+}
+
 /// Render the CPU-histogram + memory status widget into `area` (one row).
 pub fn render_status(f: &mut Frame, area: Rect, s: &SysSampler, theme: &Theme) {
     if area.width < 16 {

@@ -30,6 +30,8 @@ pub enum MenuAction {
     Compress,
     /// Compute a checksum of the file under the cursor.
     Checksum,
+    /// Open the list of running background transfers.
+    BackgroundOps,
     SelectGroup,
     UnselectGroup,
     Invert,
@@ -177,6 +179,8 @@ impl MenuBarState {
                 sep(),
                 item("Com&press...", MenuAction::Compress),
                 item("Chec&ksum...", MenuAction::Checksum),
+                sep(),
+                item("&Background operations...", MenuAction::BackgroundOps),
                 sep(),
                 item_key("Select &group", "+", MenuAction::SelectGroup),
                 item_key("U&nselect group", "-", MenuAction::UnselectGroup),

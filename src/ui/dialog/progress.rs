@@ -29,9 +29,16 @@ pub struct ProgressDialog {
     peak_speed: f64,
     last_bytes: u64,
     last_instant: Option<std::time::Instant>,
-    /// The Abort button's screen rect, recorded by the indeterminate renderer so
-    /// the button can also be clicked (determinate dialogs leave it empty).
+    /// The Abort button's screen rect, recorded so the button can also be clicked
+    /// (the indeterminate renderer, and the backgroundable transfer dialog).
     abort_rect: Rect,
+    /// The "To background" button rect (backgroundable transfer dialogs only).
+    bg_rect: Rect,
+    /// Whether this transfer can be sent to the background (copy/move/delete).
+    /// Find/checksum/archive progress dialogs stay modal.
+    pub backgroundable: bool,
+    /// Focused button on a backgroundable dialog: 0 = To background, 1 = Abort.
+    focus: u8,
 }
 
 impl ProgressDialog {
@@ -53,6 +60,9 @@ impl ProgressDialog {
             last_bytes: 0,
             last_instant: None,
             abort_rect: Rect::default(),
+            bg_rect: Rect::default(),
+            backgroundable: false,
+            focus: 0,
         }
     }
 
@@ -72,16 +82,21 @@ impl ProgressDialog {
         d
     }
 
-    /// Hit-test a click against the Abort button (indeterminate dialogs only).
+    /// Hit-test a click against the dialog's buttons: the Abort button on an
+    /// indeterminate scan, and the "To background" / "Abort" pair on a
+    /// backgroundable transfer. A plain determinate dialog ignores clicks.
     pub(crate) fn handle_click(&self, col: u16, row: u16) -> DialogResult {
-        let r = self.abort_rect;
-        if self.indeterminate
-            && r.width > 0
-            && col >= r.x
-            && col < r.x + r.width
-            && row >= r.y
-            && row < r.y + r.height
-        {
+        let hit = |r: Rect| {
+            r.width > 0 && col >= r.x && col < r.x + r.width && row >= r.y && row < r.y + r.height
+        };
+        if self.backgroundable {
+            if hit(self.bg_rect) {
+                return DialogResult::Background(self.id);
+            }
+            if hit(self.abort_rect) {
+                return DialogResult::Abort(self.id);
+            }
+        } else if self.indeterminate && hit(self.abort_rect) {
             return DialogResult::Abort(self.id);
         }
         DialogResult::None
@@ -121,8 +136,29 @@ impl ProgressDialog {
     }
 
     pub(crate) fn handle_key(&mut self, key: KeyEvent) -> DialogResult {
+        // Modal (find/checksum/archive): any of Esc/Enter/q aborts — unchanged.
+        if !self.backgroundable {
+            return match key.code {
+                KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q') => DialogResult::Abort(self.id),
+                _ => DialogResult::None,
+            };
+        }
+        // Backgroundable transfer: Esc/q/a abort; b backgrounds; ←/→/Tab move
+        // focus between [To background] and [Abort]; Enter activates the focused.
         match key.code {
-            KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q') => DialogResult::Abort(self.id),
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('a') => DialogResult::Abort(self.id),
+            KeyCode::Char('b') => DialogResult::Background(self.id),
+            KeyCode::Left | KeyCode::Right | KeyCode::Tab | KeyCode::BackTab => {
+                self.focus ^= 1;
+                DialogResult::None
+            }
+            KeyCode::Enter => {
+                if self.focus == 0 {
+                    DialogResult::Background(self.id)
+                } else {
+                    DialogResult::Abort(self.id)
+                }
+            }
             _ => DialogResult::None,
         }
     }
@@ -228,14 +264,44 @@ impl ProgressDialog {
         );
         self.render_speed_chart(f, rows[5], theme, gfx.as_deref_mut());
 
-        let abort = center_button_rect(rows[6], 11);
-        if !gfx_button(f, gfx, Slot::Button(0), abort, "Abort", true, theme) {
-            f.render_widget(
-                Paragraph::new(Line::from(button("[ Abort ]", true, theme)))
-                    .alignment(ratatui::layout::Alignment::Center)
-                    .style(base),
-                rows[6],
-            );
+        if self.backgroundable {
+            // Two buttons: [To background] on the left, [Abort] on the right, the
+            // focused one highlighted.
+            let row = rows[6];
+            let half = row.width / 2;
+            let left = Rect { x: row.x, y: row.y, width: half, height: 1 };
+            let right = Rect { x: row.x + half, y: row.y, width: row.width - half, height: 1 };
+            let bg = center_button_rect(left, 17);
+            let ab = center_button_rect(right, 11);
+            self.bg_rect = bg;
+            self.abort_rect = ab;
+            let (bg_focus, ab_focus) = (self.focus == 0, self.focus == 1);
+            if !gfx_button(f, gfx.as_deref_mut(), Slot::Button(0), bg, "To background", bg_focus, theme) {
+                f.render_widget(
+                    Paragraph::new(Line::from(button("[ To background ]", bg_focus, theme)))
+                        .alignment(ratatui::layout::Alignment::Center)
+                        .style(base),
+                    left,
+                );
+            }
+            if !gfx_button(f, gfx, Slot::Button(1), ab, "Abort", ab_focus, theme) {
+                f.render_widget(
+                    Paragraph::new(Line::from(button("[ Abort ]", ab_focus, theme)))
+                        .alignment(ratatui::layout::Alignment::Center)
+                        .style(base),
+                    right,
+                );
+            }
+        } else {
+            let abort = center_button_rect(rows[6], 11);
+            if !gfx_button(f, gfx, Slot::Button(0), abort, "Abort", true, theme) {
+                f.render_widget(
+                    Paragraph::new(Line::from(button("[ Abort ]", true, theme)))
+                        .alignment(ratatui::layout::Alignment::Center)
+                        .style(base),
+                    rows[6],
+                );
+            }
         }
     }
 

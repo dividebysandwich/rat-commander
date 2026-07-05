@@ -85,6 +85,19 @@ impl AppState {
                 // Keep the progress dialog until TaskDone confirms cancellation.
                 Flow::Continue
             }
+            DialogResult::Background(id) => {
+                // Dismiss the progress dialog but keep the transfer running; it
+                // lives on in `tasks`/`task_progress` and shows in the mini bar.
+                if let Some(Dialog::Progress(p)) = &self.dialog
+                    && p.id == id
+                {
+                    self.dialog = None;
+                }
+                // Remote (FTP) transfers: open a fresh browsing connection so the
+                // panel isn't blocked sharing the transfer's single connection.
+                self.background_reconnect_ftp(id).await;
+                Flow::Continue
+            }
             DialogResult::Overwrite(id, decision) => {
                 // Send the decision back to the paused engine, then restore the
                 // operation's progress dialog. (On Abort, TaskDone will close it.)
@@ -127,6 +140,12 @@ impl AppState {
                 }
             }
             Submit::Compress(sources, name) => self.start_compress(sources, name),
+            Submit::ForegroundTask(id) => {
+                // Re-open the progress dialog for a backgrounded transfer.
+                if self.tasks.contains_key(&id) {
+                    self.dialog = Some(Dialog::Progress(self.progress_dialog_for(id)));
+                }
+            }
             Submit::Checksum { path, kind, expected } => self.start_checksum(path, kind, expected),
             Submit::Connect(side, creds) => self.connect_remote(side, creds).await,
             Submit::UserCommand(tpl) => self.pending_run = Some(self.expand_macros(&tpl)),

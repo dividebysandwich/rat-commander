@@ -196,6 +196,7 @@ fn setup_remote_panel(st: &mut AppState, side: usize, scheme: &str, path: &str) 
         scheme: scheme.to_string(),
         label: format!("sftp://u@{scheme}"),
         cwd: root,
+        creds: creds(),
     });
     let cwd = VfsPath { scheme: scheme.to_string(), path: path.into(), container: None };
     let backend = st.registry.resolve(&cwd).unwrap();
@@ -1960,4 +1961,210 @@ async fn esc_then_nondigit_delivers_plain_esc() {
         .await;
     assert!(st.pending_esc.is_none());
     assert_eq!(st.cmd.buffer, "x", "Esc cleared the line, then 'x' was typed");
+}
+
+// -- Background operations ---------------------------------------------------
+
+fn bg_key(code: KeyCode) -> KeyEvent {
+    KeyEvent::new(code, KeyModifiers::NONE)
+}
+
+fn progress_update(id: TaskId, verb: &'static str, done: u64, total: u64) -> ProgressUpdate {
+    ProgressUpdate {
+        id,
+        verb,
+        current_name: "file.bin".into(),
+        file_done: done,
+        file_total: total,
+        total_done: done,
+        total_total: total,
+        files_done: 0,
+        files_total: 1,
+    }
+}
+
+/// The progress dialog's "To background" button/keys map to the right results.
+#[test]
+fn progress_dialog_background_keys() {
+    let mut d = ProgressDialog::new(9, "Copying");
+    d.backgroundable = true;
+    // 'b' backgrounds; Esc/q/a abort; Enter activates the focused button
+    // (default focus = To background).
+    assert!(matches!(d.handle_key(bg_key(KeyCode::Char('b'))), DialogResult::Background(9)));
+    assert!(matches!(d.handle_key(bg_key(KeyCode::Enter)), DialogResult::Background(9)));
+    assert!(matches!(d.handle_key(bg_key(KeyCode::Char('a'))), DialogResult::Abort(9)));
+    assert!(matches!(d.handle_key(bg_key(KeyCode::Esc)), DialogResult::Abort(9)));
+    // Tab moves focus to Abort → Enter now aborts.
+    d.handle_key(bg_key(KeyCode::Tab));
+    assert!(matches!(d.handle_key(bg_key(KeyCode::Enter)), DialogResult::Abort(9)));
+
+    // A modal (non-backgroundable) dialog keeps the old behaviour: Enter aborts.
+    let mut m = ProgressDialog::new(1, "Searching");
+    assert!(matches!(m.handle_key(bg_key(KeyCode::Enter)), DialogResult::Abort(1)));
+}
+
+/// The Background operations list: Enter foregrounds, Delete aborts, Esc closes.
+#[test]
+fn background_ops_list_keys() {
+    use crate::ui::dialog::{BackgroundOpsDialog, BgRow};
+    let mut d = BackgroundOpsDialog::new(vec![
+        BgRow { id: 3, label: "Copying a".into(), ratio: 0.5 },
+        BgRow { id: 4, label: "Moving b".into(), ratio: 0.1 },
+    ]);
+    // Enter on the first row foregrounds it.
+    assert!(matches!(
+        d.handle_key(bg_key(KeyCode::Enter)),
+        DialogResult::Submit(Submit::ForegroundTask(3))
+    ));
+    // Move down, Delete aborts the second row.
+    d.handle_key(bg_key(KeyCode::Down));
+    assert!(matches!(d.handle_key(bg_key(KeyCode::Delete)), DialogResult::Abort(4)));
+    assert!(matches!(d.handle_key(bg_key(KeyCode::Esc)), DialogResult::Cancel));
+}
+
+/// Sending a running transfer to the background dismisses the dialog but keeps
+/// the task alive (and tracked for the mini bar / list).
+#[tokio::test]
+async fn to_background_keeps_task_and_lists_it() {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("rc_bg_{}_{nanos}", std::process::id()));
+    let left = root.join("left");
+    let right = root.join("right");
+    std::fs::create_dir_all(&left).unwrap();
+    std::fs::create_dir_all(&right).unwrap();
+    std::fs::write(left.join("big.bin"), vec![0u8; 4096]).unwrap();
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::local(&left);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+    st.panels[1].cwd = VfsPath::local(&right);
+    st.panels[1].backend = st.registry.local();
+    st.panels[1].reload().await.unwrap();
+
+    st.handle_submit(Submit::Copy(vec![VfsPath::local(left.join("big.bin"))], right.to_string_lossy().into_owned())).await;
+    let id = match &st.dialog {
+        Some(Dialog::Progress(p)) => p.id,
+        _ => panic!("a transfer progress dialog should be showing"),
+    };
+    assert!(st.tasks.contains_key(&id) && st.task_progress.contains_key(&id));
+
+    // Send to background: dialog closes, task stays.
+    st.handle_dialog_result(DialogResult::Background(id)).await;
+    assert!(st.dialog.is_none(), "progress dialog dismissed");
+    assert!(st.tasks.contains_key(&id), "task keeps running");
+    assert!(st.task_progress.contains_key(&id), "still tracked for the mini bar");
+    let (_, _, count) = st.background_summary().expect("one background op");
+    assert_eq!(count, 1);
+
+    // The Background operations list opens and shows it.
+    st.open_background_ops();
+    assert!(matches!(st.dialog, Some(Dialog::BackgroundOps(_))));
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// A conflict on a backgrounded transfer foregrounds it under the overwrite
+/// prompt (rebuilt from its snapshot), ready to restore on answer.
+#[tokio::test]
+async fn conflict_foregrounds_a_background_transfer() {
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    // A backgrounded transfer with no foreground dialog.
+    st.task_progress.insert(
+        7,
+        BgTransfer { verb: "Copying", update: Some(progress_update(7, "Copying", 10, 100)), schemes: vec![] },
+    );
+    assert!(st.dialog.is_none());
+
+    let info = crate::ops::progress::ConflictInfo {
+        id: 7,
+        name: "dup.txt".into(),
+        new_path: "/a/dup.txt".into(),
+        new_size: 5,
+        new_mtime: None,
+        old_path: "/b/dup.txt".into(),
+        old_size: 3,
+        old_mtime: None,
+    };
+    st.apply_event(AppEvent::Conflict(info)).await;
+    assert!(matches!(st.dialog, Some(Dialog::Overwrite(_))), "overwrite prompt shown");
+    match &st.stashed_progress {
+        Some(p) => assert_eq!(p.id, 7, "the conflicting transfer is stashed to restore on answer"),
+        None => panic!("progress dialog should be stashed under the overwrite prompt"),
+    }
+}
+
+/// Foregrounding a background task via `Submit::ForegroundTask` re-opens its
+/// progress dialog seeded from the snapshot.
+#[tokio::test]
+async fn foreground_task_reopens_progress_dialog() {
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    let (reply, _r) = tokio::sync::mpsc::channel(1);
+    st.tasks.insert(
+        5,
+        crate::ops::TaskHandle { id: 5, cancel: crate::ops::CancelToken::new(), reply },
+    );
+    st.task_progress.insert(
+        5,
+        BgTransfer { verb: "Moving", update: Some(progress_update(5, "Moving", 40, 80)), schemes: vec![] },
+    );
+
+    st.handle_submit(Submit::ForegroundTask(5)).await;
+    match &st.dialog {
+        Some(Dialog::Progress(p)) => {
+            assert_eq!(p.id, 5);
+            assert_eq!(p.total_done, 40, "seeded from the latest snapshot");
+        }
+        _ => panic!("progress dialog should re-open for the foregrounded task"),
+    }
+}
+
+/// The menu-bar aggregate sums bytes across all background transfers.
+#[test]
+fn background_summary_aggregates() {
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    assert!(st.background_summary().is_none(), "nothing running");
+    st.task_progress.insert(1, BgTransfer { verb: "Copying", update: Some(progress_update(1, "Copying", 30, 100)), schemes: vec![] });
+    st.task_progress.insert(2, BgTransfer { verb: "Moving", update: Some(progress_update(2, "Moving", 20, 100)), schemes: vec![] });
+    let (done, total, count) = st.background_summary().unwrap();
+    assert_eq!((done, total, count), (50, 200, 2));
+}
+
+
+/// The open Background operations list advances live as progress arrives, and
+/// closes once the last transfer finishes.
+#[tokio::test]
+async fn background_ops_list_updates_live() {
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    let (reply, _r) = tokio::sync::mpsc::channel(1);
+    st.tasks.insert(1, crate::ops::TaskHandle { id: 1, cancel: crate::ops::CancelToken::new(), reply });
+    st.task_progress.insert(1, BgTransfer { verb: "Copying", update: Some(progress_update(1, "Copying", 10, 100)), schemes: vec![] });
+
+    st.open_background_ops();
+    let ratio0 = match &st.dialog {
+        Some(Dialog::BackgroundOps(d)) => d.row_snapshot()[0].1,
+        _ => panic!("list open"),
+    };
+    assert!((ratio0 - 0.10).abs() < 1e-9);
+
+    // A progress update advances the row live.
+    st.apply_event(AppEvent::Progress(progress_update(1, "Copying", 70, 100))).await;
+    let ratio1 = match &st.dialog {
+        Some(Dialog::BackgroundOps(d)) => d.row_snapshot()[0].1,
+        _ => panic!("list still open"),
+    };
+    assert!((ratio1 - 0.70).abs() < 1e-9, "row advanced to 70%");
+
+    // Completing the last transfer closes the (now empty) list.
+    st.apply_event(AppEvent::TaskDone { id: 1, outcome: crate::ops::progress::TaskOutcome::Done }).await;
+    assert!(st.dialog.is_none(), "list closes when the last op finishes");
 }

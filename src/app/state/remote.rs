@@ -83,6 +83,7 @@ impl AppState {
                     scheme,
                     label: conn.label,
                     cwd,
+                    creds: creds.clone(),
                 });
 
                 // Remember this server (without the password) for the dropdown.
@@ -96,6 +97,54 @@ impl AppState {
                 let _ = self.config.save();
             }
             Err(e) => self.show_error(format!("Connection failed: {e}")),
+        }
+    }
+
+    /// When a transfer is sent to the background, open a fresh browsing
+    /// connection for any panel sitting on an **FTP** session that the transfer
+    /// uses — FTP holds a single control connection for the whole transfer, so
+    /// browsing would otherwise block. SFTP/SCP multiplex safely and are left
+    /// alone. The transfer keeps its own backend `Arc`, so re-registering schemes
+    /// never disturbs it.
+    pub(in crate::app::state) async fn background_reconnect_ftp(&mut self, id: TaskId) {
+        let schemes = match self.task_progress.get(&id) {
+            Some(t) if !t.schemes.is_empty() => t.schemes.clone(),
+            _ => return,
+        };
+        for side in 0..2 {
+            let scheme = self.panels[side].cwd.scheme.clone();
+            if !schemes.contains(&scheme) {
+                continue;
+            }
+            let Some(sess_idx) = self.sessions.iter().position(|s| s.scheme == scheme) else {
+                continue;
+            };
+            if self.sessions[sess_idx].creds.protocol != crate::vfs::remote::Protocol::Ftp {
+                continue;
+            }
+            let creds = self.sessions[sess_idx].creds.clone();
+            match crate::vfs::remote::connect(&creds).await {
+                Ok(conn) => {
+                    let new_id = self.next_session_id;
+                    self.next_session_id += 1;
+                    let new_scheme = format!("{}-{}", creds.protocol.scheme_prefix(), new_id);
+                    self.registry.register(new_scheme.clone(), conn.backend.clone());
+                    // Safe: the transfer holds its own Arc, not the registry entry.
+                    self.registry.unregister(&scheme);
+                    let path = self.panels[side].cwd.path.clone();
+                    let new_cwd =
+                        VfsPath { scheme: new_scheme.clone(), path, container: None };
+                    self.panels[side].cwd = new_cwd.clone();
+                    self.panels[side].backend = conn.backend;
+                    let _ = self.panels[side].reload().await;
+                    // Repoint the session record in place (same id/label, new scheme).
+                    self.sessions[sess_idx].scheme = new_scheme;
+                    self.sessions[sess_idx].cwd = new_cwd;
+                }
+                Err(e) => {
+                    self.show_error(format!("Could not open a browsing connection: {e}"))
+                }
+            }
         }
     }
 

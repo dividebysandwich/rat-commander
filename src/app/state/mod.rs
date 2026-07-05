@@ -15,8 +15,8 @@ use crate::panel::{Panel, ViewFormat};
 use crate::proc::{ProcSignal, ProcView};
 use crate::ui::cmdline::CommandLine;
 use crate::ui::dialog::{
-    BusyDialog, ChecksumResultDialog, CompareDialog, CompareMode, ConfirmDialog, Dialog,
-    DialogResult, DriveDialog,
+    BackgroundOpsDialog, BgRow, BusyDialog, ChecksumResultDialog, CompareDialog, CompareMode,
+    ConfirmDialog, Dialog, DialogResult, DriveDialog,
     DupCriteria, FileBrowserDialog, FindDialog, FindParams, FlashTargetDialog, FormDialog, GotoDialog,
     ImageSaveDialog, InputDialog, InputPurpose, MessageDialog, MultiRenameDialog, OverwriteDialog,
     ProgressDialog, SaveAsDialog, SearchReplaceDialog, SearchReplaceParams, SelectDialog, Submit,
@@ -85,6 +85,23 @@ pub struct RemoteSession {
     pub label: String,
     /// The last directory visited on this session, restored on switch-back.
     pub cwd: VfsPath,
+    /// Credentials (including the in-memory password) used to open this session,
+    /// kept so a *second* connection can be opened for browsing when a transfer
+    /// on this session is sent to the background (see FTP reconnect). Retained in
+    /// memory only for the session's lifetime — never persisted.
+    pub creds: RemoteCreds,
+}
+
+/// A file transfer that can run in the background: the state kept for the
+/// menu-bar mini progress bar and the "Background operations" list once its
+/// modal progress dialog has been dismissed.
+pub(in crate::app::state) struct BgTransfer {
+    /// "Copying" / "Moving" / "Deleting".
+    pub verb: &'static str,
+    /// Latest progress snapshot (`None` until the first update arrives).
+    pub update: Option<ProgressUpdate>,
+    /// Remote backend schemes this op touches (used to decide FTP reconnect).
+    pub schemes: Vec<String>,
 }
 
 /// How to execute a privileged command on the background task.
@@ -152,6 +169,11 @@ pub struct AppState {
     /// returns to where it was before going remote (drive-letter style).
     last_local_cwd: [VfsPath; 2],
     tasks: HashMap<TaskId, TaskHandle>,
+    /// Live progress state for backgroundable transfers (copy/move/delete),
+    /// keyed by task id. Populated for every such task so the menu-bar mini bar
+    /// and the "Background operations" list keep updating even when the task's
+    /// progress dialog is not the foreground one.
+    pub(in crate::app::state) task_progress: HashMap<TaskId, BgTransfer>,
     next_task_id: TaskId,
     next_session_id: usize,
     tx: AppSender,

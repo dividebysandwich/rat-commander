@@ -111,6 +111,14 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
         menubar::render_status(f, status_area, &state.sampler, &theme);
     }
 
+    // Mini progress bar for backgrounded transfers, to the left of the status
+    // widget (or right-anchored when it's hidden).
+    if let Some((done, total, count)) = state.background_summary()
+        && let Some(rect) = state.menu_progress_rect(rows[0])
+    {
+        menubar::render_mini_progress(f, rect, done, total, count, &theme);
+    }
+
     let (left_area, right_area) = split_body(rows[1], state.split);
     let active = state.active;
     let brief_cols = state.config.brief_columns;

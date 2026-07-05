@@ -6,6 +6,7 @@
 
 mod widgets;
 
+mod backgroundops;
 mod checksum;
 mod compare;
 mod confirm;
@@ -38,6 +39,7 @@ pub(crate) use flash::SaveFocus;
 #[cfg(test)]
 pub(crate) use widgets::mix_rgb;
 
+pub use backgroundops::{BackgroundOpsDialog, BgRow};
 pub use checksum::ChecksumResultDialog;
 pub use compare::CompareDialog;
 pub use confirm::ConfirmDialog;
@@ -97,6 +99,8 @@ pub enum Dialog {
     Compare(CompareDialog),
     /// The result of a File → Checksum computation (digest + pass/fail verdict).
     ChecksumResult(ChecksumResultDialog),
+    /// The list of running background transfers.
+    BackgroundOps(BackgroundOpsDialog),
 }
 
 /// What the app should do after a dialog handles a key.
@@ -109,6 +113,9 @@ pub enum DialogResult {
     Submit(Submit),
     /// Abort the running task with this id (from the progress dialog).
     Abort(TaskId),
+    /// Send the running transfer with this id to the background (close its
+    /// progress dialog but keep the task running).
+    Background(TaskId),
     /// The user answered an overwrite prompt for the given task.
     Overwrite(TaskId, OverwriteDecision),
 }
@@ -245,6 +252,9 @@ pub enum Submit {
         kind: crate::util::checksum::ChecksumKind,
         expected: String,
     },
+    /// Bring the background transfer with this id back to the foreground (re-open
+    /// its progress dialog).
+    ForegroundTask(TaskId),
 }
 
 /// How the directory-comparison tool decides which files differ.
@@ -334,6 +344,7 @@ impl Dialog {
             Dialog::Overwrite(d) => d.handle_key(key),
             Dialog::Compare(d) => d.handle_key(key),
             Dialog::ChecksumResult(d) => d.handle_key(key),
+            Dialog::BackgroundOps(d) => d.handle_key(key),
         }
     }
 
@@ -365,6 +376,7 @@ impl Dialog {
             Dialog::Overwrite(d) => d.render(f, area, theme, gfx),
             Dialog::Compare(d) => d.render(f, area, theme, gfx),
             Dialog::ChecksumResult(d) => d.render(f, area, theme, gfx),
+            Dialog::BackgroundOps(d) => d.render(f, area, theme),
         }
     }
 
@@ -383,9 +395,10 @@ impl Dialog {
             }
             // Any click dismisses a message box.
             Dialog::Message(_) => return DialogResult::Cancel,
-            // A determinate (copy/move) progress dialog ignores clicks so a stray
-            // click can't cancel it; an indeterminate scan dialog hit-tests its
-            // Abort button so it can be cancelled with the mouse too.
+            // The progress dialog hit-tests its buttons: a backgroundable transfer
+            // has "To background"/"Abort", and an indeterminate scan has "Abort".
+            // A plain determinate dialog has no clickable buttons, so a stray click
+            // can't cancel it.
             Dialog::Progress(d) => return d.handle_click(col, row),
             // The busy spinner can't be dismissed at all.
             Dialog::Busy(_) => return DialogResult::None,
@@ -399,6 +412,7 @@ impl Dialog {
             Dialog::Drive(d) => return d.handle_click(area, col, row),
             Dialog::MultiRename(d) => return d.handle_click(area, col, row),
             Dialog::Find(d) => return d.handle_click(area, col, row),
+            Dialog::BackgroundOps(d) => return d.handle_click(area, col, row),
             // The connect form's history chevron/dropdown and the Choice
             // dropdowns take clicks first.
             Dialog::Form(d) => {
