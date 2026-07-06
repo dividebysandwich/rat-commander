@@ -812,7 +812,18 @@ impl FormDialog {
         let rect = self.outer_rect(area);
         draw_shadow(f, rect, theme);
         f.render_widget(Clear, rect);
-        let block = dialog_block(&crate::l10n::trd(&self.title), theme);
+        // The Settings dialog doubles as the "about" surface: append the program
+        // name and version to its title. The version isn't translated.
+        let title = if matches!(self.purpose, FormPurpose::Settings) {
+            format!(
+                "{} — rat-commander {}",
+                crate::l10n::trd(&self.title),
+                env!("CARGO_PKG_VERSION")
+            )
+        } else {
+            crate::l10n::trd(&self.title)
+        };
+        let block = dialog_block(&title, theme);
         let inner = block.inner(rect);
         f.render_widget(block, rect);
 

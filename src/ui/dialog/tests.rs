@@ -808,6 +808,11 @@ fn settings_dialog_renders_three_group_boxes() {
     for title in ["Language", "Edit/View", "Visual"] {
         assert!(s.contains(title), "settings should show the '{title}' group box");
     }
+    // The program version is shown in the dialog title bar.
+    assert!(
+        s.contains(env!("CARGO_PKG_VERSION")),
+        "settings should show the program version"
+    );
     // A representative field from each group is present.
     for field in ["Reshape RTL text", "External editor", "Theme", "Graphics"] {
         assert!(s.contains(field), "settings should show the '{field}' field");
