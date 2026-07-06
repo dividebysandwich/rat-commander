@@ -17,12 +17,17 @@ impl AppState {
         right.sort = config.panels[1].sort;
         let truecolor = config.truecolor.unwrap_or_else(detect_truecolor);
         let theme = Theme::by_name(&config.theme, truecolor);
+        // Started from within another instance's Ctrl-O subshell? This instance
+        // can't provide its own subshell, so warn and disable it.
+        let subshell_disabled = crate::shell::in_subshell();
+        let dialog = subshell_disabled
+            .then(|| Dialog::Confirm(ConfirmDialog::subshell_nested()));
         AppState {
             panels: [left, right],
             active: 0,
             split: SplitDir::Vertical,
             cmd: CommandLine::new(),
-            dialog: None,
+            dialog,
             viewer: None,
             editor: None,
             menu: None,
@@ -69,6 +74,7 @@ impl AppState {
             search_memory: Default::default(),
             edit_only: false,
             kbd_enhanced: false,
+            subshell_disabled,
         }
     }
 

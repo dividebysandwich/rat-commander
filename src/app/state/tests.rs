@@ -2518,3 +2518,22 @@ async fn enter_on_executable_asks_when_confirm_enabled() {
 
     std::fs::remove_dir_all(&root).ok();
 }
+
+/// Ctrl-O opens the subshell normally, but a nested instance (started from
+/// inside another Rat Commander's subshell) has it disabled and explains why.
+#[tokio::test]
+async fn ctrl_o_is_disabled_for_a_nested_instance() {
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    let ctrl_o = KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL);
+
+    // Normal instance: Ctrl-O drops to the subshell.
+    st.subshell_disabled = false;
+    assert!(matches!(st.handle_key(ctrl_o).await, Flow::SubShell), "Ctrl-O opens the subshell");
+
+    // Nested instance: Ctrl-O is inert and shows an explanatory dialog.
+    st.subshell_disabled = true;
+    let flow = st.handle_key(ctrl_o).await;
+    assert!(matches!(flow, Flow::Continue), "Ctrl-O must not open a subshell when nested");
+    assert!(matches!(st.dialog, Some(Dialog::Message(_))), "it explains that the subshell is off");
+}

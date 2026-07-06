@@ -368,7 +368,18 @@ impl AppState {
 
             // -- View / sort / layout toggles (Ctrl chords) --
             KeyCode::Char('u') if ctrl => self.panels.swap(0, 1),
-            KeyCode::Char('o') if ctrl => return Flow::SubShell,
+            KeyCode::Char('o') if ctrl => {
+                // A nested instance (started inside another's subshell) can't run
+                // its own subshell; explain rather than toggle.
+                if self.subshell_disabled {
+                    self.show_info(
+                        "Subshell disabled",
+                        "This Rat Commander is running inside another instance's subshell.",
+                    );
+                } else {
+                    return Flow::SubShell;
+                }
+            }
             KeyCode::Char('r') if ctrl => {
                 let _ = self.active_panel().reload().await;
             }

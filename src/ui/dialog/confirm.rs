@@ -84,6 +84,21 @@ impl ConfirmDialog {
         )
     }
 
+    /// Shown when Rat Commander is started inside its own Ctrl-O subshell: this
+    /// nested instance can't run its own subshell. Offer to continue without it
+    /// (the safe default) or quit back to the first instance's subshell.
+    pub fn subshell_nested() -> Self {
+        let mut d = Self::from_buttons(
+            "Subshell disabled",
+            "Rat Commander is already running in a subshell on this terminal. \
+             Subshell (Ctrl-O) support will be disabled for this instance."
+                .to_string(),
+            vec![("Continue", None), ("Quit", Some(Submit::Quit))],
+        );
+        d.focus = 0; // Continue: keep this instance running (subshell off)
+        d
+    }
+
     /// A choice dialog with arbitrary buttons (a `None` action cancels).
     fn from_buttons(title: &str, message: String, buttons: Vec<(&str, Option<Submit>)>) -> Self {
         ConfirmDialog {
@@ -498,3 +513,31 @@ impl ConfirmDialog {
     }
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    fn press(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    #[test]
+    fn subshell_nested_defaults_to_continue_and_can_quit() {
+        // Two buttons; "Continue" is focused so a stray Enter keeps running.
+        let mut d = ConfirmDialog::subshell_nested();
+        assert_eq!(d.buttons.len(), 2);
+        assert_eq!(d.focus, 0, "Continue is the default focus");
+        // Enter on Continue cancels the dialog (keeps this instance running).
+        assert!(matches!(d.handle_key(press(KeyCode::Enter)), DialogResult::Cancel));
+
+        // Moving to the second button and confirming quits this instance.
+        let mut d = ConfirmDialog::subshell_nested();
+        d.handle_key(press(KeyCode::Right)); // focus → Quit
+        assert!(matches!(
+            d.handle_key(press(KeyCode::Enter)),
+            DialogResult::Submit(Submit::Quit)
+        ));
+    }
+}

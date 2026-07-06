@@ -13,6 +13,17 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+/// Environment variable set in the Ctrl-O subshell so a Rat Commander launched
+/// from within it can tell it is nested (and disable its own subshell). Mirrors
+/// Midnight Commander's `MC_SID` marker.
+pub const SUBSHELL_ENV: &str = "RC_SUBSHELL";
+
+/// Whether *this* process was started inside a Rat Commander Ctrl-O subshell
+/// (i.e. the marker env var is present). Read once at startup.
+pub fn in_subshell() -> bool {
+    std::env::var_os(SUBSHELL_ENV).is_some_and(|v| !v.is_empty())
+}
+
 /// Byte sent by Ctrl-O in the legacy (raw) keyboard encoding.
 const CTRL_O: u8 = 0x0F;
 /// Unicode key code of the toggle key (`o`) in the kitty/xterm CSI encodings.
@@ -152,6 +163,9 @@ impl Subshell {
 
         let mut cmd = CommandBuilder::new(default_shell());
         cmd.cwd(cwd);
+        // Mark the shell's environment so a nested Rat Commander started from it
+        // detects the nesting and disables its own (unsupported) subshell.
+        cmd.env(SUBSHELL_ENV, "1");
 
         let child = pair
             .slave

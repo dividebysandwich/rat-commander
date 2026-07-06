@@ -253,6 +253,9 @@ pub struct AppState {
     /// release/repeat + standalone modifiers reported). Lets the editor's F-key
     /// bar track held Shift/Ctrl; set by the event loop after terminal setup.
     pub kbd_enhanced: bool,
+    /// Set when this instance was launched from inside another Rat Commander's
+    /// Ctrl-O subshell: it can't run its own subshell, so Ctrl-O is disabled.
+    pub subshell_disabled: bool,
 }
 
 /// How long a lone Esc is held, waiting for a digit, before it is delivered as
