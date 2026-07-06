@@ -125,7 +125,7 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
     render_panel(f, left_area, &mut state.panels[0], active == 0, &state.details[0], &theme, brief_cols);
     render_panel(f, right_area, &mut state.panels[1], active == 1, &state.details[1], &theme, brief_cols);
 
-    let cwd = state.panels[active].cwd.display();
+    let cwd = state.console_cwd().display();
     let caret = cmdline::render(f, rows[2], &state.cmd, &cwd, &theme);
 
     fkeys::render(f, rows[3], &fkeys::panel_labels(), &theme);

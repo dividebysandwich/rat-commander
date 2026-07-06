@@ -180,7 +180,13 @@ impl AppState {
                     });
                     if double {
                         self.last_click = None; // don't let a third click re-fire
-                        self.enter_dir().await;
+                        // In the tree, a double-click opens the branch and points
+                        // the other panel at it, just like pressing Enter.
+                        if self.panels[self.active].is_tree() {
+                            self.tree_enter().await;
+                        } else {
+                            self.enter_dir().await;
+                        }
                         return Flow::Continue;
                     }
                     self.last_click = Some((pi, idx, now));
@@ -211,6 +217,16 @@ impl AppState {
         };
         self.active = pi;
         let p = &mut self.panels[pi];
+        // Tree view: map the click to a tree row and move the tree cursor. There
+        // is no marking in the tree, so any action just positions the cursor.
+        if p.format == ViewFormat::Tree {
+            let len = p.tree.as_ref().map_or(0, |t| t.rows.len());
+            let idx = p.hit?.index_at(col, row, len)?;
+            if let Some(t) = p.tree.as_mut() {
+                t.cursor = idx;
+            }
+            return Some((pi, idx));
+        }
         let idx = p.hit?.index_at(col, row, p.entries.len())?;
         // The cursor follows the pointer for every action (incl. drags).
         p.cursor = idx;

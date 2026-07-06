@@ -51,7 +51,13 @@ pub fn render_panel(
     } else {
         theme.panel_border
     };
-    let title = format!(" {} ", ellipsize(&panel.cwd.display(), area.width.saturating_sub(4) as usize));
+    // In Tree view the title tracks the directory last committed with Enter
+    // (which also drives the other panel), not the fixed tree-root path.
+    let title_path = match (panel.format, panel.tree.as_ref()) {
+        (ViewFormat::Tree, Some(t)) => t.current.display(),
+        _ => panel.cwd.display(),
+    };
+    let title = format!(" {} ", ellipsize(&title_path, area.width.saturating_sub(4) as usize));
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Plain)
@@ -130,21 +136,20 @@ pub fn render_panel(
             let cw = (w / cols).max(1);
             (list_area, true, cols, list_area.height as usize, cw as u16)
         }
-        // The tree is keyboard-driven: a zero-height body means clicks activate
-        // the panel (see `panel_point`) but don't map to rows.
-        ViewFormat::Tree => (
-            Rect { height: 0, ..list_area },
-            false,
-            1usize,
-            1usize,
-            list_area.width,
-        ),
+        // One tree row per body line; `panel_point` maps a click to a tree row.
+        ViewFormat::Tree => (list_area, false, 1usize, 1usize, list_area.width),
+    };
+    // The tree scrolls independently of the flat listing, so hit-testing must use
+    // the tree's own offset.
+    let offset = match (panel.format, panel.tree.as_ref()) {
+        (ViewFormat::Tree, Some(t)) => t.offset,
+        _ => panel.offset,
     };
     panel.hit = Some(crate::panel::PanelHit {
         area,
         body,
         brief,
-        offset: panel.offset,
+        offset,
         columns,
         rows,
         cell_w,

@@ -174,6 +174,20 @@ impl AppState {
         1 - self.active
     }
 
+    /// The directory shown on the command-line prompt (and used as the cwd for a
+    /// typed shell command). Normally the active panel's directory, but in Tree
+    /// view it is the directory last committed with Enter (which also moves the
+    /// other panel) — so it changes only on Enter, not as the cursor browses.
+    pub(crate) fn console_cwd(&self) -> VfsPath {
+        let p = &self.panels[self.active];
+        if p.format == ViewFormat::Tree
+            && let Some(tree) = p.tree.as_ref()
+        {
+            return tree.current.clone();
+        }
+        p.cwd.clone()
+    }
+
     /// Whether the active UI theme has a dark background (picks a fitting syntax
     /// highlighting theme).
     pub(in crate::app::state) fn dark_ui(&self) -> bool {

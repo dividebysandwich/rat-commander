@@ -931,6 +931,7 @@ async fn tree_view_enter_navigates_inactive_panel() {
     let (tx, _rx) = async_bridge::channel();
     let mut st = AppState::new(tx);
     st.active = 0;
+    st.panels[0].format = ViewFormat::Full; // start from a known view (not an ambient config)
     st.panels[0].cwd = VfsPath::local(&root);
     st.panels[0].backend = st.registry.local();
     st.panels[0].reload().await.unwrap();
@@ -944,9 +945,11 @@ async fn tree_view_enter_navigates_inactive_panel() {
     }
     assert_eq!(st.panels[0].format, ViewFormat::Tree, "Ctrl-W reaches Tree view");
     assert!(st.panels[0].tree.is_some(), "the tree is built on entering Tree view");
+    // Entering Tree view doesn't move the console line off the panel's directory.
+    assert_eq!(st.console_cwd().path, root, "console starts at the panel's directory");
 
-    // The cursor starts on `root` (expanded); move it onto the `alpha` child and
-    // press Enter. That opens alpha's branch and sends the right panel there.
+    // Move the cursor onto the `alpha` child. Merely browsing must NOT change the
+    // console line or the other panel — only Enter commits.
     let tree = st.panels[0].tree.as_ref().unwrap();
     let alpha_row = tree
         .rows
@@ -954,11 +957,16 @@ async fn tree_view_enter_navigates_inactive_panel() {
         .position(|n| n.label == "alpha")
         .expect("alpha listed under root");
     st.panels[0].tree.as_mut().unwrap().cursor = alpha_row;
+    assert_eq!(st.console_cwd().path, root, "moving the cursor alone doesn't change the console");
+    assert_eq!(st.panels[1].cwd, start_right, "moving the cursor alone doesn't move the panel");
 
+    // Enter opens alpha's branch and commits: right panel + console both follow.
     st.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).await;
 
     // The inactive (right) panel moved to alpha…
     assert_eq!(st.panels[1].cwd.path, root.join("alpha"), "inactive panel follows the tree");
+    // …and the command-line/console path now reflects the committed directory.
+    assert_eq!(st.console_cwd().path, root.join("alpha"), "Enter updates the console path");
     assert_ne!(st.panels[1].cwd, start_right, "right panel actually moved");
     // …and alpha's branch opened, revealing its subdirectory.
     let tree = st.panels[0].tree.as_ref().unwrap();
@@ -974,6 +982,87 @@ async fn tree_view_enter_navigates_inactive_panel() {
     st.handle_key(ctrl_w).await;
     assert_eq!(st.panels[0].format, ViewFormat::Full, "Tree → Full completes the cycle");
     assert!(st.panels[0].tree.is_none(), "leaving Tree view drops the tree");
+    // Back in a normal view the console line tracks the active panel again.
+    assert_eq!(st.console_cwd(), VfsPath::local(&root), "console follows the active panel");
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// The tree panel's title shows the committed directory (updated on Enter), and
+/// mouse clicks drive it: one click positions the cursor, a double-click enters.
+#[tokio::test]
+async fn tree_view_title_and_mouse() {
+    use crate::panel::ViewFormat;
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("rc_treemouse_{}_{nanos}", std::process::id()));
+    std::fs::create_dir_all(root.join("alpha/inner")).unwrap();
+    std::fs::create_dir_all(root.join("beta")).unwrap();
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.panels[0].format = ViewFormat::Full;
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+    st.set_format(0, ViewFormat::Tree).await;
+
+    // Read the rendered title row (top border of the left panel).
+    let title_text = |st: &mut AppState| -> String {
+        let mut term = Terminal::new(TestBackend::new(120, 30)).unwrap();
+        term.draw(|f| crate::ui::draw(f, st)).unwrap();
+        let b = term.backend().buffer();
+        (0..b.area.width / 2).map(|x| b[(x, 1)].symbol().to_string()).collect()
+    };
+
+    // Initially the title shows the panel's own directory (the root).
+    assert!(
+        title_text(&mut st).contains(&root.file_name().unwrap().to_string_lossy().into_owned()),
+        "title starts at the tree's directory"
+    );
+
+    // Render to record hit geometry, then find the row showing `alpha`.
+    let mut term = Terminal::new(TestBackend::new(120, 30)).unwrap();
+    term.draw(|f| crate::ui::draw(f, &mut st)).unwrap();
+    let hit = st.panels[0].hit.expect("tree records hit geometry");
+    let alpha_idx = st
+        .panels[0]
+        .tree
+        .as_ref()
+        .unwrap()
+        .rows
+        .iter()
+        .position(|n| n.label == "alpha")
+        .unwrap();
+    // Map that tree index back to a screen row within the body.
+    let arow = hit.body.y + (alpha_idx - hit.offset) as u16;
+    let acol = hit.body.x + 1;
+    let start_right = st.panels[1].cwd.clone();
+
+    // One click positions the cursor on `alpha` without navigating anything.
+    let click = |col, row| MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: col,
+        row,
+        modifiers: KeyModifiers::NONE,
+    };
+    st.handle_mouse(click(acol, arow)).await;
+    assert_eq!(st.panels[0].tree.as_ref().unwrap().cursor, alpha_idx, "single click moves cursor");
+    assert_eq!(st.panels[1].cwd, start_right, "single click doesn't navigate the other panel");
+
+    // A second click on the same row enters: the other panel + title follow.
+    st.handle_mouse(click(acol, arow)).await;
+    assert_eq!(st.panels[1].cwd.path, root.join("alpha"), "double click enters the directory");
+    assert!(
+        title_text(&mut st).contains("alpha"),
+        "the title now shows the committed directory"
+    );
 
     std::fs::remove_dir_all(&root).ok();
 }
@@ -1107,6 +1196,7 @@ async fn mouse_clicks_move_cursor_and_mark_in_panel() {
     let (tx, _rx) = async_bridge::channel();
     let mut st = AppState::new(tx);
     st.active = 1; // start on the other panel to prove activation switches
+    st.panels[0].format = ViewFormat::Full; // don't inherit an ambient Tree/Brief config
     st.panels[0].cwd = VfsPath::local(&root);
     st.panels[0].backend = st.registry.local();
     st.panels[0].reload().await.unwrap();
@@ -1472,6 +1562,7 @@ async fn page_keys_move_by_visible_page() {
     let (tx, _rx) = async_bridge::channel();
     let mut st = AppState::new(tx);
     st.active = 0;
+    st.panels[0].format = ViewFormat::Full; // don't inherit an ambient Tree/Brief config
     st.panels[0].cwd = VfsPath::local(&root);
     st.panels[0].backend = st.registry.local();
     st.panels[0].reload().await.unwrap();

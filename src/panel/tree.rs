@@ -37,6 +37,10 @@ pub struct TreeState {
     pub cursor: usize,
     /// First visible row (scroll offset), maintained by the renderer.
     pub offset: usize,
+    /// The directory last *committed* by pressing Enter (which also points the
+    /// other panel here). Drives the command-line prompt, so it changes only on
+    /// Enter — not as the cursor merely browses. Starts at the panel's directory.
+    pub current: VfsPath,
 }
 
 impl TreeState {
@@ -61,7 +65,7 @@ impl TreeState {
         // just-revealed children are then immediately visible below it, instead
         // of the cursor landing at the bottom amid its siblings (e.g. under a
         // huge `/tmp`). The renderer only scrolls further if the cursor moves.
-        TreeState { rows, cursor: idx, offset: idx }
+        TreeState { rows, cursor: idx, offset: idx, current: cwd.clone() }
     }
 
     /// The directory under the cursor, if any.
@@ -88,12 +92,15 @@ impl TreeState {
     }
 
     /// Toggle the cursor row: expand a collapsed node (loading its children on
-    /// `backend`) or collapse an expanded one.
+    /// `backend`) or collapse an expanded one. This is the "commit" action
+    /// (Enter): the cursor's directory becomes [`current`](Self::current).
     pub async fn toggle(&mut self, backend: &Arc<dyn Vfs>) {
         let idx = self.cursor;
         if idx >= self.rows.len() {
             return;
         }
+        // The toggled node keeps its position, so record it as the committed dir.
+        self.current = self.rows[idx].path.clone();
         if self.rows[idx].expanded {
             collapse_at(&mut self.rows, idx);
         } else {

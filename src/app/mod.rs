@@ -182,11 +182,12 @@ fn interactive_shell() -> tokio::process::Command {
 async fn run_command(term: &mut Term, state: &mut AppState, cmd: &str) -> Result<()> {
     restore_terminal(term, state.kbd_enhanced)?;
 
-    // Use the panel's directory only when it's a real local path; otherwise
-    // (remote/archive panel) fall back to the process cwd.
-    let panel = &state.panels[state.active];
-    let cwd = if panel.cwd.scheme == "file" {
-        panel.cwd.path.clone()
+    // Use the console directory only when it's a real local path; otherwise
+    // (remote/archive panel) fall back to the process cwd. In Tree view this
+    // follows the highlighted directory, matching the command-line prompt.
+    let console = state.console_cwd();
+    let cwd = if console.scheme == "file" {
+        console.path.clone()
     } else {
         std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"))
     };
