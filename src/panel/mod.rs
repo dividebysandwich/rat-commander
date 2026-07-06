@@ -115,8 +115,11 @@ pub struct Panel {
     pub cols: usize,
     pub brief_rows: usize,
     /// The directory tree shown when `format == ViewFormat::Tree`. Built lazily
-    /// when the panel switches to Tree view and dropped when it leaves.
     pub tree: Option<TreeState>,
+    /// Caret screen position of the quick-search input when this panel is
+    /// rendering an active quick search (set by the renderer, read by the root
+    /// draw to place the terminal cursor). `None` otherwise.
+    pub quick_caret: Option<ratatui::layout::Position>,
 }
 
 impl Panel {
@@ -138,6 +141,7 @@ impl Panel {
             cols: 1,
             brief_rows: 1,
             tree: None,
+            quick_caret: None,
         }
     }
 

@@ -130,6 +130,16 @@ pub(in crate::app::state) struct SearchMemory {
     pub viewer_query: String,
 }
 
+/// A live FAR/NC-style quick search in the active panel. Started by Alt+letter
+/// (replacing the old Alt+letter menu shortcuts); each typed char extends the
+/// prefix and jumps the panel cursor to the first entry whose name starts with
+/// it (case-insensitive). Cancelled by Esc, committed by Enter, or left by any
+/// other key which is then re-dispatched normally.
+pub(crate) struct QuickSearch {
+    /// The accumulated (case-preserving) query string.
+    pub query: String,
+}
+
 pub struct AppState {
     pub panels: [Panel; 2],
     /// Index of the active panel (0 = left/top, 1 = right/bottom).
@@ -205,8 +215,13 @@ pub struct AppState {
     /// When a lone Esc has been pressed and we're waiting to see whether the
     /// next key is a digit (Esc-prefix function-key alias, MC style).
     pending_esc: Option<Instant>,
-    /// Set while Alt arms the menu accelerators (so the closed menu bar shows its
-    /// highlighted hotkey letters as a hint). Cleared by the next non-Alt key.
+    /// An active FAR/NC-style quick search in the active panel: Alt+letter
+    /// starts it, plain typing extends the prefix and jumps the cursor to the
+    /// first matching entry. `None` when no quick search is live.
+    pub quick_search: Option<QuickSearch>,
+    /// Set while Alt arms the menu accelerators (so the closed menu bar shows
+    /// its highlighted hotkey letters as a hint) — only used when quick search
+    /// is disabled. Cleared by the next non-Alt key.
     pub alt_hint: bool,
     /// The progress dialog set aside while an overwrite prompt is shown; restored
     /// once the user answers so the operation's progress keeps displaying.
@@ -273,13 +288,15 @@ fn parse_cd(cmd: &str) -> Option<&str> {
 }
 
 /// The top-menu index whose title starts with `c` (case-insensitive): L→0 Left,
-/// F→1 File, C→2 Command, O→3 Options, R→4 Right. Used for Alt+letter shortcuts.
+/// F→1 File, C→2 Command, O→3 Options, R→4 Right. Used for the classic
+/// Alt+letter menu shortcuts (active when quick search is disabled).
 fn menu_title_index(c: char) -> Option<usize> {
     let lc = c.to_ascii_lowercase();
     crate::ui::menubar::TITLES
         .iter()
         .position(|t| t.chars().next().map(|x| x.to_ascii_lowercase()) == Some(lc))
 }
+
 
 /// A human label for a viewer goto mode (used in the "invalid value" message).
 fn goto_mode_label(mode: crate::viewer::GotoMode) -> &'static str {

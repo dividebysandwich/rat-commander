@@ -45,6 +45,7 @@ pub fn render_panel(
     details: &crate::details::DetailsData,
     theme: &Theme,
     brief_columns: usize,
+    quick_search: Option<&str>,
 ) {
     let border_color = if active {
         theme.panel_border_active
@@ -78,6 +79,8 @@ pub fn render_panel(
 
     // Reset hit geometry; set below once the listing is drawn.
     panel.hit = None;
+    // The quick-search caret (set below when a search is rendering).
+    panel.quick_caret = None;
 
     if inner.height == 0 || inner.width == 0 {
         return;
@@ -167,7 +170,11 @@ pub fn render_panel(
         height: 1,
         ..inner
     };
-    render_mini_status(f, status_area, panel, theme);
+    if let Some(query) = quick_search {
+        render_quick_search(f, status_area, query, panel, theme);
+    } else {
+        render_mini_status(f, status_area, panel, theme);
+    }
 }
 
 /// Draw a horizontal rule across the panel's interior at row `y`, joining the
@@ -606,6 +613,42 @@ fn render_mini_status(f: &mut Frame, area: Rect, panel: &Panel, theme: &Theme) {
     f.render_widget(Paragraph::new(line), area);
 }
 
+/// Render the quick-search input on the panel's mini-status row: a `>` prompt
+/// followed by the live query, styled like a dialog input field. Also records
+/// the caret screen position on `panel.quick_caret` so the root draw can place
+/// the terminal cursor there.
+fn render_quick_search(
+    f: &mut Frame,
+    area: Rect,
+    query: &str,
+    panel: &mut Panel,
+    theme: &Theme,
+) {
+    let prompt = ">";
+    let prompt_style = Style::default().fg(theme.cursor_fg).bg(theme.input_bg);
+    let text_style = Style::default().fg(theme.input_fg).bg(theme.input_bg);
+    let line = Line::from(vec![
+        Span::styled(prompt, prompt_style),
+        Span::styled(query, text_style),
+    ]);
+    f.render_widget(Paragraph::new(line), area);
+    // Fill the remainder of the row with the input background so the field
+    // reads as a single solid bar (mirroring dialog input fields).
+    let taken = prompt.chars().count() + query.chars().count();
+    let width = area.width as usize;
+    if width > taken {
+        let fill = Span::styled(" ".repeat(width - taken), text_style);
+        let fill_area = Rect {
+            x: area.x + taken as u16,
+            width: (width - taken) as u16,
+            ..area
+        };
+        f.render_widget(Paragraph::new(Line::from(fill)), fill_area);
+    }
+    let caret_x = area.x + taken as u16;
+    panel.quick_caret = Some(ratatui::layout::Position::new(caret_x, area.y));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -643,7 +686,7 @@ mod tests {
             panel.format = fmt;
             panel.cursor = 1; // the archive is the current entry
             let mut term = Terminal::new(TestBackend::new(44, 8)).unwrap();
-            term.draw(|t| render_panel(t, t.area(), &mut panel, true, &Default::default(), &theme, 2))
+            term.draw(|t| render_panel(t, t.area(), &mut panel, true, &Default::default(), &theme, 2, None))
                 .unwrap();
             let b = term.backend().buffer();
             let seps = |row: u16| -> Vec<u16> {
@@ -703,7 +746,7 @@ mod tests {
 
         // Wide enough that the mini-status path isn't ellipsized.
         let mut term = Terminal::new(TestBackend::new(90, 12)).unwrap();
-        term.draw(|t| render_panel(t, t.area(), &mut panel, true, &Default::default(), &theme, 2))
+        term.draw(|t| render_panel(t, t.area(), &mut panel, true, &Default::default(), &theme, 2, None))
             .unwrap();
         let buf = term.backend().buffer();
         let text: String = (0..buf.area.height)
@@ -769,5 +812,36 @@ mod tests {
             name_style(&entry("run.sh", VfsKind::File, 0o755, false), false, &t).fg,
             Some(t.exec_fg)
         );
+    }
+
+    #[test]
+    fn quick_search_renders_input_and_sets_caret() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let theme = Theme::mc();
+        let backend = crate::vfs::registry::Registry::default().local();
+        let mut panel = Panel::new(backend, crate::vfs::VfsPath::local("/tmp"));
+        panel.entries = vec![
+            entry("alpha", VfsKind::File, 0o644, false),
+            entry("hello", VfsKind::File, 0o644, false),
+            entry("hi", VfsKind::File, 0o644, false),
+        ];
+        panel.cursor = 2; // jumped to "hi" by the search
+
+        let mut term = Terminal::new(TestBackend::new(40, 8)).unwrap();
+        term.draw(|t| {
+            render_panel(t, t.area(), &mut panel, true, &Default::default(), &theme, 2, Some("hi"))
+        })
+        .unwrap();
+        let b = term.backend().buffer();
+        // The mini-status row is the last interior row of the panel (border is
+        // the bottom row, so the status line sits at height-2).
+        let row = b.area.height - 2;
+        let text: String = (0..b.area.width).map(|x| b[(x, row)].symbol()).collect();
+        assert!(text.starts_with("│>hi"), "quick-search input shows the query: {text:?}");
+        // The caret lands just after the prompt + query (">" + "hi" = 3 cols
+        // past the panel's interior, which starts at x=1 inside the border).
+        assert_eq!(panel.quick_caret, Some(ratatui::layout::Position::new(4, row)));
+        assert!(!text.contains("DIR"), "mini-status is hidden during quick search");
     }
 }
