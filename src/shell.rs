@@ -13,8 +13,120 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-/// Byte sent by Ctrl-O.
+/// Byte sent by Ctrl-O in the legacy (raw) keyboard encoding.
 const CTRL_O: u8 = 0x0F;
+/// Unicode key code of the toggle key (`o`) in the kitty/xterm CSI encodings.
+const CTRL_O_KEYCODE: u16 = b'o' as u16;
+/// Ctrl bit in the kitty/xterm modifier encoding (parameter value minus one).
+const CTRL_MOD: u16 = 4;
+/// Longest unfinished escape sequence held back while waiting for the read
+/// that completes it; anything longer is treated as garbage and forwarded so
+/// a malformed flood can't stall input.
+const MAX_HOLD: usize = 24;
+
+/// What a scan of buffered input found.
+enum Scan {
+    /// Ctrl-O found: forward the bytes before `start`, swallow the toggle
+    /// sequence itself, and return to the panels.
+    Toggle { start: usize },
+    /// No toggle. `hold` trailing bytes look like an unfinished escape
+    /// sequence and should be kept back until the next read completes it.
+    None { hold: usize },
+}
+
+/// Scan `buf` for a Ctrl-O keypress in any encoding a terminal may use while
+/// the subshell owns the screen. The shell running inside the PTY can switch
+/// the *real* terminal's keyboard encoding out from under us — fish 4.x, for
+/// example, enables the kitty keyboard protocol (`CSI = 5 u`) at every prompt,
+/// after which Ctrl-O arrives as `ESC[111;5u` rather than the raw 0x0F byte.
+/// Recognized encodings:
+///   - raw byte 0x0F (legacy)
+///   - kitty CSI-u: `ESC [ 111 <:alternates>? ; <mods> <:event>? u`
+///   - xterm modifyOtherKeys: `ESC [ 27 ; <mods> ; 111 ~`
+fn scan_for_ctrl_o(buf: &[u8]) -> Scan {
+    let mut i = 0;
+    while i < buf.len() {
+        match buf[i] {
+            CTRL_O => return Scan::Toggle { start: i },
+            0x1B if i + 1 < buf.len() && buf[i + 1] == b'[' => {
+                // A CSI sequence: params are 0x30..=0x3F bytes, then an
+                // optional intermediate, then a final byte in 0x40..=0x7E.
+                let params_start = i + 2;
+                let mut j = params_start;
+                while j < buf.len() && (0x20..=0x3F).contains(&buf[j]) {
+                    j += 1;
+                }
+                if j >= buf.len() {
+                    // Unfinished sequence at the end of the chunk: hold it back.
+                    let len = buf.len() - i;
+                    return Scan::None { hold: if len <= MAX_HOLD { len } else { 0 } };
+                }
+                let terminator = buf[j];
+                let params = &buf[params_start..j];
+                let is_toggle = match terminator {
+                    b'u' => csi_u_is_ctrl_o(params),
+                    b'~' => modify_other_keys_is_ctrl_o(params),
+                    _ => false,
+                };
+                if is_toggle {
+                    return Scan::Toggle { start: i };
+                }
+                i = j + 1;
+            }
+            _ => i += 1,
+        }
+    }
+    Scan::None { hold: 0 }
+}
+
+/// Modifier bitmask from a kitty/xterm `<mods>` parameter (encoded value minus
+/// one), with the lock bits masked off so Caps/Num Lock don't break the match.
+fn decoded_mods(field: &str) -> Option<u16> {
+    const CAPS_LOCK: u16 = 64;
+    const NUM_LOCK: u16 = 128;
+    let raw: u16 = field.parse().ok()?;
+    Some(raw.saturating_sub(1) & !(CAPS_LOCK | NUM_LOCK))
+}
+
+/// `ESC [ <key>[:alt] ; <mods>[:event] u` — is it a Ctrl-O press/repeat?
+fn csi_u_is_ctrl_o(params: &[u8]) -> bool {
+    let Ok(s) = std::str::from_utf8(params) else {
+        return false;
+    };
+    let mut fields = s.split(';');
+    // `split` always yields a first item; the key field may carry
+    // shifted/base-layout alternate codes after colons.
+    let key_field = fields.next().expect("split yields a first item");
+    let key = key_field.split(':').next().expect("split yields a first item");
+    if key.parse() != Ok(CTRL_O_KEYCODE) {
+        return false;
+    }
+    // Modifier field defaults to "1" (no modifiers) and may carry an event
+    // type after a colon: 1 = press, 2 = repeat, 3 = release.
+    let mut sub = fields.next().unwrap_or("1").split(':');
+    let mods_field = sub.next().expect("split yields a first item");
+    let Some(mods) = decoded_mods(mods_field) else {
+        return false;
+    };
+    let event = sub.next().unwrap_or("1");
+    mods == CTRL_MOD && (event == "1" || event == "2")
+}
+
+/// `ESC [ 27 ; <mods> ; <key> ~` (xterm modifyOtherKeys) — is it Ctrl-O?
+fn modify_other_keys_is_ctrl_o(params: &[u8]) -> bool {
+    let Ok(s) = std::str::from_utf8(params) else {
+        return false;
+    };
+    let mut fields = s.split(';');
+    if fields.next() != Some("27") {
+        return false;
+    }
+    let Some(mods) = fields.next().and_then(decoded_mods) else {
+        return false;
+    };
+    let key = fields.next().and_then(|k| k.parse().ok());
+    mods == CTRL_MOD && key == Some(CTRL_O_KEYCODE)
+}
 
 pub struct Subshell {
     master: Box<dyn MasterPty + Send>,
@@ -111,6 +223,9 @@ impl Subshell {
         let stdin = std::io::stdin();
         let mut handle = stdin.lock();
         let mut buf = [0u8; 1024];
+        // Bytes held back from the previous read: the tail of a possibly
+        // unfinished escape sequence that could turn out to be Ctrl-O.
+        let mut pending: Vec<u8> = Vec::new();
         loop {
             if matches!(self.child.try_wait(), Ok(Some(_))) {
                 break;
@@ -120,16 +235,24 @@ impl Subshell {
                 Ok(n) => n,
                 Err(_) => break,
             };
-            if let Some(pos) = buf[..n].iter().position(|&b| b == CTRL_O) {
-                // Forward everything before the toggle, then return.
-                let _ = self.writer.write_all(&buf[..pos]);
-                let _ = self.writer.flush();
-                break;
+            pending.extend_from_slice(&buf[..n]);
+            match scan_for_ctrl_o(&pending) {
+                Scan::Toggle { start } => {
+                    // Forward everything before the toggle sequence, swallow
+                    // the sequence itself, then return to the panels.
+                    let _ = self.writer.write_all(&pending[..start]);
+                    let _ = self.writer.flush();
+                    break;
+                }
+                Scan::None { hold } => {
+                    let forward = pending.len() - hold;
+                    if self.writer.write_all(&pending[..forward]).is_err() {
+                        break;
+                    }
+                    let _ = self.writer.flush();
+                    pending.drain(..forward);
+                }
             }
-            if self.writer.write_all(&buf[..n]).is_err() {
-                break;
-            }
-            let _ = self.writer.flush();
         }
         self.active.store(false, Ordering::Relaxed);
     }
@@ -160,5 +283,88 @@ fn default_shell() -> String {
         std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_string())
     } else {
         std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Scan, scan_for_ctrl_o};
+
+    fn toggle_at(buf: &[u8]) -> Option<usize> {
+        match scan_for_ctrl_o(buf) {
+            Scan::Toggle { start } => Some(start),
+            Scan::None { .. } => None,
+        }
+    }
+
+    #[test]
+    fn raw_ctrl_o() {
+        assert_eq!(toggle_at(b"\x0f"), Some(0));
+        assert_eq!(toggle_at(b"ls\x0fmore"), Some(2));
+    }
+
+    #[test]
+    fn kitty_csi_u_ctrl_o() {
+        // Plain press, press with explicit event type, and repeat.
+        assert_eq!(toggle_at(b"\x1b[111;5u"), Some(0));
+        assert_eq!(toggle_at(b"\x1b[111;5:1u"), Some(0));
+        assert_eq!(toggle_at(b"\x1b[111;5:2u"), Some(0));
+        // Caps Lock / Num Lock bits don't break the match.
+        assert_eq!(toggle_at(b"\x1b[111;69u"), Some(0));
+        assert_eq!(toggle_at(b"\x1b[111;197u"), Some(0));
+    }
+
+    #[test]
+    fn kitty_csi_u_rejects_non_toggles() {
+        // Release must not toggle (fish enables report-event-types).
+        assert!(toggle_at(b"\x1b[111;5:3u").is_none());
+        // Wrong key, missing ctrl, extra modifiers.
+        assert!(toggle_at(b"\x1b[112;5u").is_none());
+        assert!(toggle_at(b"\x1b[111u").is_none());
+        assert!(toggle_at(b"\x1b[111;1u").is_none());
+        assert!(toggle_at(b"\x1b[111;7u").is_none()); // ctrl+shift+alt
+        // Kitty protocol *push/query* sequences, not keys at all.
+        assert!(toggle_at(b"\x1b[=5u").is_none());
+        assert!(toggle_at(b"\x1b[?0u").is_none());
+        assert!(toggle_at(b"\x1b[>1u").is_none());
+    }
+
+    #[test]
+    fn modify_other_keys_ctrl_o() {
+        assert_eq!(toggle_at(b"\x1b[27;5;111~"), Some(0));
+        assert!(toggle_at(b"\x1b[27;5;112~").is_none());
+        assert!(toggle_at(b"\x1b[27;2;111~").is_none());
+        // Ordinary special keys (e.g. Delete) pass through.
+        assert!(toggle_at(b"\x1b[3~").is_none());
+    }
+
+    #[test]
+    fn alternate_key_reports() {
+        // Key field may carry shifted/base-layout alternates after a colon.
+        assert_eq!(toggle_at(b"\x1b[111:79;5u"), Some(0));
+    }
+
+    #[test]
+    fn embedded_in_stream() {
+        let buf = b"abc\x1b[A\x1b[111;5uxyz";
+        assert_eq!(toggle_at(buf), Some(6));
+    }
+
+    #[test]
+    fn unfinished_sequence_is_held() {
+        match scan_for_ctrl_o(b"ls\x1b[111;5") {
+            Scan::None { hold } => assert_eq!(hold, 7),
+            Scan::Toggle { .. } => panic!("must not toggle on a prefix"),
+        }
+        // A bare trailing ESC is forwarded immediately (vi-mode Esc must not lag).
+        match scan_for_ctrl_o(b"ls\x1b") {
+            Scan::None { hold } => assert_eq!(hold, 0),
+            Scan::Toggle { .. } => panic!(),
+        }
+        // Over-long garbage "sequences" are not held back forever.
+        match scan_for_ctrl_o(b"\x1b[0123456789012345678901234567") {
+            Scan::None { hold } => assert_eq!(hold, 0),
+            Scan::Toggle { .. } => panic!(),
+        }
     }
 }
