@@ -213,7 +213,7 @@ mod tests {
         let (tx, _rx) = async_bridge::channel();
         let mut state = AppState::new(tx);
         state.init().await;
-        state.menu = Some(crate::ui::menu::MenuBarState::new(1, &[]));
+        state.menu = Some(crate::ui::menu::MenuBarState::new(1, &[], [false, false]));
 
         let backend = TestBackend::new(120, 30);
         let mut terminal = Terminal::new(backend).unwrap();

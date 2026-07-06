@@ -18,7 +18,7 @@ impl AppState {
                 && let KeyCode::Char(c) = key.code
                 && let Some(idx) = menu_title_index(c)
             {
-                self.menu = Some(MenuBarState::new(idx, &self.session_list()));
+                self.menu = Some(MenuBarState::new(idx, &self.session_list(), self.side_remote()));
                 self.alt_hint = false;
                 return Flow::Continue;
             }
@@ -445,7 +445,7 @@ impl AppState {
     fn open_menu(&mut self) {
         // F9 opens the pulldown menu matching the active panel: Left (0)/Right (4).
         let active = if self.active == 0 { 0 } else { 4 };
-        self.menu = Some(MenuBarState::new(active, &self.session_list()));
+        self.menu = Some(MenuBarState::new(active, &self.session_list(), self.side_remote()));
     }
 
     fn open_user_menu(&mut self) {

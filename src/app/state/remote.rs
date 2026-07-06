@@ -18,6 +18,12 @@ impl AppState {
         self.sessions.iter().map(|s| (s.id, s.label.clone())).collect()
     }
 
+    /// Whether each panel `[left, right]` is currently on a remote directory,
+    /// used to grey out the "Go local" menu item when a panel is already local.
+    pub(in crate::app::state) fn side_remote(&self) -> [bool; 2] {
+        [self.panels[0].cwd.is_remote(), self.panels[1].cwd.is_remote()]
+    }
+
     /// Open the Yes/No confirmation for disconnecting a remote session.
     pub(in crate::app::state) fn ask_disconnect_session(&mut self, id: usize) {
         let label = self

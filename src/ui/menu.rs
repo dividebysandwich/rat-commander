@@ -79,6 +79,23 @@ struct MenuItem {
     /// (e.g. `"F3"`, `"Shift-F6"`). Empty for items without a shortcut.
     shortcut: &'static str,
     action: MenuAction,
+    /// When false the item is greyed out and cannot be selected or activated
+    /// (e.g. "Go local" while the panel is already on a local directory).
+    enabled: bool,
+}
+
+impl MenuItem {
+    /// Grey this item out so it can't be navigated to or activated. Used for
+    /// context-dependent items that don't apply in the current state.
+    fn disabled(mut self, disabled: bool) -> Self {
+        self.enabled = !disabled;
+        self
+    }
+
+    /// Whether the item can be selected/activated: not a separator, and enabled.
+    fn selectable(&self) -> bool {
+        self.enabled && self.action.selectable()
+    }
 }
 
 struct Menu {
@@ -107,8 +124,9 @@ impl MenuBarState {
     /// `active` selects which top menu is initially open (0 = Left, 4 = Right).
     /// `sessions` are the open remote connections `(id, label)`, listed in each
     /// panel menu so they can be switched to / disconnected without the drive
-    /// picker.
-    pub fn new(active: usize, sessions: &[(usize, String)]) -> Self {
+    /// picker. `side_remote` is `[left, right]`: whether each panel is on a
+    /// remote directory, which enables its "Go local" item (greyed when local).
+    pub fn new(active: usize, sessions: &[(usize, String)], side_remote: [bool; 2]) -> Self {
         let panel_menu = |side: usize| {
             // `items` is grown below with the open-session rows (and, on Windows,
             // a leading Drive entry).
@@ -128,7 +146,8 @@ impl MenuBarState {
                 item("SFT&P connection...", MenuAction::Connect(side, Protocol::Sftp)),
                 item("F&TP connection...", MenuAction::Connect(side, Protocol::Ftp)),
                 item("S&CP connection...", MenuAction::Connect(side, Protocol::Scp)),
-                item("Go &local (keep session)", MenuAction::Disconnect(side)),
+                item("Go &local (keep session)", MenuAction::Disconnect(side))
+                    .disabled(!side_remote[side]),
             ];
             // List the open connections: one row to switch this panel to each,
             // then one row to disconnect each. Empty when nothing is connected.
@@ -253,9 +272,9 @@ impl MenuBarState {
                 MenuSignal::Stay
             }
             KeyCode::Enter => {
-                let action = self.menus[self.active].items[self.item].action;
-                if action.selectable() {
-                    MenuSignal::Activate(action)
+                let it = &self.menus[self.active].items[self.item];
+                if it.selectable() {
+                    MenuSignal::Activate(it.action)
                 } else {
                     MenuSignal::Stay
                 }
@@ -272,7 +291,7 @@ impl MenuBarState {
         if let Some(idx) = self.menus[self.active]
             .items
             .iter()
-            .position(|it| it.action.selectable() && it.hotkey() == Some(lc))
+            .position(|it| it.selectable() && it.hotkey() == Some(lc))
         {
             self.item = idx;
             return MenuSignal::Activate(self.menus[self.active].items[idx].action);
@@ -293,7 +312,7 @@ impl MenuBarState {
         let items = &self.menus[self.active].items;
         let mut i = start;
         for _ in 0..items.len() {
-            if items[i].action.selectable() {
+            if items[i].selectable() {
                 return i;
             }
             i = (i as isize + dir).rem_euclid(items.len() as isize) as usize;
@@ -306,7 +325,7 @@ impl MenuBarState {
         let n = items.len() as isize;
         let mut i = (from as isize + dir).rem_euclid(n);
         for _ in 0..items.len() {
-            if items[i as usize].action.selectable() {
+            if items[i as usize].selectable() {
                 return i as usize;
             }
             i = (i + dir).rem_euclid(n);
@@ -345,9 +364,9 @@ impl MenuBarState {
         for (idx, rect) in &self.item_rects {
             if col >= rect.x && col < rect.x + rect.width && row >= rect.y && row < rect.y + rect.height
             {
-                let action = self.menus[self.active].items[*idx].action;
-                if action.selectable() {
-                    return MenuSignal::Activate(action);
+                let it = &self.menus[self.active].items[*idx];
+                if it.selectable() {
+                    return MenuSignal::Activate(it.action);
                 }
                 return MenuSignal::Stay;
             }
@@ -437,7 +456,11 @@ impl MenuBarState {
                     Rect { x: inner.x, y: row_y, width: inner.width, height: 1 },
                 ));
             }
-            let style = if i == self.item {
+            let style = if !it.enabled {
+                // Greyed out: dimmed foreground, never the selection highlight
+                // (navigation skips disabled items so `i` never lands here).
+                Style::default().fg(theme.panel_border).bg(theme.menu_bg)
+            } else if i == self.item {
                 theme.menu_selection
             } else {
                 Style::default().fg(theme.menu_fg).bg(theme.menu_bg)
@@ -446,7 +469,8 @@ impl MenuBarState {
             // Reshape RTL text for display; in that case the hotkey accent can't
             // line up with the reversed text, so it is dropped (the key still works).
             let display = crate::l10n::display(&display);
-            let hk = if rtl { None } else { hk.map(|i| i + 1) };
+            // Disabled items don't accent their accelerator (it's inactive).
+            let hk = if rtl || !it.enabled { None } else { hk.map(|i| i + 1) };
             let iw = inner.width as usize;
             let mut text = format!(" {display}");
             // Right-align the shortcut hint (one trailing space from the edge),
@@ -470,23 +494,23 @@ impl MenuBarState {
 
 impl Default for MenuBarState {
     fn default() -> Self {
-        Self::new(1, &[])
+        Self::new(1, &[], [false, false])
     }
 }
 
 fn item(label: &str, action: MenuAction) -> MenuItem {
-    MenuItem { label: crate::l10n::tr(label), shortcut: "", action }
+    MenuItem { label: crate::l10n::tr(label), shortcut: "", action, enabled: true }
 }
 
 /// A menu item whose label is used verbatim (no translation, no `&` hotkey) —
 /// for runtime text like a remote-connection label.
 fn item_raw(label: String, action: MenuAction) -> MenuItem {
-    MenuItem { label, shortcut: "", action }
+    MenuItem { label, shortcut: "", action, enabled: true }
 }
 
 /// A menu item with a right-aligned keyboard-shortcut hint.
 fn item_key(label: &str, shortcut: &'static str, action: MenuAction) -> MenuItem {
-    MenuItem { label: crate::l10n::tr(label), shortcut, action }
+    MenuItem { label: crate::l10n::tr(label), shortcut, action, enabled: true }
 }
 
 fn sep() -> MenuItem {
@@ -494,6 +518,7 @@ fn sep() -> MenuItem {
         label: String::new(),
         shortcut: "",
         action: MenuAction::Separator,
+        enabled: true,
     }
 }
 
@@ -555,7 +580,7 @@ mod tests {
     #[test]
     fn item_hotkeys_match_the_request() {
         // File menu (active index 1): the requested accelerators.
-        let m = MenuBarState::new(1, &[]);
+        let m = MenuBarState::new(1, &[], [false, false]);
         let file = &m.menus[1];
         let hk = |action_label: char| {
             file.items.iter().find(|it| it.hotkey() == Some(action_label)).map(|it| it.action)
@@ -577,21 +602,21 @@ mod tests {
     #[test]
     fn typing_an_item_hotkey_activates_it() {
         // File menu: 'c' → Copy, 'g' → Select group.
-        let mut m = MenuBarState::new(1, &[]);
+        let mut m = MenuBarState::new(1, &[], [false, false]);
         assert!(matches!(m.handle_key(key('c')), MenuSignal::Activate(MenuAction::Copy)));
-        let mut m = MenuBarState::new(1, &[]);
+        let mut m = MenuBarState::new(1, &[], [false, false]);
         assert!(matches!(m.handle_key(key('g')), MenuSignal::Activate(MenuAction::SelectGroup)));
         // Command menu (index 2): 'f' → Find file, 'w' → Swap panels.
-        let mut m = MenuBarState::new(2, &[]);
+        let mut m = MenuBarState::new(2, &[], [false, false]);
         assert!(matches!(m.handle_key(key('f')), MenuSignal::Activate(MenuAction::FindFile)));
-        let mut m = MenuBarState::new(2, &[]);
+        let mut m = MenuBarState::new(2, &[], [false, false]);
         assert!(matches!(m.handle_key(key('w')), MenuSignal::Activate(MenuAction::SwapPanels)));
     }
 
     #[test]
     fn f10_and_f9_and_esc_close_the_menu() {
         for code in [KeyCode::F(10), KeyCode::F(9), KeyCode::Esc] {
-            let mut m = MenuBarState::new(1, &[]);
+            let mut m = MenuBarState::new(1, &[], [false, false]);
             let sig = m.handle_key(KeyEvent::new(code, KeyModifiers::NONE));
             assert!(matches!(sig, MenuSignal::Close), "{code:?} should close the menu");
         }
@@ -602,7 +627,7 @@ mod tests {
         // Sessions are present to make sure their runtime labels never introduce
         // a duplicate accelerator into a panel menu.
         let sessions = [(0usize, "sftp://u@host".to_string())];
-        let m = MenuBarState::new(0, &sessions);
+        let m = MenuBarState::new(0, &sessions, [true, true]);
         for (mi, menu) in m.menus.iter().enumerate() {
             let mut seen = Vec::new();
             for it in &menu.items {
@@ -617,7 +642,7 @@ mod tests {
     #[test]
     fn open_sessions_appear_in_both_panel_menus() {
         let sessions = [(7usize, "sftp://u@host".to_string())];
-        let m = MenuBarState::new(0, &sessions);
+        let m = MenuBarState::new(0, &sessions, [true, true]);
         // Panel menus are index 0 (left) and 4 (right); each should list a
         // switch item for the session on its own side plus a disconnect item.
         for (side, mi) in [(0usize, 0usize), (1, 4)] {
@@ -637,7 +662,7 @@ mod tests {
             );
         }
         // With no sessions, no such items appear.
-        let m = MenuBarState::new(0, &[]);
+        let m = MenuBarState::new(0, &[], [true, true]);
         assert!(!m.menus[0]
             .items
             .iter()
@@ -645,18 +670,41 @@ mod tests {
     }
 
     #[test]
+    fn go_local_is_disabled_when_panel_is_already_local() {
+        // Left panel local, right panel remote: only the right menu's "Go local"
+        // is selectable; the left one is greyed out and can't be activated.
+        let m = MenuBarState::new(0, &[], [false, true]);
+        let go_local = |mi: usize| {
+            m.menus[mi]
+                .items
+                .iter()
+                .find(|it| matches!(it.action, MenuAction::Disconnect(_)))
+                .expect("panel menu has a Go local item")
+        };
+        assert!(!go_local(0).selectable(), "left is local → Go local disabled");
+        assert!(go_local(4).selectable(), "right is remote → Go local enabled");
+
+        // A disabled Go local can't be reached by its 'l' accelerator.
+        let mut m = MenuBarState::new(0, &[], [false, true]);
+        assert!(
+            matches!(m.handle_key(key('l')), MenuSignal::Stay),
+            "typing 'l' must not activate a disabled Go local"
+        );
+    }
+
+    #[test]
     fn top_bar_letter_switches_menu_when_unclaimed() {
         // From the File menu, 'o' has no item → switches to Options (index 3),
         // and 'l' switches to the Left panel menu (index 0).
-        let mut m = MenuBarState::new(1, &[]);
+        let mut m = MenuBarState::new(1, &[], [false, false]);
         assert!(matches!(m.handle_key(key('o')), MenuSignal::Stay));
         assert_eq!(m.active, 3);
-        let mut m = MenuBarState::new(1, &[]);
+        let mut m = MenuBarState::new(1, &[], [false, false]);
         assert!(matches!(m.handle_key(key('l')), MenuSignal::Stay));
         assert_eq!(m.active, 0);
         // An item accelerator still wins over a top letter: 'c' in File is Copy,
         // not "Command".
-        let mut m = MenuBarState::new(1, &[]);
+        let mut m = MenuBarState::new(1, &[], [false, false]);
         assert!(matches!(m.handle_key(key('c')), MenuSignal::Activate(MenuAction::Copy)));
     }
 }

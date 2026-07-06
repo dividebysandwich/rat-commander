@@ -170,7 +170,7 @@ impl AppState {
                 }
                 // A click on the menu bar (top row) opens that menu.
                 if let Some(i) = MenuBarState::title_index_at(area, col, row) {
-                    self.menu = Some(MenuBarState::new(i, &self.session_list()));
+                    self.menu = Some(MenuBarState::new(i, &self.session_list(), self.side_remote()));
                 } else if let Some((pi, idx)) = self.panel_point(col, row, PointAction::Cursor) {
                     // A second click on the same entry within the window opens it,
                     // exactly like pressing Enter (descend a dir, open a file).
