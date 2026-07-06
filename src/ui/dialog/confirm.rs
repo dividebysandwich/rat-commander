@@ -282,6 +282,18 @@ impl ConfirmDialog {
         )
     }
 
+    /// Confirm running a local executable file directly (ELF binary, script, …).
+    pub fn run_program(name: &str, path: std::path::PathBuf) -> Self {
+        Self::yes_no(
+            "Execute file",
+            format!("Execute \"{name}\"?"),
+            Submit::RunProgram(path),
+            "Execute",
+            "Cancel",
+            None,
+        )
+    }
+
     /// Confirm killing a process (from the process explorer).
     pub fn kill(pid: i32, name: &str, force: bool) -> Self {
         let how = if force { "Force-kill (SIGKILL)" } else { "Kill (SIGTERM)" };

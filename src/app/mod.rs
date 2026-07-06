@@ -217,6 +217,45 @@ fn shell_command(cmd: &str) -> tokio::process::Command {
     }
 }
 
+/// Run a foreground child to completion with `system(3)`-style signal handling
+/// so **Ctrl-C** (and Ctrl-\) interrupt the program, not Rat Commander.
+///
+/// While the child owns the (cooked-mode) terminal it shares our process group,
+/// so the tty delivers SIGINT/SIGQUIT to both of us. We ignore them here for the
+/// duration; the child resets them to their defaults (via `pre_exec`) so it can
+/// still be interrupted — SIG_IGN would otherwise be inherited across `exec`.
+#[cfg(unix)]
+async fn run_foreground(
+    mut cmd: tokio::process::Command,
+) -> std::io::Result<std::process::ExitStatus> {
+    // In the forked child, before exec: restore default SIGINT/SIGQUIT.
+    // `signal()` is async-signal-safe, so this is legal in `pre_exec`.
+    unsafe {
+        cmd.pre_exec(|| {
+            nix::libc::signal(nix::libc::SIGINT, nix::libc::SIG_DFL);
+            nix::libc::signal(nix::libc::SIGQUIT, nix::libc::SIG_DFL);
+            Ok(())
+        });
+    }
+    // In us: ignore the signals while the child runs, then restore.
+    let prev_int = unsafe { nix::libc::signal(nix::libc::SIGINT, nix::libc::SIG_IGN) };
+    let prev_quit = unsafe { nix::libc::signal(nix::libc::SIGQUIT, nix::libc::SIG_IGN) };
+    let status = cmd.status().await;
+    unsafe {
+        nix::libc::signal(nix::libc::SIGINT, prev_int);
+        nix::libc::signal(nix::libc::SIGQUIT, prev_quit);
+    }
+    status
+}
+
+/// Non-Unix: no special signal juggling is needed.
+#[cfg(not(unix))]
+async fn run_foreground(
+    mut cmd: tokio::process::Command,
+) -> std::io::Result<std::process::ExitStatus> {
+    cmd.status().await
+}
+
 /// The interactive shell to drop into for Ctrl-O.
 fn interactive_shell() -> tokio::process::Command {
     if cfg!(windows) {
@@ -243,7 +282,9 @@ async fn run_command(term: &mut Term, state: &mut AppState, cmd: &str) -> Result
         std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"))
     };
     println!("$ {cmd}");
-    let status = shell_command(cmd).current_dir(&cwd).status().await;
+    let mut child = shell_command(cmd);
+    child.current_dir(&cwd);
+    let status = run_foreground(child).await;
     match status {
         Ok(s) if !s.success() => println!("\n[exit status: {s}]"),
         Err(e) => println!("\n[failed to run: {e}]"),
@@ -268,7 +309,7 @@ async fn run_external(
 
     // Run `program <path>` via the shell so arguments in the command work.
     let cmd = format!("{program} \"{}\"", path.display());
-    let status = shell_command(&cmd).status().await;
+    let status = run_foreground(shell_command(&cmd)).await;
     if let Err(e) = status {
         println!("\n[failed to run external program: {e}]");
         print!("[Press Enter to continue]");
@@ -409,4 +450,58 @@ fn restore_terminal(term: &mut Term, kbd: bool) -> Result<()> {
     out.flush()?;
     term.show_cursor()?;
     Ok(())
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    static SIGINT_HITS: AtomicU32 = AtomicU32::new(0);
+
+    extern "C" fn count_sigint(_: nix::libc::c_int) {
+        SIGINT_HITS.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// While a foreground child runs, SIGINT is ignored by us (so Ctrl-C reaches
+    /// only the child) and our previous disposition is restored afterward.
+    #[tokio::test]
+    async fn run_foreground_shields_us_from_sigint_then_restores() {
+        // Install a counting SIGINT handler as the "before" disposition. Using a
+        // real handler (never SIG_DFL) keeps the test process alive even if a
+        // raise lands outside the shielded window.
+        let prev = unsafe {
+            nix::libc::signal(nix::libc::SIGINT, count_sigint as nix::libc::sighandler_t)
+        };
+        SIGINT_HITS.store(0, Ordering::SeqCst);
+
+        // Raise SIGINT at ourselves partway through a 400 ms child.
+        let raiser = tokio::spawn(async {
+            tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+            unsafe { nix::libc::raise(nix::libc::SIGINT) };
+        });
+        let mut cmd = tokio::process::Command::new("sh");
+        cmd.arg("-c").arg("sleep 0.4");
+        let status = run_foreground(cmd).await.expect("child ran");
+        raiser.await.unwrap();
+
+        assert!(status.success(), "the child completed");
+        assert_eq!(
+            SIGINT_HITS.load(Ordering::SeqCst),
+            0,
+            "SIGINT during the child was ignored, not delivered to our handler"
+        );
+
+        // Our handler is restored: a SIGINT now is delivered again.
+        unsafe { nix::libc::raise(nix::libc::SIGINT) };
+        // Give the signal a moment to be delivered.
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        assert_eq!(
+            SIGINT_HITS.load(Ordering::SeqCst),
+            1,
+            "run_foreground restored our SIGINT handler afterward"
+        );
+
+        unsafe { nix::libc::signal(nix::libc::SIGINT, prev) };
+    }
 }

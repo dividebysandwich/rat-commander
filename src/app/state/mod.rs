@@ -728,6 +728,12 @@ async fn launch_default(path: PathBuf) {
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 async fn launch_default(_path: PathBuf) {}
 
+/// The shell command that runs a local executable directly (its quoted absolute
+/// path), used to launch ELF binaries / scripts in the foreground terminal.
+fn run_program_cmd(path: &Path) -> String {
+    crate::vfs::remote::shell_quote(&path.to_string_lossy())
+}
+
 /// Whether the system has a default MIME handler for `path`.
 #[cfg(target_os = "linux")]
 async fn has_mime_handler(path: &Path) -> bool {

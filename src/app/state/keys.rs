@@ -333,7 +333,7 @@ impl AppState {
                 if self.panels[self.active].is_tree() {
                     self.tree_enter().await;
                 } else {
-                    self.enter_dir().await;
+                    return self.enter_dir().await;
                 }
             }
 
@@ -472,32 +472,35 @@ impl AppState {
         Flow::Continue
     }
 
-    pub(in crate::app::state) async fn enter_dir(&mut self) {
+    pub(in crate::app::state) async fn enter_dir(&mut self) -> Flow {
         let p = &self.panels[self.active];
         // Directory / ".." navigation first, then "enter archive file".
         let target = p
             .target_dir_under_cursor()
             .or_else(|| archive_target_under_cursor(p));
         let Some((newcwd, focus)) = target else {
-            // Not a directory/archive: an image opens the flasher (Linux); any
-            // other file opens with its default app.
+            // Not a directory/archive: an image opens the flasher (Linux); an
+            // executable is run; anything else opens with its default app.
             #[cfg(target_os = "linux")]
             if self.try_flash_under_cursor() {
-                return;
+                return Flow::Continue;
             }
-            self.open_with_default();
-            return;
+            return self.open_or_execute_under_cursor().await;
         };
         // Re-resolve the backend: navigation may cross backends (local↔archive).
         let backend = match self.registry.resolve(&newcwd) {
             Ok(b) => b,
-            Err(e) => return self.show_error(e.to_string()),
+            Err(e) => {
+                self.show_error(e.to_string());
+                return Flow::Continue;
+            }
         };
         // Atomic move: if the target can't be listed (e.g. permission denied),
         // the panel stays where it is rather than getting stuck in it.
         self.active_panel()
             .try_enter(newcwd, backend, focus.as_deref())
             .await;
+        Flow::Continue
     }
 
     /// Switch panel `side` to `fmt`, building or dropping its directory tree as

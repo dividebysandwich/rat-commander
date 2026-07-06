@@ -184,10 +184,9 @@ impl AppState {
                         // the other panel at it, just like pressing Enter.
                         if self.panels[self.active].is_tree() {
                             self.tree_enter().await;
-                        } else {
-                            self.enter_dir().await;
+                            return Flow::Continue;
                         }
-                        return Flow::Continue;
+                        return self.enter_dir().await;
                     }
                     self.last_click = Some((pi, idx, now));
                 }

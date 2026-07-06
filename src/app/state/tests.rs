@@ -2413,3 +2413,108 @@ async fn background_ops_list_updates_live() {
     st.apply_event(AppEvent::TaskDone { id: 1, outcome: crate::ops::progress::TaskOutcome::Done }).await;
     assert!(st.dialog.is_none(), "list closes when the last op finishes");
 }
+
+/// `run_program_cmd` builds a shell-safe command from an executable's path.
+#[test]
+fn run_program_cmd_quotes_the_path() {
+    let cmd = run_program_cmd(std::path::Path::new("/home/u/my tool"));
+    // The space must be quoted/escaped so the shell treats it as one argument.
+    assert!(cmd.contains("my tool") && cmd != "/home/u/my tool", "path is shell-quoted: {cmd}");
+}
+
+/// Confirming the "Execute file" dialog runs the program in the foreground
+/// (the dialog result becomes a `RunCommand`).
+#[tokio::test]
+async fn run_program_submit_executes_in_foreground() {
+    use crate::ui::dialog::{DialogResult, Submit};
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    let path = std::path::PathBuf::from("/usr/local/bin/tool");
+    let flow = st
+        .handle_dialog_result(DialogResult::Submit(Submit::RunProgram(path.clone())))
+        .await;
+    match flow {
+        Flow::RunCommand(cmd) => assert!(cmd.contains("tool"), "runs the program: {cmd}"),
+        _ => panic!("RunProgram should run the executable in the foreground"),
+    }
+    assert!(st.dialog.is_none(), "the confirm dialog is dismissed");
+}
+
+/// Pressing Enter on an executable file with no MIME handler runs it directly
+/// (ELF binaries, scripts) rather than trying to open it with an application.
+#[cfg(all(unix, target_os = "linux"))]
+#[tokio::test]
+async fn enter_on_executable_binary_runs_it() {
+    use std::os::unix::fs::PermissionsExt;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("rc_exec_{}_{nanos}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    // A tiny ELF-looking binary with no extension: no desktop MIME handler.
+    let bin = root.join("runme");
+    std::fs::write(&bin, b"\x7fELF\x02\x01\x01\x00rest").unwrap();
+    std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.panels[0].format = ViewFormat::Full;
+    st.config.confirm_execute = false;
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+    let i = st.panels[0].entries.iter().position(|e| e.name == "runme").unwrap();
+    st.panels[0].cursor = i;
+
+    let flow = st.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).await;
+    match flow {
+        Flow::RunCommand(cmd) => assert!(cmd.contains("runme"), "executes the binary: {cmd}"),
+        _ => panic!("Enter on an executable with no handler should run it"),
+    }
+    // A non-executable file with no handler must NOT be executed.
+    let doc = root.join("notes");
+    std::fs::write(&doc, b"plain text").unwrap();
+    st.panels[0].reload().await.unwrap();
+    let j = st.panels[0].entries.iter().position(|e| e.name == "notes").unwrap();
+    st.panels[0].cursor = j;
+    let flow = st.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).await;
+    assert!(matches!(flow, Flow::Continue), "a non-executable is not run");
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// With "confirm execute" enabled, Enter on an executable asks first (via the
+/// "Execute file" dialog) instead of running immediately.
+#[cfg(all(unix, target_os = "linux"))]
+#[tokio::test]
+async fn enter_on_executable_asks_when_confirm_enabled() {
+    use std::os::unix::fs::PermissionsExt;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("rc_execc_{}_{nanos}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let bin = root.join("runme");
+    std::fs::write(&bin, b"\x7fELF\x02\x01\x01\x00rest").unwrap();
+    std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.panels[0].format = ViewFormat::Full;
+    st.config.confirm_execute = true;
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+    let i = st.panels[0].entries.iter().position(|e| e.name == "runme").unwrap();
+    st.panels[0].cursor = i;
+
+    let flow = st.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).await;
+    assert!(matches!(flow, Flow::Continue), "confirm defers the run");
+    assert!(matches!(st.dialog, Some(Dialog::Confirm(_))), "an execute-confirm dialog opens");
+
+    std::fs::remove_dir_all(&root).ok();
+}

@@ -237,6 +237,11 @@ impl AppState {
             Submit::OpenWith(path) => {
                 tokio::spawn(async move { launch_default(path).await });
             }
+            Submit::RunProgram(path) => {
+                // Queue the executable to run in the foreground once the dialog
+                // closes (handle_dialog_result turns this into Flow::RunCommand).
+                self.pending_run = Some(run_program_cmd(&path));
+            }
             Submit::Mount { device, path } => {
                 // Create the mount point first if it doesn't exist (with consent).
                 if std::path::Path::new(&path).exists() {
@@ -568,6 +573,49 @@ impl AppState {
     }
 
     // -- Archives ----------------------------------------------------------
+
+    /// Decide what pressing Enter on the (non-directory) file under the cursor
+    /// does: a local **executable** with no registered MIME handler (ELF
+    /// binaries, shell scripts, …) is run directly in the foreground; anything
+    /// else is opened with its default application.
+    pub(in crate::app::state) async fn open_or_execute_under_cursor(&mut self) -> Flow {
+        let p = &self.panels[self.active];
+        // Only local files can be executed / opened by path.
+        if p.cwd.scheme != "file" {
+            return Flow::Continue;
+        }
+        let Some(e) = p.current_entry() else {
+            return Flow::Continue;
+        };
+        if e.kind != VfsKind::File {
+            return Flow::Continue;
+        }
+        let name = e.name.clone();
+        let executable = e.is_executable();
+        let path = p.cwd.path.join(&e.name);
+
+        // Run an executable directly only when the desktop has no handler for it
+        // (so e.g. a chmod +x .pdf still opens in its viewer). On non-Linux the
+        // MIME query isn't available, so fall through to the default-app path.
+        #[cfg(target_os = "linux")]
+        let run_directly = executable && !has_mime_handler(&path).await;
+        #[cfg(not(target_os = "linux"))]
+        let run_directly = {
+            let _ = executable;
+            false
+        };
+
+        if run_directly {
+            // Honor "confirm execute": ask first, then run in the foreground.
+            if self.config.confirm_execute {
+                self.dialog = Some(Dialog::Confirm(ConfirmDialog::run_program(&name, path)));
+                return Flow::Continue;
+            }
+            return Flow::RunCommand(run_program_cmd(&path));
+        }
+        self.open_with_default();
+        Flow::Continue
+    }
 
     /// Open the local file under the cursor with the system default program
     /// (xdg-open), but only if a MIME handler is actually defined for it. Runs

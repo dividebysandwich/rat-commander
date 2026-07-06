@@ -181,6 +181,8 @@ pub enum Submit {
     FindDuplicates(DupCriteria),
     /// Open/execute a local file with its default application (confirmed).
     OpenWith(std::path::PathBuf),
+    /// Run a local executable file directly in the foreground (confirmed).
+    RunProgram(std::path::PathBuf),
     /// Mount `device` at `path` (disk manager); the app handles create-if-missing.
     Mount { device: String, path: String },
     /// Create the (missing) mount point and then mount.
