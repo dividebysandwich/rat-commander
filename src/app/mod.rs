@@ -53,7 +53,7 @@ pub async fn run(startup: crate::Startup) -> Result<()> {
         }
     }
 
-    let (mut term, kbd) = setup_terminal()?;
+    let (mut term, kbd) = setup_terminal(None)?;
     state.kbd_enhanced = kbd;
     // Detect terminal pixel-graphics support once, in raw mode + alternate
     // screen, before the event stream starts consuming stdin (the probe reads
@@ -168,6 +168,41 @@ async fn run_loop(
     Ok(())
 }
 
+/// Clear the screen and force a full repaint without querying the terminal.
+///
+/// `Terminal::clear` (ratatui 0.30) reads the cursor position first, which
+/// sends `ESC[6n` and waits for the reply through crossterm's internal event
+/// reader. In the suspend/resume paths that reply is unreliable: dropping the
+/// `EventStream` for the Ctrl-O subshell leaves a stale byte in crossterm's
+/// waker pipe, which makes the next `poll_internal` bail out before ever
+/// reading the reply — the query times out and the resulting I/O error exits
+/// the whole app right as the user toggles back. `Terminal::resize` clears the
+/// screen and resets the diff buffer without any terminal round-trip.
+///
+/// Whatever was on screen is gone, so cached graphics protocols must
+/// re-transmit their images: the gfx cache is invalidated here too.
+fn force_full_redraw(term: &mut Term, state: &mut AppState) -> Result<()> {
+    let size = term.size()?;
+    term.resize(ratatui::layout::Rect::new(0, 0, size.width, size.height))?;
+    if let Some(g) = state.gfx.as_mut() {
+        g.invalidate();
+    }
+    Ok(())
+}
+
+/// Re-enter the TUI after a full suspend (external command, editor, one-shot
+/// shell): re-acquire the terminal, force a full repaint, and reload the
+/// panels. The enhanced-keyboard capability probed at startup is reused —
+/// re-querying it would be another terminal round-trip through crossterm's
+/// event reader (see [`force_full_redraw`]), and the capability doesn't
+/// change mid-session.
+async fn resume_tui(term: &mut Term, state: &mut AppState) -> Result<()> {
+    *term = setup_terminal(Some(state.kbd_enhanced))?.0;
+    force_full_redraw(term, state)?;
+    state.reload_all().await;
+    Ok(())
+}
+
 /// Build a `Command` that runs `cmd` through the platform shell
 /// (`sh -c` on Unix, `cmd /C` on Windows).
 fn shell_command(cmd: &str) -> tokio::process::Command {
@@ -219,15 +254,7 @@ async fn run_command(term: &mut Term, state: &mut AppState, cmd: &str) -> Result
     let mut line = String::new();
     let _ = io::stdin().read_line(&mut line);
 
-    let (t, k) = setup_terminal()?;
-    *term = t;
-    state.kbd_enhanced = k;
-    term.clear()?;
-    if let Some(g) = state.gfx.as_mut() {
-        g.invalidate();
-    }
-    state.reload_all().await;
-    Ok(())
+    resume_tui(term, state).await
 }
 
 /// Suspend the TUI and run an external program (editor/viewer) against a file.
@@ -250,15 +277,7 @@ async fn run_external(
         let _ = io::stdin().read_line(&mut line);
     }
 
-    let (t, k) = setup_terminal()?;
-    *term = t;
-    state.kbd_enhanced = k;
-    term.clear()?;
-    if let Some(g) = state.gfx.as_mut() {
-        g.invalidate();
-    }
-    state.reload_all().await;
-    Ok(())
+    resume_tui(term, state).await
 }
 
 /// Ctrl-O: toggle the persistent subshell (Midnight Commander style). The shell
@@ -327,10 +346,7 @@ async fn toggle_subshell(
         out.flush()?;
     }
     term.hide_cursor()?;
-    term.clear()?;
-    if let Some(g) = state.gfx.as_mut() {
-        g.invalidate();
-    }
+    force_full_redraw(term, state)?;
 
     // Follow the shell's directory change back into the active panel (Linux).
     if let Some(dir) = sh.child_cwd() {
@@ -350,26 +366,23 @@ async fn run_oneshot_shell(term: &mut Term, state: &mut AppState, cwd: &std::pat
     restore_terminal(term, state.kbd_enhanced)?;
     println!("[Rat Commander subshell — type 'exit' to return]");
     let _ = interactive_shell().current_dir(cwd).status().await;
-    let (t, k) = setup_terminal()?;
-    *term = t;
-    state.kbd_enhanced = k;
-    term.clear()?;
-    if let Some(g) = state.gfx.as_mut() {
-        g.invalidate();
-    }
-    state.reload_all().await;
-    Ok(())
+    resume_tui(term, state).await
 }
 
 /// Set up the terminal, returning the terminal handle and whether the enhanced
 /// keyboard protocol was enabled (so key release/repeat and standalone-modifier
 /// events are reported — used to live-update the editor's F-key labels while
 /// Shift/Ctrl is held). It is left off where the terminal doesn't support it.
-fn setup_terminal() -> Result<(Term, bool)> {
+///
+/// `kbd` is the enhancement capability when already known; `None` probes the
+/// terminal. Probe only at startup: the probe is a query round-trip through
+/// crossterm's event reader, which the suspend/resume paths must avoid (see
+/// [`force_full_redraw`]) — and the answer can't change mid-session anyway.
+fn setup_terminal(kbd: Option<bool>) -> Result<(Term, bool)> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-    let kbd = supports_keyboard_enhancement().unwrap_or(false);
+    let kbd = kbd.unwrap_or_else(|| supports_keyboard_enhancement().unwrap_or(false));
     if kbd {
         let _ = execute!(
             stdout,
