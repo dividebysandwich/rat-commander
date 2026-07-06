@@ -1967,32 +1967,123 @@ async fn formatting_shows_busy_dialog_until_done() {
     assert!(st.mountview.as_ref().unwrap().status.contains("mkfs failed"));
 }
 
-#[test]
-fn menu_title_index_maps_first_letters() {
-    assert_eq!(menu_title_index('l'), Some(0));
-    assert_eq!(menu_title_index('F'), Some(1));
-    assert_eq!(menu_title_index('c'), Some(2));
-    assert_eq!(menu_title_index('O'), Some(3));
-    assert_eq!(menu_title_index('r'), Some(4));
-    assert_eq!(menu_title_index('x'), None);
-}
-
 #[tokio::test]
-async fn alt_arms_hint_and_alt_letter_opens_menu() {
+async fn alt_letter_starts_quick_search_and_jumps_cursor() {
     let (tx, _rx) = async_bridge::channel();
     let mut st = AppState::new(tx);
     st.init().await;
-    assert!(!st.alt_hint && st.menu.is_none());
+    // Populate the active panel with a known set (sorted: hello, hi, high, yo).
+    let mk = |name: &str| VfsEntry {
+        name: name.to_string(),
+        kind: VfsKind::File,
+        size: 0,
+        mtime: None,
+        atime: None,
+        ctime: None,
+        inode: None,
+        mode: Some(0o644),
+        uid: None,
+        gid: None,
+        symlink_target: None,
+        symlink_broken: false,
+    };
+    st.panels[0].entries = vec![mk("yo"), mk("hello"), mk("hi"), mk("high")];
+    // Apply the panel's default (name) sort so the cursor positions are stable.
+    st.panels[0].resort();
+    // Cursor starts on the first entry (hello).
+    st.panels[0].cursor = 0;
 
-    // Alt+F opens the File menu directly (no hint left dangling).
+    // Alt+h seeds the query with 'h' and jumps to the first name starting 'h'.
+    st.handle_key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::ALT)).await;
+    assert_eq!(st.quick_search.as_ref().unwrap().query, "h");
+    assert_eq!(st.panels[0].entries[st.panels[0].cursor].name, "hello");
+
+    // Typing 'i' extends the prefix to "hi" → first match is "hi".
+    st.handle_key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE)).await;
+    assert_eq!(st.quick_search.as_ref().unwrap().query, "hi");
+    assert_eq!(st.panels[0].entries[st.panels[0].cursor].name, "hi");
+
+    // Adding 'g' → "hig" → "high".
+    st.handle_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE)).await;
+    assert_eq!(st.quick_search.as_ref().unwrap().query, "hig");
+    assert_eq!(st.panels[0].entries[st.panels[0].cursor].name, "high");
+
+    // Esc cancels the search (cursor stays on the last match).
+    st.handle_key(esc_key()).await;
+    assert!(st.quick_search.is_none());
+    assert_eq!(st.panels[0].entries[st.panels[0].cursor].name, "high");
+}
+
+#[tokio::test]
+async fn alt_letter_no_longer_opens_menus() {
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.init().await;
+    // The old Alt+F/O/C/L/R menu shortcuts are gone: each now starts a quick
+    // search and never opens the pulldown menu.
+    for c in ['f', 'o', 'c', 'l', 'r'] {
+        st.handle_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT)).await;
+        assert!(st.menu.is_none(), "Alt+{c} should not open a menu");
+        assert!(st.quick_search.is_some(), "Alt+{c} should start a quick search");
+        st.quick_search = None;
+    }
+    // F9 still opens the menu (unchanged).
+    st.handle_key(KeyEvent::new(KeyCode::F(9), KeyModifiers::NONE)).await;
+    assert!(st.menu.is_some(), "F9 still opens the pulldown menu");
+}
+
+#[tokio::test]
+async fn quick_search_extends_while_alt_is_held() {
+    // Regression: holding Alt across the whole sequence (Alt+H, Alt+I, Alt+G)
+    // must extend the query, not restart it on each Alt+letter.
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.init().await;
+    let mk = |name: &str| VfsEntry {
+        name: name.to_string(),
+        kind: VfsKind::File,
+        size: 0,
+        mtime: None,
+        atime: None,
+        ctime: None,
+        inode: None,
+        mode: Some(0o644),
+        uid: None,
+        gid: None,
+        symlink_target: None,
+        symlink_broken: false,
+    };
+    st.panels[0].entries = vec![mk("yo"), mk("hello"), mk("hi"), mk("high")];
+    st.panels[0].resort();
+    st.panels[0].cursor = 0;
+
+    let alt = KeyModifiers::ALT;
+    st.handle_key(KeyEvent::new(KeyCode::Char('h'), alt)).await;
+    assert_eq!(st.quick_search.as_ref().unwrap().query, "h");
+    assert_eq!(st.panels[0].entries[st.panels[0].cursor].name, "hello");
+    // Alt still held — must append, not restart.
+    st.handle_key(KeyEvent::new(KeyCode::Char('i'), alt)).await;
+    assert_eq!(st.quick_search.as_ref().unwrap().query, "hi");
+    assert_eq!(st.panels[0].entries[st.panels[0].cursor].name, "hi");
+    st.handle_key(KeyEvent::new(KeyCode::Char('g'), alt)).await;
+    assert_eq!(st.quick_search.as_ref().unwrap().query, "hig");
+    assert_eq!(st.panels[0].entries[st.panels[0].cursor].name, "high");
+}
+
+#[tokio::test]
+async fn quick_search_disabled_restores_alt_menu_shortcuts() {
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.init().await;
+    st.config.quick_search = false;
+
+    // Alt+F opens the File menu (index 1) in classic mode.
     st.handle_key(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::ALT)).await;
-    assert!(st.menu.is_some(), "Alt+F opens a menu");
-    assert!(!st.alt_hint);
-    // Once open, a plain letter drives it (Alt no longer needed): 'q' = Quit.
-    // Close it back first to keep the test focused on arming below.
+    assert!(st.menu.is_some(), "Alt+F opens a menu when quick search is off");
+    assert!(st.quick_search.is_none(), "no quick search started");
     st.menu = None;
 
-    // A non-menu Alt key just arms the accelerator hint (menu stays closed).
+    // A non-matching Alt letter just arms the hotkey hint (menu stays closed).
     st.handle_key(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::ALT)).await;
     assert!(st.alt_hint, "Alt arms the accelerator hint");
     assert!(st.menu.is_none());

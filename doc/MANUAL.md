@@ -14,7 +14,7 @@ Press **F1** inside the program to read this manual at any time.
 The window is divided into four areas, top to bottom:
 
 - **Menu bar** (top row) — `Left  File  Command  Options  Right`. Open it with
-  **F9**, or jump straight to a menu with **Alt** + its highlighted letter.
+  **F9** (or `Alt` + its first letter when quick search is disabled in Settings).
 - **Two panels** — the heart of the program. Each shows the contents of one
   directory. The **active panel** has a highlighted (brighter) border; it is the
   one your keystrokes act on. The other panel is usually the destination for
@@ -102,6 +102,13 @@ A quick **Alt** + digit does the same.
 - `Ctrl-X` — Toggle vertical / horizontal split
 - `Ctrl-U` — Swap the two panels
 - `Alt-F1` / `Alt-F2` — Drive / connection picker for the left / right panel
+- `Alt` + a letter — **Quick search** the active panel (when enabled in
+  Settings): jump the cursor to the first file whose name starts with what you
+  type (case-insensitive). Keep typing to extend the prefix; `Esc` cancels,
+  `Enter` opens the match, and any other key ends the search and acts normally.
+  You can hold `Alt` down across the whole sequence (`Alt`+`h`+`i`+`g`). When
+  **disabled**, `Alt` + a menu letter (`F`/`O`/`C`/`L`/`R`) opens that top
+  menu instead — the classic Midnight-Commander behavior.
 
 ### Viewer (F3)
 

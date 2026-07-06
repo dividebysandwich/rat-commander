@@ -98,6 +98,10 @@ pub struct Config {
     /// Number of columns in the Brief (multi-column names) view.
     /// (Missing from an old config → the struct default, `2`.)
     pub brief_columns: usize,
+    /// FAR/NC-style quick search in the active panel: Alt+letter starts an
+    /// incremental name search that jumps the cursor to the first match. When
+    /// disabled, Alt+letter opens the matching top menu (classic behavior).
+    pub quick_search: bool,
     /// Per-panel view format and sort order, remembered across sessions
     /// (index 0 = left panel, 1 = right panel).
     #[serde(default)]
@@ -124,6 +128,7 @@ impl Default for Config {
             language: None,
             reshape_rtl: true,
             graphics: "auto".to_string(),
+            quick_search: true,
             truecolor: None,
             animation: true,
             system_status: true,

@@ -96,7 +96,8 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
         ])
         .split(area);
 
-    // Accelerator letters show while the menu is open, or when Alt arms them.
+    // Accelerator letters show while the menu is open, or when Alt arms them
+    // (only in classic menu mode — quick search uses Alt for its own input).
     menubar::render(f, rows[0], &theme, state.menu.is_some() || state.alt_hint);
 
     // System-status widget on the right of the menu bar (wide screens only).
@@ -122,8 +123,26 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
     let (left_area, right_area) = split_body(rows[1], state.split);
     let active = state.active;
     let brief_cols = state.config.brief_columns;
-    render_panel(f, left_area, &mut state.panels[0], active == 0, &state.details[0], &theme, brief_cols);
-    render_panel(f, right_area, &mut state.panels[1], active == 1, &state.details[1], &theme, brief_cols);
+    // The quick search renders as an inline input on the active panel's
+    // mini-status row (FAR/NC style); only the active panel shows it.
+    let left_qs = if active == 0 {
+        state.quick_search.as_ref().map(|q| q.query.as_str())
+    } else {
+        None
+    };
+    let right_qs = if active == 1 {
+        state.quick_search.as_ref().map(|q| q.query.as_str())
+    } else {
+        None
+    };
+    render_panel(
+        f, left_area, &mut state.panels[0], active == 0, &state.details[0], &theme, brief_cols,
+        left_qs,
+    );
+    render_panel(
+        f, right_area, &mut state.panels[1], active == 1, &state.details[1], &theme, brief_cols,
+        right_qs,
+    );
 
     let cwd = state.console_cwd().display();
     let caret = cmdline::render(f, rows[2], &state.cmd, &cwd, &theme);
@@ -145,7 +164,13 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
         };
         d.render(f, darea, &theme, state.gfx.as_mut());
     } else if state.menu.is_none() {
-        f.set_cursor_position(caret);
+        // A live quick search shows its caret on the active panel; otherwise
+        // the command line is the editable focus.
+        if let Some(qp) = state.panels[active].quick_caret {
+            f.set_cursor_position(qp);
+        } else {
+            f.set_cursor_position(caret);
+        }
     }
 }
 

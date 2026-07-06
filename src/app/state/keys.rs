@@ -9,23 +9,16 @@ impl AppState {
     /// (panels, editor, viewer); dialogs and the pulldown menu keep Esc as an
     /// immediate cancel.
     pub async fn handle_key(&mut self, key: KeyEvent) -> Flow {
-        // Alt arms the menu accelerators in panel mode: it lights up the bar's
-        // hotkey letters, and Alt+<letter> opens that top menu directly. (Once a
-        // menu is open it captures plain letters, so Alt is no longer needed.)
-        if self.in_panel_mode() {
-            self.alt_hint = key.modifiers.contains(KeyModifiers::ALT);
-            if self.alt_hint
-                && let KeyCode::Char(c) = key.code
-                && let Some(idx) = menu_title_index(c)
-            {
-                self.menu = Some(MenuBarState::new(idx, &self.session_list(), self.side_remote()));
-                self.alt_hint = false;
-                return Flow::Continue;
-            }
-        } else {
-            self.alt_hint = false;
+        // An active quick search captures every key (including Alt+letter, so a
+        // held-Alt sequence like Alt+H+I+G extends the query rather than each
+        // Alt+letter restarting it). Esc/Enter/other keys exit it via its handler.
+        if self.quick_search.is_some() && self.in_panel_mode() {
+            return self.handle_quick_search_key(key).await;
         }
 
+        // Esc-prefix function-key aliases (Esc-1..Esc-9 => F1..F9, Esc-0 => F10)
+        // are active in the base modes (panels, editor, viewer); dialogs and the
+        // pulldown menu keep Esc as an immediate cancel.
         let prefixable = self.dialog.is_none() && self.menu.is_none();
         if prefixable {
             if self.pending_esc.take().is_some() {
@@ -49,6 +42,37 @@ impl AppState {
             {
                 return self.route_key(synth_fkey(n)).await;
             }
+        }
+
+        // In the base panel view: Alt+<letter> either starts a quick search
+        // (when enabled, FAR/NC style) or opens the matching top menu (classic
+        // Midnight-Commander behavior). Alt also arms the menu-bar hotkey hint
+        // in classic mode; the hint is cleared by the next non-Alt key. Alt+F1/F2
+        // drive pickers are F-key codes handled in handle_panel_key, not here.
+        if self.in_panel_mode() {
+            let alt = key.modifiers.contains(KeyModifiers::ALT);
+            if self.config.quick_search {
+                self.alt_hint = false;
+                if alt && let KeyCode::Char(c) = key.code {
+                    self.start_quick_search(c);
+                    return Flow::Continue;
+                }
+            } else {
+                self.alt_hint = alt;
+                if alt && let KeyCode::Char(c) = key.code
+                    && let Some(idx) = menu_title_index(c)
+                {
+                    self.menu = Some(MenuBarState::new(
+                        idx,
+                        &self.session_list(),
+                        self.side_remote(),
+                    ));
+                    self.alt_hint = false;
+                    return Flow::Continue;
+                }
+            }
+        } else {
+            self.alt_hint = false;
         }
         self.route_key(key).await
     }
@@ -234,6 +258,10 @@ impl AppState {
     }
 
     pub(in crate::app::state) async fn handle_panel_key(&mut self, key: KeyEvent) -> Flow {
+        // An active quick search captures all keys until Esc/Enter/exit.
+        if self.quick_search.is_some() {
+            return self.handle_quick_search_key(key).await;
+        }
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
 
         // Alt-F1 / Alt-F2 open the drive/connection picker for the left/right panel.
@@ -367,6 +395,79 @@ impl AppState {
             KeyCode::Char(c) => self.cmd.insert(c),
 
             _ => {}
+        }
+        Flow::Continue
+    }
+
+    /// Begin a quick search seeded with `c` and jump the active panel's cursor
+    /// to the first entry whose name starts with it.
+    fn start_quick_search(&mut self, c: char) {
+        self.quick_search = Some(QuickSearch { query: c.to_string() });
+        self.jump_quick_search();
+    }
+
+    /// Move the active panel's cursor to the first entry (in display order)
+    /// whose name starts with the current quick-search query, case-insensitively.
+    /// In Tree view the tree rows' labels are matched instead. No move when the
+    /// query is empty or no entry matches (the cursor stays where it was).
+    fn jump_quick_search(&mut self) {
+        let q = match &self.quick_search {
+            Some(qs) if !qs.query.is_empty() => qs.query.to_lowercase(),
+            _ => return,
+        };
+        let panel = &mut self.panels[self.active];
+        if panel.is_tree() {
+            if let Some(tree) = panel.tree.as_mut()
+                && let Some(idx) =
+                    tree.rows.iter().position(|n| n.label.to_lowercase().starts_with(&q))
+            {
+                tree.cursor = idx;
+            }
+        } else if let Some(idx) =
+            panel.entries.iter().position(|e| e.name.to_lowercase().starts_with(&q))
+        {
+            panel.cursor = idx;
+        }
+    }
+
+    /// Handle a key while a quick search is active. Printable chars extend the
+    /// query and re-jump; Backspace trims it (exiting when it empties); Esc
+    /// cancels; Enter commits and falls through to the normal open-dir action;
+    /// any other key exits the search and is re-dispatched as a normal panel key.
+    async fn handle_quick_search_key(&mut self, key: KeyEvent) -> Flow {
+        match key.code {
+            KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                if let Some(qs) = self.quick_search.as_mut() {
+                    qs.query.push(c);
+                }
+                self.jump_quick_search();
+            }
+            KeyCode::Backspace => {
+                if let Some(qs) = self.quick_search.as_mut() {
+                    qs.query.pop();
+                    if qs.query.is_empty() {
+                        self.quick_search = None;
+                    }
+                }
+                if self.quick_search.is_some() {
+                    self.jump_quick_search();
+                }
+            }
+            KeyCode::Esc => {
+                self.quick_search = None;
+            }
+            KeyCode::Enter => {
+                self.quick_search = None;
+                // Boxed to break the async mutual recursion with handle_panel_key.
+                return Box::pin(
+                    self.handle_panel_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+                )
+                .await;
+            }
+            _ => {
+                self.quick_search = None;
+                return Box::pin(self.handle_panel_key(key)).await;
+            }
         }
         Flow::Continue
     }

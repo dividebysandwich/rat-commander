@@ -299,6 +299,8 @@ pub struct SettingsValues {
     pub graphics: String,
     /// Number of columns in the Brief view.
     pub brief_columns: usize,
+    /// Whether Alt+letter starts a quick search (true) or opens the top menu.
+    pub quick_search: bool,
 }
 
 /// Values collected by the Confirmations form (which actions need confirming).
