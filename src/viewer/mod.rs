@@ -359,7 +359,11 @@ impl ViewerState {
         }
 
         match key.code {
-            KeyCode::F(10) | KeyCode::Esc | KeyCode::Char('q') => return ViewerSignal::Close,
+            // F3 toggles the viewer (open in the panels, close here), matching
+            // the footer's "Quit" label; F10 / Esc / q also close.
+            KeyCode::F(3) | KeyCode::F(10) | KeyCode::Esc | KeyCode::Char('q') => {
+                return ViewerSignal::Close
+            }
             KeyCode::F(2) => self.wrap = !self.wrap,
             KeyCode::F(4) => {
                 self.mode = match self.mode {
@@ -911,6 +915,25 @@ mod tests {
         // F10 (Quit) spans cols 36-39 → closes.
         let sig = v.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 36, 12));
         assert!(matches!(sig, ViewerSignal::Close), "clicking F10 quits");
+    }
+
+    #[test]
+    fn f3_closes_the_viewer() {
+        // F3 opens the viewer from the panels, so it must also close it (the
+        // footer labels F3 as "Quit"); F10 and Esc remain close keys too.
+        let mut v = ViewerState::new("t".into(), many_lines(10));
+        with_layout(&mut v);
+        let press = |code: KeyCode| KeyEvent::new(code, KeyModifiers::NONE);
+        assert!(
+            matches!(v.handle_key(press(KeyCode::F(3))), ViewerSignal::Close),
+            "F3 closes the viewer"
+        );
+        let mut v = ViewerState::new("t".into(), many_lines(10));
+        with_layout(&mut v);
+        assert!(
+            matches!(v.handle_key(press(KeyCode::F(10))), ViewerSignal::Close),
+            "F10 still closes the viewer"
+        );
     }
 
     /// `n` lines of exactly 5 bytes each ("aaaa\n"), so byte offsets are tidy.
