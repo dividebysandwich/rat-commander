@@ -819,7 +819,7 @@ const HELP_TEXT: &str = include_str!("../../../doc/MANUAL.md");
 
 /// The `.md` suffix makes the help viewer auto-detect Markdown and open in the
 /// rendered (tags-hidden) mode rather than raw.
-const HELP_NAME: &str = "rat-commander Manual.md";
+const HELP_NAME: &str = "Rat Commander Manual.md";
 
 #[cfg(test)]
 mod tests;

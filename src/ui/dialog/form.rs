@@ -816,7 +816,7 @@ impl FormDialog {
         // name and version to its title. The version isn't translated.
         let title = if matches!(self.purpose, FormPurpose::Settings) {
             format!(
-                "{} — rat-commander {}",
+                "{} — Rat Commander {}",
                 crate::l10n::trd(&self.title),
                 env!("CARGO_PKG_VERSION")
             )

@@ -225,7 +225,7 @@ fn parse_hex(s: &str) -> Option<Color> {
 }
 
 const THEMES_HEADER: &str = "\
-# rat-commander themes. Each [[theme]] sets an explicit #rrggbb color for every
+# Rat Commander themes. Each [[theme]] sets an explicit #rrggbb color for every
 # UI element (e.g. menu_bg, dialog_bg, dialog_border_fg, input_bg, cursor_bg).
 # Edit any preset, add your own [[theme]] blocks, then pick one in Options →
 # Settings (the Theme field). Saving applies the change at once. Delete this file
@@ -1032,7 +1032,7 @@ mod tests {
         let path = std::env::temp_dir().join(format!("rc_themes_test_{}.toml", std::process::id()));
         write_themes(&path, &builtin_specs()).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
-        assert!(text.starts_with("# rat-commander themes"), "has a header comment");
+        assert!(text.starts_with("# Rat Commander themes"), "has a header comment");
         assert!(text.contains("[[theme]]") && text.contains("dialog_bg = \"#"));
         let tf: ThemesFile = toml::from_str(&text).unwrap();
         assert_eq!(tf.theme.len(), builtin_specs().len());

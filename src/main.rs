@@ -71,14 +71,14 @@ fn main() {
     let rt = match tokio::runtime::Runtime::new() {
         Ok(rt) => rt,
         Err(e) => {
-            eprintln!("rat-commander error: {e}");
+            eprintln!("Rat Commander error: {e}");
             std::process::exit(1);
         }
     };
     rt.block_on(async {
         if let Err(e) = app::run(startup).await {
             // Terminal is already restored by `app::run` on its way out.
-            eprintln!("rat-commander error: {e}");
+            eprintln!("Rat Commander error: {e}");
             std::process::exit(1);
         }
     });

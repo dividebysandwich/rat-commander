@@ -197,7 +197,7 @@ async fn run_command(term: &mut Term, state: &mut AppState, cmd: &str) -> Result
         Err(e) => println!("\n[failed to run: {e}]"),
         _ => {}
     }
-    print!("\n[Press Enter to return to rat-commander]");
+    print!("\n[Press Enter to return to Rat Commander]");
     io::stdout().flush().ok();
     let mut line = String::new();
     let _ = io::stdin().read_line(&mut line);
@@ -331,7 +331,7 @@ async fn toggle_subshell(
 /// Fallback when a PTY can't be created: run an interactive shell once.
 async fn run_oneshot_shell(term: &mut Term, state: &mut AppState, cwd: &std::path::Path) -> Result<()> {
     restore_terminal(term, state.kbd_enhanced)?;
-    println!("[rat-commander subshell — type 'exit' to return]");
+    println!("[Rat Commander subshell — type 'exit' to return]");
     let _ = interactive_shell().current_dir(cwd).status().await;
     let (t, k) = setup_terminal()?;
     *term = t;

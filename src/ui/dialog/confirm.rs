@@ -76,7 +76,7 @@ impl ConfirmDialog {
     pub fn quit() -> Self {
         Self::yes_no(
             "Quit",
-            "Do you really want to quit rat-commander?".to_string(),
+            "Do you really want to quit Rat Commander?".to_string(),
             Submit::Quit,
             "Yes",
             "No",

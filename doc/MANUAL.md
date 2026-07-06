@@ -845,7 +845,7 @@ open with default app** (off), **unmount** (on) and **exit** (on).
 
 ### Themes (Options → Edit themes…)
 
-rat-commander ships many themes — Dracula, Nord, Gruvbox, Solarized, Tokyo
+Rat Commander ships many themes — Dracula, Nord, Gruvbox, Solarized, Tokyo
 Night, Catppuccin, One Dark and more — plus a classic Midnight Commander look,
 Monochrome, Amber/Green CRT, and some playful ones. On a truecolor terminal the
 bars and cursor render as animated gradients.
