@@ -112,7 +112,7 @@ A quick **Alt** + digit does the same.
 - `F8` — (Markdown files) toggle Raw / Render
 - `n` — Repeat the last search
 - `↑ ↓` / `PgUp PgDn` / `Home End` — Scroll
-- `Esc` / `F10` / `q` — Close
+- `F3` / `Esc` / `F10` / `q` — Close (F3 toggles the viewer, as in the panels)
 
 ### Editor (F4)
 

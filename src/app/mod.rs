@@ -59,9 +59,8 @@ pub async fn run(startup: crate::Startup) -> Result<()> {
     // screen, before the event stream starts consuming stdin (the probe reads
     // the terminal's query responses directly).
     state.gfx = crate::ui::graphics::Gfx::detect(&state.config.graphics);
-    let mut events = EventStream::new();
 
-    let result = run_loop(&mut term, &mut state, &mut rx, &mut events).await;
+    let result = run_loop(&mut term, &mut state, &mut rx).await;
 
     // Remember each panel's view format and sort order for the next session.
     state.persist_panel_views();
@@ -73,7 +72,6 @@ async fn run_loop(
     term: &mut Term,
     state: &mut AppState,
     rx: &mut AppReceiver,
-    events: &mut EventStream,
 ) -> Result<()> {
     // ~100 ms tick drives animations and the system-status sampler.
     let mut ticker = tokio::time::interval(std::time::Duration::from_millis(100));
@@ -81,6 +79,11 @@ async fn run_loop(
 
     // Persistent Ctrl-O subshell, kept alive across toggles.
     let mut subshell: Option<crate::shell::Subshell> = None;
+    // The crossterm event stream is owned here (not by `run`) so the Ctrl-O
+    // subshell path can drop it: its background reader thread would otherwise
+    // keep competing for stdin while the subshell does its own blocking read,
+    // stealing the very Ctrl-O that should toggle back.
+    let mut events = EventStream::new();
 
     loop {
         // Start-in-editor mode (`rc /edit …`): once the editor and any of its
@@ -116,7 +119,16 @@ async fn run_loop(
                                 Flow::RunExternal { program, path } => {
                                     run_external(term, state, &program, &path).await?
                                 }
-                                Flow::SubShell => toggle_subshell(term, state, &mut subshell).await?,
+                                Flow::SubShell => {
+                                    // Release the event stream's stdin reader
+                                    // so the subshell owns the terminal input
+                                    // while toggled in (its Ctrl-O to return
+                                    // would otherwise be swallowed by the reader
+                                    // thread). A fresh stream is recreated after.
+                                    drop(events);
+                                    toggle_subshell(term, state, &mut subshell).await?;
+                                    events = EventStream::new();
+                                }
                                 Flow::Continue => {}
                             }
                         }
@@ -128,7 +140,11 @@ async fn run_loop(
                             Flow::RunExternal { program, path } => {
                                 run_external(term, state, &program, &path).await?
                             }
-                            Flow::SubShell => toggle_subshell(term, state, &mut subshell).await?,
+                            Flow::SubShell => {
+                                drop(events);
+                                toggle_subshell(term, state, &mut subshell).await?;
+                                events = EventStream::new();
+                            }
                             Flow::Continue => {}
                         }
                     }
