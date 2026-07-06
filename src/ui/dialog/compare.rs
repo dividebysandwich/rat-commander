@@ -65,7 +65,7 @@ impl CompareDialog {
         let rect = centered(area, w, 7);
         draw_shadow(f, rect, theme);
         f.render_widget(Clear, rect);
-        let block = dialog_block("Compare directories", theme);
+        let block = dialog_block(&crate::l10n::trd("Compare directories"), theme);
         let inner = block.inner(rect);
         f.render_widget(block, rect);
 
@@ -75,20 +75,21 @@ impl CompareDialog {
             .constraints([Constraint::Min(1), Constraint::Length(1)])
             .split(inner);
         f.render_widget(
-            Paragraph::new("Compare the two panels by:")
+            Paragraph::new(format!("{}:", crate::l10n::trd("Compare the two panels by")))
                 .alignment(ratatui::layout::Alignment::Center)
                 .style(base),
             rows[0],
         );
 
         // Centered row of bracketed buttons; record click zones.
-        let labels: Vec<String> = COMPARE_MODES.iter().map(|(l, _)| format!("[ {l} ]")).collect();
+        let mode_labels: Vec<String> = COMPARE_MODES.iter().map(|(l, _)| crate::l10n::trd(l)).collect();
+        let labels: Vec<String> = mode_labels.iter().map(|l| format!("[ {l} ]")).collect();
         let total: usize =
             labels.iter().map(|l| l.chars().count()).sum::<usize>() + labels.len().saturating_sub(1);
         let mut x = rows[1].x + (rows[1].width.saturating_sub(total as u16)) / 2;
         for (i, label) in labels.iter().enumerate() {
             let rect = Rect { x, y: rows[1].y, width: label.chars().count() as u16, height: 1 };
-            if !gfx_button(f, gfx.as_deref_mut(), Slot::Button(i as u16), rect, COMPARE_MODES[i].0, i == self.focus, theme) {
+            if !gfx_button(f, gfx.as_deref_mut(), Slot::Button(i as u16), rect, &mode_labels[i], i == self.focus, theme) {
                 let style = if i == self.focus { theme.button_focused } else { theme.button };
                 f.render_widget(Paragraph::new(Span::styled(label.clone(), style)), rect);
             }

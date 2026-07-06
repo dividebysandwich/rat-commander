@@ -64,7 +64,7 @@ impl SelectDialog {
         let rect = centered(area, 54u16.min(area.width.saturating_sub(2)), 7);
         draw_shadow(f, rect, theme);
         f.render_widget(Clear, rect);
-        let block = dialog_block(title, theme);
+        let block = dialog_block(&crate::l10n::trd(title), theme);
         let inner = block.inner(rect);
         f.render_widget(block, rect);
 
@@ -79,13 +79,13 @@ impl SelectDialog {
         let half = inner.width / 2;
         let r1 = Rect { y: inner.y + 2, height: 1, ..inner };
         f.render_widget(
-            Paragraph::new(Line::from(check_span("Files only", self.files_only, self.focus == 1, theme)))
+            Paragraph::new(Line::from(check_span(&crate::l10n::trd("Files only"), self.files_only, self.focus == 1, theme)))
                 .style(Style::default().bg(theme.dialog_bg)),
             Rect { width: half, ..r1 },
         );
         f.render_widget(
             Paragraph::new(Line::from(check_span(
-                "Case sensitive",
+                &crate::l10n::trd("Case sensitive"),
                 self.case_sensitive,
                 self.focus == 2,
                 theme,
@@ -96,7 +96,7 @@ impl SelectDialog {
         let r2 = Rect { y: inner.y + 3, height: 1, ..inner };
         f.render_widget(
             Paragraph::new(Line::from(check_span(
-                "Using shell patterns",
+                &crate::l10n::trd("Using shell patterns"),
                 self.shell,
                 self.focus == 3,
                 theme,

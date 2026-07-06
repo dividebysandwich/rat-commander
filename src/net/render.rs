@@ -17,18 +17,22 @@ const SPARK: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'
 
 pub fn render(f: &mut Frame, area: Rect, nv: &mut NetView, theme: &Theme, gfx: Option<&mut Gfx>) {
     let accent = theme.panel_border_active;
-    let mode = if nv.root { "root — full visibility" } else { "user mode — limited visibility" };
+    let mode = if nv.root {
+        crate::l10n::trd("root — full visibility")
+    } else {
+        crate::l10n::trd("user mode — limited visibility")
+    };
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Plain)
         .border_style(Style::default().fg(accent).bg(theme.panel_bg))
         .title(Span::styled(
-            format!(" Network Connections — {mode} "),
+            format!(" {} — {mode} ", crate::l10n::trd("Network Connections")),
             Style::default().fg(accent).bg(theme.panel_bg).add_modifier(Modifier::BOLD),
         ))
         .title(
             Line::from(Span::styled(
-                format!(" refresh {}ms ", nv.interval_ms),
+                format!(" {} {}ms ", crate::l10n::trd("refresh"), nv.interval_ms),
                 Style::default().fg(accent).bg(theme.panel_bg),
             ))
             .right_aligned(),
@@ -41,7 +45,7 @@ pub fn render(f: &mut Frame, area: Rect, nv: &mut NetView, theme: &Theme, gfx: O
     }
 
     if nv.scanning && nv.listening.is_empty() && nv.connections.is_empty() {
-        center(f, inner, "Scanning… (running ss)", theme);
+        center(f, inner, &crate::l10n::trd("Scanning… (running ss)"), theme);
         return;
     }
 
@@ -98,10 +102,12 @@ fn render_summary(f: &mut Frame, area: Rect, nv: &NetView, theme: &Theme) {
         toggles.push_str(" [no-loopback]");
     }
     let text = format!(
-        " {} listening · {} estab · {} other    ↓ {}/s  ↑ {}/s{}",
+        " {} {} · {} estab · {} {}    ↓ {}/s  ↑ {}/s{}",
         nv.listening.len(),
+        crate::l10n::trd("listening"),
         estab,
         other,
+        crate::l10n::trd("other"),
         human_size(nv.rate_in),
         human_size(nv.rate_out),
         toggles,
@@ -118,8 +124,18 @@ fn render_summary(f: &mut Frame, area: Rect, nv: &NetView, theme: &Theme) {
 fn render_pane(f: &mut Frame, area: Rect, nv: &mut NetView, pane: usize, theme: &Theme) {
     let focused = nv.focus.idx() == pane;
     let total = if pane == 0 { nv.listening.len() } else { nv.connections.len() };
-    let name = if pane == 0 { "Listening ports" } else { "Connections" };
-    let title = format!("{name}  [{}/{}]  sort:{}", nv.view[pane].len(), total, nv.sort_desc(pane));
+    let name = if pane == 0 {
+        crate::l10n::trd("Listening ports")
+    } else {
+        crate::l10n::trd("Connections")
+    };
+    let title = format!(
+        "{name}  [{}/{}]  {}:{}",
+        nv.view[pane].len(),
+        total,
+        crate::l10n::trd("sort"),
+        nv.sort_desc(pane)
+    );
 
     let border = if focused { theme.panel_border_active } else { theme.panel_border };
     let block = Block::default()
@@ -160,7 +176,7 @@ fn render_pane(f: &mut Frame, area: Rect, nv: &mut NetView, pane: usize, theme: 
     if rows.is_empty() {
         f.render_widget(
             Paragraph::new(Line::from(Span::styled(
-                "  (none)",
+                format!("  {}", crate::l10n::trd("(none)")),
                 Style::default().fg(theme.panel_fg).bg(theme.panel_bg),
             ))),
             Rect { height: 1, ..list },
@@ -195,10 +211,10 @@ fn listening_rows(nv: &NetView, w: usize) -> (String, Vec<String>) {
     let local_w = w.saturating_sub(proto_w + prog_w + svc_w + 3);
     let header = format!(
         "{} {} {} {}",
-        cell("Proto", proto_w, false),
-        cell("Program", prog_w, false),
-        cell("Service", svc_w, false),
-        cell("Local address", local_w, false),
+        cell(&crate::l10n::trd("Proto"), proto_w, false),
+        cell(&crate::l10n::trd("Program"), prog_w, false),
+        cell(&crate::l10n::trd("Service"), svc_w, false),
+        cell(&crate::l10n::trd("Local address"), local_w, false),
     );
     let rows = nv.view[0]
         .iter()
@@ -227,16 +243,16 @@ fn connection_rows(nv: &NetView, w: usize) -> (String, Vec<String>) {
     let peer_w = flex - local_w;
     let header = format!(
         "{} {} {} {} {} {} {} {} {} {}",
-        cell("Proto", proto_w, false),
-        cell("State", state_w, false),
-        cell("Local", local_w, false),
-        cell("Peer", peer_w, false),
-        cell("Program", prog_w, false),
+        cell(&crate::l10n::trd("Proto"), proto_w, false),
+        cell(&crate::l10n::trd("State"), state_w, false),
+        cell(&crate::l10n::trd("Local"), local_w, false),
+        cell(&crate::l10n::trd("Peer"), peer_w, false),
+        cell(&crate::l10n::trd("Program"), prog_w, false),
         cell("In", io_w, true),
         cell("Out", io_w, true),
         cell("In/s", io_w, true),
         cell("Out/s", io_w, true),
-        cell("Rate trend", spark_w, false),
+        cell(&crate::l10n::trd("Rate trend"), spark_w, false),
     );
     let rows = nv.view[1]
         .iter()
@@ -281,7 +297,7 @@ fn render_footer(f: &mut Frame, area: Rect, nv: &NetView, theme: &Theme) {
         let caret = nv.filter_cursor.min(shown.chars().count());
         let bytepos = shown.char_indices().nth(caret).map(|(b, _)| b).unwrap_or(shown.len());
         shown.insert(bytepos, '▏');
-        let line = pad_right(&format!(" Filter: {shown}"), area.width as usize);
+        let line = pad_right(&format!(" {}: {shown}", crate::l10n::trd("Filter")), area.width as usize);
         f.render_widget(
             Paragraph::new(Line::from(Span::styled(
                 line,
@@ -327,7 +343,7 @@ fn render_detail(f: &mut Frame, area: Rect, nv: &NetView, theme: &Theme, gfx: Op
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(theme.panel_border_active).bg(theme.dialog_bg))
         .title(Span::styled(
-            " Connection details ",
+            format!(" {} ", crate::l10n::trd("Connection details")),
             Style::default().fg(theme.dialog_title).bg(theme.dialog_bg).add_modifier(Modifier::BOLD),
         ))
         .style(Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg));
@@ -360,20 +376,20 @@ fn render_detail(f: &mut Frame, area: Rect, nv: &NetView, theme: &Theme, gfx: Op
             *y += 1;
         }
     };
-    put(f, &mut y, "Type", &format!("{}   {}", s.proto, s.state), base);
-    put(f, &mut y, "Local", &s.local, base);
-    put(f, &mut y, "Peer", &format!("{}{}", s.peer, svc_suffix(&s.service)), base);
-    put(f, &mut y, "Program", &program_label(s), base);
+    put(f, &mut y, &crate::l10n::trd("Type"), &format!("{}   {}", s.proto, s.state), base);
+    put(f, &mut y, &crate::l10n::trd("Local"), &s.local, base);
+    put(f, &mut y, &crate::l10n::trd("Peer"), &format!("{}{}", s.peer, svc_suffix(&s.service)), base);
+    put(f, &mut y, &crate::l10n::trd("Program"), &program_label(s), base);
     if !d.info.user.is_empty() {
-        put(f, &mut y, "User", &d.info.user, base);
+        put(f, &mut y, &crate::l10n::trd("User"), &d.info.user, base);
     }
     if !d.info.cmdline.is_empty() {
-        put(f, &mut y, "Command", &d.info.cmdline, base);
+        put(f, &mut y, &crate::l10n::trd("Command"), &d.info.cmdline, base);
     }
     put(
         f,
         &mut y,
-        "Traffic",
+        &crate::l10n::trd("Traffic"),
         &format!(
             "in {}  out {}   (live in {}  out {})",
             bytes(live.rx),
@@ -388,7 +404,7 @@ fn render_detail(f: &mut Frame, area: Rect, nv: &NetView, theme: &Theme, gfx: Op
     if let Some(hist) = nv.rate_history.get(&d.key)
         && y + 4 <= ib.y + ib.height
     {
-        put(f, &mut y, "Rate", "out ▲ / in ▼", dim);
+        put(f, &mut y, &crate::l10n::trd("Rate"), "out ▲ / in ▼", dim);
         let graph = Rect { x: ib.x, y, width: ib.width, height: 4 };
         draw_rate_graph(f, graph, hist, theme, gfx);
         y += 4;
@@ -560,7 +576,10 @@ fn render_overview(f: &mut Frame, area: Rect, nv: &mut NetView, theme: &Theme, g
         leg("UDP", theme.exec_fg),
         Span::styled("  ", base),
         leg("TCP+UDP", theme.marked_fg),
-        Span::styled("     ◀ inbound   ▶ outbound", base),
+        Span::styled(
+            format!("     ◀ {}   ▶ {}", crate::l10n::trd("inbound"), crate::l10n::trd("outbound")),
+            base,
+        ),
     ]);
     f.render_widget(Paragraph::new(legend).style(theme.panel_base()), Rect { height: 1, ..area });
 
@@ -573,7 +592,7 @@ fn render_overview(f: &mut Frame, area: Rect, nv: &mut NetView, theme: &Theme, g
     nv.overview_grid = grid;
     if nv.overview_cards.is_empty() {
         nv.overview_nodes.clear();
-        center(f, grid, "(no active connections)", theme);
+        center(f, grid, &crate::l10n::trd("(no active connections)"), theme);
         return;
     }
 
@@ -675,7 +694,7 @@ fn draw_overview_ascii(f: &mut Frame, grid: Rect, nv: &NetView, boxes: &[(usize,
                 Line::from(Span::styled(format!("└{}┘", "─".repeat(inner_w)), border))
             } else if overflow && rr as usize == 1 + shown {
                 let extra = card.ips.len() - shown;
-                let txt = pad_right(&format!(" … +{extra} more"), inner_w);
+                let txt = pad_right(&format!(" … +{extra} {}", crate::l10n::trd("more")), inner_w);
                 Line::from(vec![
                     Span::styled("│", border),
                     Span::styled(txt, Style::default().fg(theme.panel_fg).bg(theme.panel_bg)),
@@ -791,7 +810,7 @@ fn render_ip_detail(f: &mut Frame, area: Rect, nv: &NetView, theme: &Theme) {
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(theme.panel_border_active).bg(theme.dialog_bg))
         .title(Span::styled(
-            " IP details ",
+            format!(" {} ", crate::l10n::trd("IP details")),
             Style::default().fg(theme.dialog_title).bg(theme.dialog_bg).add_modifier(Modifier::BOLD),
         ))
         .style(Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg));
@@ -803,20 +822,25 @@ fn render_ip_detail(f: &mut Frame, area: Rect, nv: &NetView, theme: &Theme) {
     let base = Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg);
     let host = match nv.dns.get(&d.ip) {
         Some(Some(h)) => h.clone(),
-        Some(None) => "(no PTR record)".to_string(),
-        None => "resolving…".to_string(),
+        Some(None) => crate::l10n::trd("(no PTR record)"),
+        None => crate::l10n::trd("resolving…"),
     };
-    let dir = if matches!(d.dir, Dir::In) { "inbound (remote → us)" } else { "outbound (us → remote)" };
+    let dir = if matches!(d.dir, Dir::In) {
+        crate::l10n::trd("inbound (remote → us)")
+    } else {
+        crate::l10n::trd("outbound (us → remote)")
+    };
     let progs = if d.programs.is_empty() { "-".to_string() } else { d.programs.join(", ") };
     let rows = [
-        format!("IP        {}", d.ip),
-        format!("Host      {host}"),
-        format!("Service   :{} {} ({})", d.port, d.service, d.proto.label()),
-        format!("Direction {dir}"),
-        format!("Program   {progs}"),
-        format!("Sockets   {}", d.count),
+        format!("{:<10}{}", "IP", d.ip),
+        format!("{:<10}{host}", crate::l10n::trd("Host")),
+        format!("{:<10}:{} {} ({})", crate::l10n::trd("Service"), d.port, d.service, d.proto.label()),
+        format!("{:<10}{dir}", crate::l10n::trd("Direction")),
+        format!("{:<10}{progs}", crate::l10n::trd("Program")),
+        format!("{:<10}{}", crate::l10n::trd("Sockets"), d.count),
         format!(
-            "Traffic   in {}  out {}   ({}/s)",
+            "{:<10}in {}  out {}   ({}/s)",
+            crate::l10n::trd("Traffic"),
             human_size(d.rx),
             human_size(d.tx),
             human_size(d.rate)

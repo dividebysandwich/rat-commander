@@ -161,7 +161,7 @@ impl FindDialog {
         let rect = centered(area, 66u16.min(area.width.saturating_sub(2)), 13);
         draw_shadow(f, rect, theme);
         f.render_widget(Clear, rect);
-        let block = dialog_block("Find File", theme);
+        let block = dialog_block(&crate::l10n::trd("Find File"), theme);
         let inner = block.inner(rect);
         f.render_widget(block, rect);
 
@@ -170,7 +170,10 @@ impl FindDialog {
         let mut caret = None;
         let mut y = inner.y;
 
-        f.render_widget(Paragraph::new(Span::styled("Start at:", base)), line_at(y));
+        f.render_widget(
+            Paragraph::new(Span::styled(format!("{}:", crate::l10n::trd("Start at")), base)),
+            line_at(y),
+        );
         y += 1;
         if let Some(p) = draw_input_field(
             f, line_at(y), &self.start_at, self.start_cursor, self.focus == 0, false, theme,
@@ -179,7 +182,10 @@ impl FindDialog {
         }
         y += 2;
 
-        f.render_widget(Paragraph::new(Span::styled("File name:", base)), line_at(y));
+        f.render_widget(
+            Paragraph::new(Span::styled(format!("{}:", crate::l10n::trd("File name")), base)),
+            line_at(y),
+        );
         y += 1;
         if let Some(p) = draw_input_field(
             f, line_at(y), &self.file_name, self.name_cursor, self.focus == 1, false, theme,
@@ -187,7 +193,10 @@ impl FindDialog {
             caret = Some(p);
         }
         y += 1;
-        f.render_widget(Paragraph::new(Span::styled("Content:", base)), line_at(y));
+        f.render_widget(
+            Paragraph::new(Span::styled(format!("{}:", crate::l10n::trd("Content")), base)),
+            line_at(y),
+        );
         y += 1;
         if let Some(p) = draw_input_field(
             f, line_at(y), &self.content, self.content_cursor, self.focus == 2, false, theme,
@@ -199,19 +208,19 @@ impl FindDialog {
         // Checkboxes in two columns.
         let half = inner.width / 2;
         f.render_widget(
-            Paragraph::new(Line::from(check_span("Find recursively", self.recursive, self.focus == 3, theme))).style(base),
+            Paragraph::new(Line::from(check_span(&crate::l10n::trd("Find recursively"), self.recursive, self.focus == 3, theme))).style(base),
             Rect { x: inner.x, y, width: half, height: 1 },
         );
         f.render_widget(
-            Paragraph::new(Line::from(check_span("Case sensitive", self.case_sensitive, self.focus == 4, theme))).style(base),
+            Paragraph::new(Line::from(check_span(&crate::l10n::trd("Case sensitive"), self.case_sensitive, self.focus == 4, theme))).style(base),
             Rect { x: inner.x + half, y, width: inner.width - half, height: 1 },
         );
         f.render_widget(
-            Paragraph::new(Line::from(check_span("Skip hidden", self.skip_hidden, self.focus == 5, theme))).style(base),
+            Paragraph::new(Line::from(check_span(&crate::l10n::trd("Skip hidden"), self.skip_hidden, self.focus == 5, theme))).style(base),
             Rect { x: inner.x, y: y + 1, width: half, height: 1 },
         );
         f.render_widget(
-            Paragraph::new(Line::from(check_span("Using shell patterns", self.shell, self.focus == 6, theme))).style(base),
+            Paragraph::new(Line::from(check_span(&crate::l10n::trd("Using shell patterns"), self.shell, self.focus == 6, theme))).style(base),
             Rect { x: inner.x + half, y: y + 1, width: inner.width - half, height: 1 },
         );
 

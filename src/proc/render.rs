@@ -21,7 +21,7 @@ pub fn render(f: &mut Frame, area: Rect, pv: &mut ProcView, theme: &Theme, mut g
         .border_type(BorderType::Plain)
         .border_style(Style::default().fg(theme.panel_border_active).bg(theme.panel_bg))
         .title(Span::styled(
-            format!(" Process Explorer — {} processes ", pv.procs.len()),
+            format!(" {} — {} {} ", crate::l10n::trd("Process Explorer"), pv.procs.len(), crate::l10n::trd("processes")),
             Style::default()
                 .fg(theme.panel_border_active)
                 .bg(theme.panel_bg)
@@ -125,7 +125,7 @@ fn render_cpu_chart(f: &mut Frame, area: Rect, pv: &ProcView, theme: &Theme, gfx
     }
     if pv.cpu_history.len() < 2 {
         f.render_widget(
-            Paragraph::new(Line::from("  measuring…")).style(theme.panel_base()),
+            Paragraph::new(Line::from(format!("  {}", crate::l10n::trd("measuring…")))).style(theme.panel_base()),
             inner,
         );
         return;
@@ -178,9 +178,9 @@ fn render_cpu_chart(f: &mut Frame, area: Rect, pv: &ProcView, theme: &Theme, gfx
 fn render_cores(f: &mut Frame, area: Rect, pv: &ProcView, theme: &Theme, mut gfx: Option<&mut Gfx>) {
     // Show the CPU model name on the panel border (falling back to "Cores").
     let title = if pv.cpu_name.is_empty() {
-        format!(" Cores ({}) ", pv.ncores)
+        format!(" {} ({}) ", crate::l10n::trd("Cores"), pv.ncores)
     } else {
-        format!(" {} ({} cores) ", pv.cpu_name, pv.ncores)
+        format!(" {} ({} {}) ", pv.cpu_name, pv.ncores, crate::l10n::trd("cores"))
     };
     let inner = titled(f, area, title, theme);
     if pv.cores.is_empty() || inner.height == 0 || inner.width < 8 {
@@ -584,18 +584,18 @@ fn render_table(f: &mut Frame, area: Rect, pv: &mut ProcView, theme: &Theme) {
     };
 
     // --- header ---
-    let thr_h = format!("Threads{}", arrow(ProcSort::Threads));
-    let user_h = format!("User{}", arrow(ProcSort::User));
+    let thr_h = format!("{}{}", crate::l10n::trd("Threads"), arrow(ProcSort::Threads));
+    let user_h = format!("{}{}", crate::l10n::trd("User"), arrow(ProcSort::User));
     let mem_h = format!("MemB{}", arrow(ProcSort::Mem));
     let cpu_h = format!("Cpu%{}", arrow(ProcSort::Cpu));
     let left_h = if tree {
-        pad_right("Tree", left_w)
+        pad_right(&crate::l10n::trd("Tree"), left_w)
     } else {
         format!(
             "{} {} {}",
             pad_left(&format!("[P]id{}", arrow(ProcSort::Pid)), PID_W),
-            pad_right(&format!("Program{}", arrow(ProcSort::Name)), PROG_W),
-            pad_right("Command", cmd_w),
+            pad_right(&format!("{}{}", crate::l10n::trd("Program"), arrow(ProcSort::Name)), PROG_W),
+            pad_right(&crate::l10n::trd("Command"), cmd_w),
         )
     };
     let header = format!(

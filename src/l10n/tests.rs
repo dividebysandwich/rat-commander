@@ -68,7 +68,8 @@ fn menu_accelerators_are_unique_per_menu_in_every_language() {
         &[
             "&View", "&Edit", "&Copy", "&Rename/Move", "M&ulti rename", "&Make directory",
             "&Delete", "C&hmod", "Cho&wn", "&Symlink", "Com&press...", "Chec&ksum...",
-            "Select &group", "U&nselect group", "&Invert selection", "&Quit",
+            "&Background operations...", "Select &group", "U&nselect group",
+            "&Invert selection", "&Quit",
         ],
         &[
             "&Find file...", "Find d&uplicates...", "Compare &directories...", "Compare fi&les...",
@@ -166,4 +167,32 @@ fn available_lists_the_builtin_languages() {
     let names = available();
     assert!(names.contains(&"English".to_string()));
     assert!(names.contains(&"Deutsch".to_string()));
+}
+
+#[test]
+fn backfill_adds_missing_builtin_keys_without_clobbering_user_values() {
+    use std::collections::HashMap;
+    // Simulate a stale on-disk German catalog: one key the user customized, and
+    // otherwise missing everything a newer built-in would have.
+    let mut cats = vec![(
+        "de.toml".to_string(),
+        Catalog {
+            name: "Deutsch".to_string(),
+            code: "de".to_string(),
+            rtl: false,
+            strings: HashMap::from([("Cancel".to_string(), "MEINE-VERSION".to_string())]),
+        },
+    )];
+    super::backfill_from_builtins(&mut cats);
+    let de = &cats[0].1;
+
+    // The user's own value for an existing key is preserved (not overwritten).
+    assert_eq!(de.get("Cancel"), Some("MEINE-VERSION"));
+
+    // Keys only present in the built-in are now filled in with the built-in
+    // translation (so new strings show up on an existing install).
+    let builtin_de = builtin_catalogs().into_iter().find(|c| c.name == "Deutsch").unwrap();
+    assert_eq!(de.get("Continue"), builtin_de.get("Continue"));
+    assert!(de.get("Continue").is_some(), "a new built-in key was backfilled");
+    assert!(de.strings.len() > 1, "backfill pulled in the rest of the built-in keys");
 }

@@ -82,7 +82,7 @@ impl GotoDialog {
         let rect = self.box_rect(area);
         draw_shadow(f, rect, theme);
         f.render_widget(Clear, rect);
-        let block = dialog_block("Goto", theme);
+        let block = dialog_block(&crate::l10n::trd("Goto"), theme);
         let inner = block.inner(rect);
         f.render_widget(block, rect);
 
@@ -93,8 +93,9 @@ impl GotoDialog {
             draw_input_field(f, line_at(inner.y), &self.input, self.cursor, true, false, theme);
 
         for (i, (label, _)) in GOTO_MODES.iter().enumerate() {
+            let label = crate::l10n::trd(label);
             f.render_widget(
-                Paragraph::new(Line::from(radio_span(label, self.mode == i, false, theme)))
+                Paragraph::new(Line::from(radio_span(&label, self.mode == i, false, theme)))
                     .style(base),
                 line_at(inner.y + 1 + i as u16),
             );

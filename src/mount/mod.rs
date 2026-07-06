@@ -237,7 +237,7 @@ impl MountView {
             status: if is_root() {
                 "Enter: mount   u: unmount".to_string()
             } else {
-                "Mounting needs root — sudo is used (you may be asked for a password)".to_string()
+                crate::l10n::trd("Mounting needs root — sudo is used (you may be asked for a password)")
             },
             view_rows: 1,
             dev_hit: ListHit::default(),
@@ -311,7 +311,7 @@ impl MountView {
                 if let Some(mp) = mp {
                     return MountSignal::Unmount(mp);
                 }
-                self.status = "Select a mounted entry to unmount".to_string();
+                self.status = crate::l10n::trd("Select a mounted entry to unmount");
             }
             _ => {}
         }

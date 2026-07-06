@@ -104,7 +104,7 @@ impl BackgroundOpsDialog {
         let rect = centered(area, w, height);
         draw_shadow(f, rect, theme);
         f.render_widget(Clear, rect);
-        let block = dialog_block("Background operations", theme);
+        let block = dialog_block(&crate::l10n::trd("Background operations"), theme);
         let inner = block.inner(rect);
         f.render_widget(block, rect);
 

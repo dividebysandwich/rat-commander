@@ -112,7 +112,7 @@ impl DiffView {
     pub fn mark_saved(&mut self) {
         self.left_dirty = false;
         self.right_dirty = false;
-        self.status = "Saved".to_string();
+        self.status = crate::l10n::trd("Saved");
     }
 
     // -- Key handling ------------------------------------------------------

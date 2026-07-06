@@ -273,7 +273,7 @@ impl MultiRenameDialog {
         let rect = centered(area, w, h);
         draw_shadow(f, rect, theme);
         f.render_widget(Clear, rect);
-        let block = dialog_block("Multi rename", theme);
+        let block = dialog_block(&crate::l10n::trd("Multi rename"), theme);
         let inner = block.inner(rect);
         f.render_widget(block, rect);
 
@@ -298,7 +298,8 @@ impl MultiRenameDialog {
 
         // -- Mask --
         let caret = labeled_field(
-            f, rows[0], "Rename mask: ", &self.mask, self.mask_cursor, self.focus == 0, theme,
+            f, rows[0], &format!("{}: ", crate::l10n::trd("Rename mask")), &self.mask,
+            self.mask_cursor, self.focus == 0, theme,
         );
         self.field_hits.push((rows[0], 0));
 
@@ -314,7 +315,8 @@ impl MultiRenameDialog {
         // -- Case chooser (left) --
         let crow = rows[2];
         let case_style = if self.focus == 1 { theme.dialog_selection } else { base };
-        let case_text = format!("Case: ◂ {} ▸", self.case.label());
+        let case_text =
+            format!("{}: ◂ {} ▸", crate::l10n::trd("Case"), crate::l10n::trd(self.case.label()));
         let case_w = (case_text.chars().count() as u16).min(crow.width);
         f.render_widget(
             Paragraph::new(Line::from(Span::styled(case_text, case_style))),
@@ -323,10 +325,13 @@ impl MultiRenameDialog {
         self.field_hits.push((Rect { width: case_w, ..crow }, 1));
 
         // -- Counter fields (right-aligned group): Counter Start / Step / Digits --
+        let cs_label = format!("{}: ", crate::l10n::trd("Counter Start"));
+        let step_label = format!("{}: ", crate::l10n::trd("Step"));
+        let digits_label = format!("{}: ", crate::l10n::trd("Digits"));
         let counter: [(&str, usize, &str, usize, u16); 3] = [
-            ("Counter Start: ", 2, self.start.as_str(), self.start_cursor, 5),
-            ("Step: ", 3, self.step.as_str(), self.step_cursor, 5),
-            ("Digits: ", 4, self.digits.as_str(), self.digits_cursor, 3),
+            (&cs_label, 2, self.start.as_str(), self.start_cursor, 5),
+            (&step_label, 3, self.step.as_str(), self.step_cursor, 5),
+            (&digits_label, 4, self.digits.as_str(), self.digits_cursor, 3),
         ];
         const CGAP: u16 = 2;
         let group_w: u16 = counter
@@ -370,10 +375,10 @@ impl MultiRenameDialog {
                 Constraint::Min(10),
             ])
             .split(rows[3]);
-        let s1 = labeled_field(f, sr[0], "Search: ", &self.search, self.search_cursor, self.focus == 5, theme);
-        let s2 = labeled_field(f, sr[1], "Replace: ", &self.replace, self.replace_cursor, self.focus == 6, theme);
+        let s1 = labeled_field(f, sr[0], &format!("{}: ", crate::l10n::trd("Search")), &self.search, self.search_cursor, self.focus == 5, theme);
+        let s2 = labeled_field(f, sr[1], &format!("{}: ", crate::l10n::trd("Replace")), &self.replace, self.replace_cursor, self.focus == 6, theme);
         f.render_widget(
-            Paragraph::new(Line::from(check_span("Case sensitive", self.case_sensitive, self.focus == 7, theme)))
+            Paragraph::new(Line::from(check_span(&crate::l10n::trd("Case sensitive"), self.case_sensitive, self.focus == 7, theme)))
                 .style(Style::default().bg(theme.dialog_bg)),
             sr[2],
         );
@@ -404,14 +409,14 @@ impl MultiRenameDialog {
         let hdr = rows[5];
         f.render_widget(
             Paragraph::new(Line::from(Span::styled(
-                pad_right("Original name", left.width as usize),
+                pad_right(&crate::l10n::trd("Original name"), left.width as usize),
                 base.add_modifier(Modifier::BOLD),
             ))),
             Rect { width: left.width, ..hdr },
         );
         f.render_widget(
             Paragraph::new(Line::from(Span::styled(
-                pad_right("New name", right.width as usize),
+                pad_right(&crate::l10n::trd("New name"), right.width as usize),
                 base.add_modifier(Modifier::BOLD),
             ))),
             Rect { x: right.x, width: right.width, ..hdr },
@@ -467,12 +472,15 @@ impl MultiRenameDialog {
         let footer = rows[7];
         f.render_widget(
             Paragraph::new(Line::from(Span::styled(
-                format!(" {} file(s)   Tab: field   ↑↓: scroll", self.originals.len()),
+                format!(" {} {}   Tab: field   ↑↓: scroll", self.originals.len(), crate::l10n::trd("file(s)")),
                 dim,
             ))),
             footer,
         );
-        let (exec, cancel) = ("[ Execute ]", "[ Cancel ]");
+        let exec_label = crate::l10n::trd("Execute");
+        let cancel_label = crate::l10n::trd("Cancel");
+        let exec = format!("[ {exec_label} ]");
+        let cancel = format!("[ {cancel_label} ]");
         let total = exec.chars().count() + 3 + cancel.chars().count();
         let bx = footer.x + footer.width.saturating_sub(total as u16 + 1);
         let exec_rect = Rect { x: bx, y: footer.y, width: exec.chars().count() as u16, height: 1 };
@@ -484,11 +492,11 @@ impl MultiRenameDialog {
         };
         let mut gfx = gfx;
         if gfx.as_deref().is_some_and(|g| g.available()) {
-            gfx_button(f, gfx.as_deref_mut(), Slot::Button(0), exec_rect, "Execute", true, theme);
-            gfx_button(f, gfx, Slot::Button(1), cancel_rect, "Cancel", false, theme);
+            gfx_button(f, gfx.as_deref_mut(), Slot::Button(0), exec_rect, &exec_label, true, theme);
+            gfx_button(f, gfx, Slot::Button(1), cancel_rect, &cancel_label, false, theme);
         } else {
-            f.render_widget(Paragraph::new(Line::from(button(exec, true, theme))), exec_rect);
-            f.render_widget(Paragraph::new(Line::from(button(cancel, false, theme))), cancel_rect);
+            f.render_widget(Paragraph::new(Line::from(button(&exec, true, theme))), exec_rect);
+            f.render_widget(Paragraph::new(Line::from(button(&cancel, false, theme))), cancel_rect);
         }
         self.exec_rect = exec_rect;
         self.cancel_rect = cancel_rect;

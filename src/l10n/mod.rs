@@ -241,11 +241,34 @@ fn ensure_and_discover() -> Vec<Catalog> {
     if cats.is_empty() {
         return builtin_catalogs();
     }
+    // Backfill keys added to the built-ins since a user's on-disk copy was
+    // written, so new translations appear on existing installs too.
+    backfill_from_builtins(&mut cats);
     cats.sort_by(|a, b| {
         let rank = |n: &str| if n == "en.toml" { (0, String::new()) } else { (1, n.to_string()) };
         rank(&a.0).cmp(&rank(&b.0))
     });
     cats.into_iter().map(|(_, c)| c).collect()
+}
+
+/// Add to each discovered catalog any keys present in its same-named built-in
+/// but missing on disk (e.g. strings added in a newer release), using the
+/// built-in translation. Existing on-disk values are kept, so a user's edits to
+/// already-present keys are never overwritten.
+fn backfill_from_builtins(cats: &mut [(String, Catalog)]) {
+    let embedded: HashMap<&str, HashMap<String, String>> = BUILTIN_FILES
+        .iter()
+        .filter_map(|(fname, body)| {
+            toml::from_str::<Catalog>(body).ok().map(|c| (*fname, c.strings))
+        })
+        .collect();
+    for (fname, cat) in cats.iter_mut() {
+        if let Some(base) = embedded.get(fname.as_str()) {
+            for (k, v) in base {
+                cat.strings.entry(k.clone()).or_insert_with(|| v.clone());
+            }
+        }
+    }
 }
 
 #[cfg(test)]

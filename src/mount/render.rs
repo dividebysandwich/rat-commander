@@ -16,7 +16,7 @@ pub fn render(f: &mut Frame, area: Rect, mv: &mut MountView, theme: &Theme) {
         .border_type(BorderType::Plain)
         .border_style(Style::default().fg(theme.panel_border_active).bg(theme.panel_bg))
         .title(Span::styled(
-            " Disk Manager ",
+            format!(" {} ", crate::l10n::trd("Disk Manager")),
             Style::default()
                 .fg(theme.panel_border_active)
                 .bg(theme.panel_bg)
@@ -74,7 +74,7 @@ fn panel(f: &mut Frame, area: Rect, title: &str, focused: bool, theme: &Theme) -
 
 fn render_devices(f: &mut Frame, area: Rect, mv: &mut MountView, theme: &Theme) {
     let focused = mv.focus == Pane::Devices;
-    let inner = panel(f, area, "Block devices", focused, theme);
+    let inner = panel(f, area, &crate::l10n::trd("Block devices"), focused, theme);
     if inner.height == 0 {
         mv.dev_hit = ListHit::default();
         return;
@@ -88,7 +88,7 @@ fn render_devices(f: &mut Frame, area: Rect, mv: &mut MountView, theme: &Theme) 
 
     let mut lines: Vec<Line> = Vec::with_capacity(rows);
     if mv.devices.is_empty() {
-        lines.push(Line::from(Span::styled("  (no block devices)", dim)));
+        lines.push(Line::from(Span::styled(format!("  {}", crate::l10n::trd("(no block devices)")), dim)));
     }
     for (i, d) in mv.devices.iter().enumerate().skip(top).take(rows) {
         // Tree: partitions are drawn indented under their parent disk.
@@ -130,7 +130,7 @@ fn render_devices(f: &mut Frame, area: Rect, mv: &mut MountView, theme: &Theme) 
 
 fn render_mounts(f: &mut Frame, area: Rect, mv: &mut MountView, theme: &Theme) {
     let focused = mv.focus == Pane::Mounts;
-    let inner = panel(f, area, "Mounts", focused, theme);
+    let inner = panel(f, area, &crate::l10n::trd("Mounts"), focused, theme);
     if inner.height == 0 {
         mv.mnt_hit = ListHit::default();
         return;
@@ -144,7 +144,7 @@ fn render_mounts(f: &mut Frame, area: Rect, mv: &mut MountView, theme: &Theme) {
 
     let mut lines: Vec<Line> = Vec::with_capacity(rows);
     if mv.mounts.is_empty() {
-        lines.push(Line::from(Span::styled("  (no device mounts)", dim)));
+        lines.push(Line::from(Span::styled(format!("  {}", crate::l10n::trd("(no device mounts)")), dim)));
     }
     for (i, m) in mv.mounts.iter().enumerate().skip(top).take(rows) {
         let dev = m.dev.strip_prefix("/dev/").unwrap_or(&m.dev);
@@ -170,23 +170,23 @@ fn render_details(f: &mut Frame, area: Rect, mv: &MountView, theme: &Theme) {
     let w = area.width as usize;
 
     let mut line1 = vec![
-        Span::styled(" Model: ", label),
+        Span::styled(format!(" {}: ", crate::l10n::trd("Model")), label),
         Span::styled(dash(&d.model), value),
-        Span::styled("   Serial: ", label),
+        Span::styled(format!("   {}: ", crate::l10n::trd("Serial")), label),
         Span::styled(dash(&d.serial), value),
-        Span::styled("   Vendor: ", label),
+        Span::styled(format!("   {}: ", crate::l10n::trd("Vendor")), label),
         Span::styled(dash(&d.vendor), value),
     ];
     let where_ = match &d.mountpoint {
         Some(p) => format!("{}  → {p}", d.dev),
-        None => format!("{}  (not mounted)", d.dev),
+        None => format!("{}  {}", d.dev, crate::l10n::trd("(not mounted)")),
     };
     let mut line2 = vec![
-        Span::styled(" Type: ", label),
+        Span::styled(format!(" {}: ", crate::l10n::trd("Type")), label),
         Span::styled(dash(&d.fstype), value),
-        Span::styled("   Label: ", label),
+        Span::styled(format!("   {}: ", crate::l10n::trd("Label")), label),
         Span::styled(dash(&d.label), value),
-        Span::styled("   Size: ", label),
+        Span::styled(format!("   {}: ", crate::l10n::trd("Size")), label),
         Span::styled(human_size(d.size), value),
         Span::styled("   ", value),
         Span::styled(where_, value),

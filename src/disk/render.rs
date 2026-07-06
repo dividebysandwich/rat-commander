@@ -12,7 +12,8 @@ use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
 
 pub fn render(f: &mut Frame, area: Rect, dv: &mut DiskView, theme: &Theme, gfx: Option<&mut Gfx>) {
     let title = format!(
-        " Disk Explorer — {}  ({}) ",
+        " {} — {}  ({}) ",
+        crate::l10n::trd("Disk Explorer"),
         dv.cwd.display(),
         human_gb(dv.total())
     );
@@ -54,7 +55,7 @@ pub fn render(f: &mut Frame, area: Rect, dv: &mut DiskView, theme: &Theme, gfx: 
     }
     if dv.entries.is_empty() {
         render_header(f, header, None, 0, theme);
-        center_text(f, body, "(no subdirectories)", theme);
+        center_text(f, body, &crate::l10n::trd("(no subdirectories)"), theme);
         return;
     }
     let selected = dv.entries.get(dv.selected.min(dv.entries.len() - 1));
@@ -104,13 +105,13 @@ fn render_header(f: &mut Frame, area: Rect, selected: Option<&DiskEntry>, total:
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
-                    format!("   {}   {:.0}% of total", human_gb(e.size), pct),
+                    format!("   {}   {:.0}% {}", human_gb(e.size), pct, crate::l10n::trd("of total")),
                     Style::default().fg(theme.panel_fg).bg(theme.panel_bg),
                 ),
             ]
         }
         None => vec![Span::styled(
-            " (nothing selected)",
+            format!(" {}", crate::l10n::trd("(nothing selected)")),
             Style::default().fg(theme.panel_fg).bg(theme.panel_bg),
         )],
     };
@@ -140,9 +141,9 @@ fn render_scanning(
     gfx: Option<&mut Gfx>,
 ) {
     let label = if total > 0 {
-        format!("Scanning… {done} / {total} directories")
+        format!("{} {done} / {total} {}", crate::l10n::trd("Scanning…"), crate::l10n::trd("directories"))
     } else {
-        "Scanning… (enumerating directories)".to_string()
+        crate::l10n::trd("Scanning… (enumerating directories)")
     };
     let mid = area.y + area.height / 2;
     f.render_widget(

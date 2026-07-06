@@ -154,7 +154,7 @@ fn render_status(f: &mut Frame, area: Rect, dv: &DiffView, theme: &Theme) {
     let half = ((area.width as usize).saturating_sub(12) / 2).max(4);
     let l = format!("{}{}", ellipsize(&dv.left_name, half), if dv.left_dirty { " [+]" } else { "" });
     let r = format!("{}{}", ellipsize(&dv.right_name, half), if dv.right_dirty { " [+]" } else { "" });
-    let text = format!(" {l}  ⇄  {r}   {n} diff(s){pos} ");
+    let text = format!(" {l}  ⇄  {r}   {n} {}{pos} ", crate::l10n::trd("diff(s)"));
     f.render_widget(
         Paragraph::new(Line::from(Span::styled(
             pad_right(&text, area.width as usize),

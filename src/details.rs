@@ -84,7 +84,7 @@ pub fn render(f: &mut Frame, area: Rect, data: &DetailsData, theme: &Theme) {
     match &data.kind {
         DetailsKind::Empty => {
             let dim = Style::default().fg(theme.panel_border).bg(theme.panel_bg);
-            let msg = "No file under the other panel's cursor";
+            let msg = crate::l10n::trd("No file under the other panel's cursor");
             let y = body.y + body.height / 2;
             f.render_widget(
                 Paragraph::new(Line::from(Span::styled(msg, dim)))
@@ -109,12 +109,15 @@ fn render_file(f: &mut Frame, area: Rect, fi: &FileInfo, theme: &Theme) {
     let mut rows: Vec<(&str, String)> = vec![
         ("Name", fi.name.clone()),
         ("In", fi.dir.clone()),
-        ("Type", kind.to_string()),
+        ("Type", crate::l10n::trd(kind)),
     ];
     if let Some(t) = &fi.symlink_target {
         rows.push(("Links to", t.clone()));
     }
-    rows.push(("Size", format!("{}   ({} bytes)", human_size(fi.size), group_digits(fi.size))));
+    rows.push((
+        "Size",
+        format!("{}   ({} {})", human_size(fi.size), group_digits(fi.size), crate::l10n::trd("bytes")),
+    ));
     if let Some(m) = fi.mode {
         rows.push(("Access", format!("{}  ({:04o})", rwx(m), m & 0o7777)));
     }
@@ -141,7 +144,7 @@ fn render_tally(f: &mut Frame, area: Rect, t: &Tally, theme: &Theme) {
     let rows: Vec<(&str, String)> = vec![
         ("", t.label.clone()),
         ("", String::new()),
-        ("Total size", format!("{}   ({} bytes)", human_size(t.total), group_digits(t.total))),
+        ("Total size", format!("{}   ({} {})", human_size(t.total), group_digits(t.total), crate::l10n::trd("bytes"))),
         ("Files", group_digits(t.files)),
         ("Directories", group_digits(t.dirs)),
     ];
@@ -154,27 +157,32 @@ fn render_tally(f: &mut Frame, area: Rect, t: &Tally, theme: &Theme) {
         let y = area.y + rows.len() as u16 + 1;
         if y < area.y + area.height {
             f.render_widget(
-                Paragraph::new(Line::from(Span::styled("calculating…", dim))),
+                Paragraph::new(Line::from(Span::styled(crate::l10n::trd("calculating…"), dim))),
                 Rect { y, height: 1, ..area },
             );
         }
     }
 }
 
-/// Draw `label: value` rows, right-aligning the labels into a column.
+/// Draw `label: value` rows, right-aligning the labels into a column. Labels are
+/// translated here (and the column width is measured on the translated text).
 fn draw_rows(f: &mut Frame, area: Rect, rows: &[(&str, String)], label: Style, value: Style) {
-    let lw = rows.iter().map(|(l, _)| l.chars().count()).max().unwrap_or(0);
-    for (i, (l, v)) in rows.iter().enumerate() {
+    let tr_rows: Vec<(String, &String)> = rows
+        .iter()
+        .map(|(l, v)| (if l.is_empty() { String::new() } else { crate::l10n::trd(l) }, v))
+        .collect();
+    let lw = tr_rows.iter().map(|(l, _)| l.chars().count()).max().unwrap_or(0);
+    for (i, (l, v)) in tr_rows.iter().enumerate() {
         let y = area.y + 1 + i as u16;
         if y >= area.y + area.height {
             break;
         }
         let spans = if l.is_empty() {
-            vec![Span::styled(v.clone(), value.add_modifier(Modifier::BOLD))]
+            vec![Span::styled((*v).clone(), value.add_modifier(Modifier::BOLD))]
         } else {
             vec![
                 Span::styled(format!("{:>lw$} : ", l), label),
-                Span::styled(v.clone(), value),
+                Span::styled((*v).clone(), value),
             ]
         };
         f.render_widget(

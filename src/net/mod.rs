@@ -533,7 +533,7 @@ impl NetView {
     /// The active sort description for a pane, e.g. `traffic↓`.
     pub fn sort_desc(&self, pane: usize) -> String {
         let arrow = if self.reverse[pane] { "↓" } else { "↑" };
-        format!("{}{arrow}", self.sort[pane].label())
+        format!("{}{arrow}", crate::l10n::trd(self.sort[pane].label()))
     }
 
     /// True once `interval_ms` has elapsed (in 100 ms ticks) — time to refresh.

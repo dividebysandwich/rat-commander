@@ -469,7 +469,13 @@ impl FormDialog {
             .filter(|e| e.protocol == protocol.scheme_prefix())
             .collect();
         FormDialog {
-            title: format!("{} connection", protocol.scheme_prefix().to_uppercase()),
+            // The proto prefix stays literal; the word is translated (the title
+            // is passed through `trd` again at render, harmlessly, for RTL shaping).
+            title: format!(
+                "{} {}",
+                protocol.scheme_prefix().to_uppercase(),
+                crate::l10n::tr("connection")
+            ),
             form,
             purpose: FormPurpose::Connect(protocol, side),
             connect: Some(ConnectDropdown {
@@ -1146,7 +1152,7 @@ impl FormDialog {
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(theme.dialog_title).bg(theme.dialog_bg))
             .title(Span::styled(
-                " Recent ",
+                format!(" {} ", crate::l10n::trd("Recent")),
                 Style::default().fg(theme.dialog_title).bg(theme.dialog_bg),
             ))
             .style(Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg));

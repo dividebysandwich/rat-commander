@@ -95,12 +95,16 @@ fn build_styled(chars: &[char], base: usize, styles: &[Style], default: Style) -
 
 fn render_header(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
     let mode = match v.mode {
-        ViewMode::Hex => "Hex",
-        ViewMode::Text if v.markdown_active() => "Markdown",
-        ViewMode::Text => "Text",
+        ViewMode::Hex => crate::l10n::trd("Hex"),
+        ViewMode::Text if v.markdown_active() => crate::l10n::trd("Markdown"),
+        ViewMode::Text => crate::l10n::trd("Text"),
     };
-    let wrap = if v.wrap { "Wrap" } else { "Unwrap" };
-    let trunc = if v.truncated { " [TRUNCATED]" } else { "" };
+    let wrap = if v.wrap { crate::l10n::trd("Wrap") } else { crate::l10n::trd("Unwrap") };
+    let trunc = if v.truncated {
+        format!(" [{}]", crate::l10n::trd("TRUNCATED"))
+    } else {
+        String::new()
+    };
     let total = match v.mode {
         ViewMode::Text => v.line_count(),
         ViewMode::Hex => v.hex_rows(),
@@ -108,12 +112,17 @@ fn render_header(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
     // While the line index is still being built, the total is a lower bound, so
     // flag it with a trailing '+'.
     let more = if v.mode == ViewMode::Text && !v.fully_indexed() { "+" } else { "" };
+    let unit = if v.mode == ViewMode::Hex {
+        crate::l10n::trd("rows")
+    } else {
+        crate::l10n::trd("lines")
+    };
     let text = format!(
-        " View: {}  [{mode}/{wrap}]  {}/{}{more} {}{trunc}",
+        " {}: {}  [{mode}/{wrap}]  {}/{}{more} {unit}{trunc}",
+        crate::l10n::trd("View"),
         ellipsize(&v.name, area.width.saturating_sub(40) as usize),
         v.top + 1,
         total.max(1),
-        if v.mode == ViewMode::Hex { "rows" } else { "lines" },
     );
     f.render_widget(
         Paragraph::new(Line::from(Span::styled(
@@ -284,7 +293,7 @@ fn render_footer(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
         return;
     }
 
-    // Same full-width, number+label styling as the main program.
-    let labels = v.footer_labels();
+    // Same full-width, number+label styling as the main program, translated.
+    let labels = v.footer_labels().map(crate::l10n::trd);
     crate::ui::fkeys::render(f, area, &labels, theme);
 }
