@@ -158,6 +158,12 @@ impl AppState {
     pub async fn init(&mut self) {
         let _ = self.panels[0].reload().await;
         let _ = self.panels[1].reload().await;
+        // Rebuild the directory tree for any panel restored into Tree view.
+        for i in 0..2 {
+            if self.panels[i].is_tree() {
+                self.panels[i].build_tree().await;
+            }
+        }
     }
 
     pub(in crate::app::state) fn active_panel(&mut self) -> &mut Panel {

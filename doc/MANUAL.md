@@ -98,7 +98,7 @@ A quick **Alt** + digit does the same.
 - `Ctrl-O` — Toggle the persistent subshell (press again to return)
 - `Ctrl-R` — Re-read (refresh) the active panel
 - `Ctrl-S` / `Ctrl-E` — Cycle the sort key / toggle reverse order
-- `Ctrl-W` — Cycle the view format (full → brief → details)
+- `Ctrl-W` — Cycle the view format (full → brief → details → tree)
 - `Ctrl-X` — Toggle vertical / horizontal split
 - `Ctrl-U` — Swap the two panels
 - `Alt-F1` / `Alt-F2` — Drive / connection picker for the left / right panel
@@ -217,6 +217,9 @@ one from the **Left** / **Right** menu:
 
   This is useful for inspecting a file's metadata, or measuring how much space a
   folder or a set of tagged items uses, while you browse with the other panel.
+- **Tree** — the directory structure is visualized as a tree, arrow keys navigate,
+  pressing enter changes the opposite panel's directory and opens up the directory
+  structure underneath.
 
 **Sorting** is configurable from the **Left** / **Right** menu, or cycled with
 **Ctrl-S** (key) and **Ctrl-E** (reverse): Unsorted, Name, Extension, Size,
@@ -250,6 +253,14 @@ overwrite a file with a zero-length one.
 These operations work **transparently between local, remote and archive
 panels**, so copying a file onto an SFTP server or out of a `.zip` is the same
 F5 you already use.
+
+### Background file transfers
+
+A **To Background** button is available on most progress dialogs and sends the
+currently running operation into the background. Multiple copy or file transfer
+operations can run in parallel. A total progress bar will be shown on the top 
+menu bar, and a list of all running background operations can be shown via 
+**File → Background operations**
 
 ### Make directory, rename
 

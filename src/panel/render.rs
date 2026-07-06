@@ -106,6 +106,7 @@ pub fn render_panel(
     match panel.format {
         ViewFormat::Full => render_full(f, list_area, panel, active, theme),
         ViewFormat::Brief => render_brief(f, list_area, panel, active, theme, brief_columns),
+        ViewFormat::Tree => render_tree(f, list_area, panel, active, theme),
         ViewFormat::Details => unreachable!("Details is rendered earlier and returns"),
     }
 
@@ -129,6 +130,15 @@ pub fn render_panel(
             let cw = (w / cols).max(1);
             (list_area, true, cols, list_area.height as usize, cw as u16)
         }
+        // The tree is keyboard-driven: a zero-height body means clicks activate
+        // the panel (see `panel_point`) but don't map to rows.
+        ViewFormat::Tree => (
+            Rect { height: 0, ..list_area },
+            false,
+            1usize,
+            1usize,
+            list_area.width,
+        ),
     };
     panel.hit = Some(crate::panel::PanelHit {
         area,
@@ -481,6 +491,48 @@ fn render_brief(
     f.render_widget(Paragraph::new(lines), area);
 }
 
+/// Draw the directory tree: one indented row per visible node, an expander
+/// glyph (`▾`/`▸`) marking open/closed branches, the cursor row highlighted.
+fn render_tree(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, theme: &Theme) {
+    let width = area.width as usize;
+    let rows = area.height as usize;
+    if rows == 0 || width == 0 {
+        return;
+    }
+    // A page is one screenful of rows (drives PgUp/PgDn via `move_cursor`).
+    panel.page = rows.max(1);
+    let Some(tree) = panel.tree.as_mut() else {
+        return;
+    };
+    ensure_visible(tree.cursor, &mut tree.offset, rows);
+
+    let normal = Style::default().fg(theme.panel_fg).bg(theme.panel_bg);
+    let dir_style = Style::default().fg(theme.dir_fg).bg(theme.panel_bg);
+    let mut lines: Vec<Line> = Vec::with_capacity(rows);
+    for i in 0..rows {
+        let idx = tree.offset + i;
+        let Some(node) = tree.rows.get(idx) else {
+            lines.push(Line::from(Span::styled(" ".repeat(width), normal)));
+            continue;
+        };
+        let marker = if node.expanded { '▾' } else { '▸' };
+        // Two spaces of indent per depth level, then "▸ label".
+        let text = format!("{}{marker} {}", "  ".repeat(node.depth), node.label);
+        let text = pad_right(&text, width);
+        let is_cursor = idx == tree.cursor;
+        if is_cursor && active {
+            if theme.truecolor {
+                lines.push(gradient_line(&text, width, theme.cursor_fg, theme));
+            } else {
+                lines.push(Line::from(Span::styled(text, cursor_style(true, false, theme))));
+            }
+        } else {
+            lines.push(Line::from(Span::styled(text, dir_style)));
+        }
+    }
+    f.render_widget(Paragraph::new(lines), area);
+}
+
 /// Name as shown in the list: a one-character classify prefix (see
 /// [`classify_prefix`]) followed by the entry name.
 fn display_name(e: &VfsEntry) -> String {
@@ -491,6 +543,21 @@ fn render_mini_status(f: &mut Frame, area: Rect, panel: &Panel, theme: &Theme) {
     let width = area.width as usize;
     let style = Style::default().fg(theme.panel_border_active).bg(theme.panel_bg);
     let sep_style = Style::default().fg(theme.panel_border).bg(theme.panel_bg);
+
+    // Tree view: show the full path of the highlighted directory.
+    if panel.format == ViewFormat::Tree {
+        let text = panel
+            .tree
+            .as_ref()
+            .and_then(|t| t.selected_path())
+            .map(|p| p.display())
+            .unwrap_or_default();
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(pad_right(&ellipsize(&text, width), width), style))),
+            area,
+        );
+        return;
+    }
 
     // A multi-file selection: show the count and combined size (a summary, not a
     // single entry's columns).
@@ -608,6 +675,48 @@ mod tests {
         t.draw(|f| render_brief(f, f.area(), &mut panel, true, &theme, 3)).unwrap();
         assert_eq!(panel.cols, 3, "renderer records the configured column count");
         assert_eq!(panel.page, 8 * 3, "page = rows × columns");
+    }
+
+    #[tokio::test]
+    async fn tree_view_renders_markers_and_selected_path() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root =
+            std::env::temp_dir().join(format!("rc-tree-render-{}-{nanos}", std::process::id()));
+        std::fs::create_dir_all(root.join("alpha")).unwrap();
+        std::fs::create_dir_all(root.join("beta")).unwrap();
+
+        let theme = Theme::mc();
+        let backend = crate::vfs::registry::Registry::default().local();
+        let mut panel = Panel::new(backend, crate::vfs::VfsPath::local(&root));
+        panel.format = ViewFormat::Tree;
+        panel.build_tree().await;
+
+        // Wide enough that the mini-status path isn't ellipsized.
+        let mut term = Terminal::new(TestBackend::new(90, 12)).unwrap();
+        term.draw(|t| render_panel(t, t.area(), &mut panel, true, &Default::default(), &theme, 2))
+            .unwrap();
+        let buf = term.backend().buffer();
+        let text: String = (0..buf.area.height)
+            .flat_map(|y| (0..buf.area.width).map(move |x| (x, y)))
+            .map(|(x, y)| buf[(x, y)].symbol().to_string())
+            .collect();
+
+        // The two child directories appear under an expander marker.
+        assert!(text.contains("alpha"), "tree lists the alpha directory");
+        assert!(text.contains("beta"), "tree lists the beta directory");
+        assert!(text.contains('▾') || text.contains('▸'), "an expander glyph is drawn");
+        // The mini-status shows the highlighted directory's full path (the root).
+        assert!(
+            text.contains(&root.to_string_lossy().into_owned()),
+            "the selected path is shown in the mini-status"
+        );
+
+        std::fs::remove_dir_all(&root).ok();
     }
 
     #[test]

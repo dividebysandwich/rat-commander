@@ -186,7 +186,7 @@ impl AppState {
             MenuAction::SelectGroup => self.open_select_group(true),
             MenuAction::UnselectGroup => self.open_select_group(false),
             MenuAction::Invert => self.invert_selection(),
-            MenuAction::SetFormat(side, fmt) => self.panels[side].format = fmt,
+            MenuAction::SetFormat(side, fmt) => self.set_format(side, fmt).await,
             MenuAction::SetSort(side, key) => {
                 self.panels[side].sort.key = key;
                 self.panels[side].resort();
@@ -302,7 +302,11 @@ impl AppState {
                     }
                     return Flow::RunCommand(cmd);
                 }
-                self.enter_dir().await;
+                if self.panels[self.active].is_tree() {
+                    self.tree_enter().await;
+                } else {
+                    self.enter_dir().await;
+                }
             }
 
             // -- Command-line editing (in the multi-column Brief view, and when
@@ -343,8 +347,9 @@ impl AppState {
             KeyCode::Char('t') if ctrl => self.active_panel().toggle_mark_and_advance(),
             KeyCode::Char('x') if ctrl => self.split = self.split.toggle(),
             KeyCode::Char('w') if ctrl => {
-                let p = self.active_panel();
-                p.format = p.format.toggle();
+                let side = self.active;
+                let next = self.panels[side].format.toggle();
+                self.set_format(side, next).await;
             }
             KeyCode::Char('s') if ctrl => self.cycle_sort(),
             KeyCode::Char('e') if ctrl => {
@@ -392,6 +397,31 @@ impl AppState {
         self.active_panel()
             .try_enter(newcwd, backend, focus.as_deref())
             .await;
+    }
+
+    /// Switch panel `side` to `fmt`, building or dropping its directory tree as
+    /// Tree view is entered or left.
+    pub(in crate::app::state) async fn set_format(&mut self, side: usize, fmt: ViewFormat) {
+        self.panels[side].format = fmt;
+        if fmt == ViewFormat::Tree {
+            self.panels[side].build_tree().await;
+        } else {
+            self.panels[side].tree = None;
+        }
+    }
+
+    /// Enter on a Tree-view row: open/close the branch under the cursor and point
+    /// the *other* (inactive) panel at the selected directory.
+    pub(in crate::app::state) async fn tree_enter(&mut self) {
+        let Some(path) = self.active_panel().tree_toggle().await else {
+            return;
+        };
+        let backend = match self.registry.resolve(&path) {
+            Ok(b) => b,
+            Err(e) => return self.show_error(e.to_string()),
+        };
+        let other = self.other_index();
+        self.panels[other].try_enter(path, backend, None).await;
     }
 
     fn cycle_sort(&mut self) {

@@ -915,6 +915,69 @@ async fn details_view_files_dirs_and_selection() {
     std::fs::remove_dir_all(&root).ok();
 }
 
+/// Ctrl-W cycles into Tree view (building the tree), and Enter on a tree node
+/// points the *inactive* panel at that directory while opening the branch.
+#[tokio::test]
+async fn tree_view_enter_navigates_inactive_panel() {
+    use crate::panel::ViewFormat;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("rc_tree_{}_{nanos}", std::process::id()));
+    std::fs::create_dir_all(root.join("alpha/inner")).unwrap();
+    std::fs::create_dir_all(root.join("beta")).unwrap();
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+    // The inactive panel starts somewhere else (the process cwd).
+    let start_right = st.panels[1].cwd.clone();
+
+    // Ctrl-W: Full → Brief → Details → Tree.
+    let ctrl_w = KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL);
+    for _ in 0..3 {
+        st.handle_key(ctrl_w).await;
+    }
+    assert_eq!(st.panels[0].format, ViewFormat::Tree, "Ctrl-W reaches Tree view");
+    assert!(st.panels[0].tree.is_some(), "the tree is built on entering Tree view");
+
+    // The cursor starts on `root` (expanded); move it onto the `alpha` child and
+    // press Enter. That opens alpha's branch and sends the right panel there.
+    let tree = st.panels[0].tree.as_ref().unwrap();
+    let alpha_row = tree
+        .rows
+        .iter()
+        .position(|n| n.label == "alpha")
+        .expect("alpha listed under root");
+    st.panels[0].tree.as_mut().unwrap().cursor = alpha_row;
+
+    st.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).await;
+
+    // The inactive (right) panel moved to alpha…
+    assert_eq!(st.panels[1].cwd.path, root.join("alpha"), "inactive panel follows the tree");
+    assert_ne!(st.panels[1].cwd, start_right, "right panel actually moved");
+    // …and alpha's branch opened, revealing its subdirectory.
+    let tree = st.panels[0].tree.as_ref().unwrap();
+    assert!(tree.rows[alpha_row].expanded, "alpha's branch is open");
+    assert!(
+        tree.rows.iter().any(|n| n.label == "inner"),
+        "alpha's subdirectory is now visible"
+    );
+    // The active (tree) panel did not itself navigate.
+    assert_eq!(st.panels[0].cwd, VfsPath::local(&root), "tree panel stays put");
+
+    // Ctrl-W once more leaves Tree view and drops the tree.
+    st.handle_key(ctrl_w).await;
+    assert_eq!(st.panels[0].format, ViewFormat::Full, "Tree → Full completes the cycle");
+    assert!(st.panels[0].tree.is_none(), "leaving Tree view drops the tree");
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
 #[tokio::test]
 async fn find_duplicates_marks_by_criteria() {
     use crate::ui::dialog::DupCriteria;

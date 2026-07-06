@@ -3,6 +3,7 @@
 pub mod render;
 pub mod selection;
 pub mod sort;
+pub mod tree;
 
 use crate::util::Result;
 use crate::vfs::{DiskUsage, Vfs, VfsEntry, VfsKind, VfsPath};
@@ -10,6 +11,7 @@ use ratatui::layout::Rect;
 use selection::Selection;
 use sort::SortConfig;
 use std::sync::Arc;
+use tree::TreeState;
 
 /// Geometry recorded at render time so mouse clicks can be mapped to entries.
 #[derive(Clone, Copy)]
@@ -67,15 +69,19 @@ pub enum ViewFormat {
     /// No own listing: shows details about the item under the *other* panel's
     /// cursor (file stats, or a directory/selection size tallied in background).
     Details,
+    /// A navigable directory tree rooted at the backend/drive root; Enter opens
+    /// a branch and points the *other* panel at the selected directory.
+    Tree,
 }
 
 impl ViewFormat {
-    /// Cycle Full → Brief → Details → Full (Ctrl-W).
+    /// Cycle Full → Brief → Details → Tree → Full (Ctrl-W).
     pub fn toggle(self) -> Self {
         match self {
             ViewFormat::Full => ViewFormat::Brief,
             ViewFormat::Brief => ViewFormat::Details,
-            ViewFormat::Details => ViewFormat::Full,
+            ViewFormat::Details => ViewFormat::Tree,
+            ViewFormat::Tree => ViewFormat::Full,
         }
     }
 }
@@ -108,6 +114,9 @@ pub struct Panel {
     /// top-to-bottom, column by column). `cols` is 1 in the Full/Details views.
     pub cols: usize,
     pub brief_rows: usize,
+    /// The directory tree shown when `format == ViewFormat::Tree`. Built lazily
+    /// when the panel switches to Tree view and dropped when it leaves.
+    pub tree: Option<TreeState>,
 }
 
 impl Panel {
@@ -128,7 +137,34 @@ impl Panel {
             page: 1,
             cols: 1,
             brief_rows: 1,
+            tree: None,
         }
+    }
+
+    /// (Re)build the directory tree for the current directory. Called when the
+    /// panel switches to Tree view, and when a Tree-view panel changes directory.
+    pub async fn build_tree(&mut self) {
+        self.tree = Some(TreeState::build(&self.backend, &self.cwd).await);
+    }
+
+    /// Toggle (expand/collapse) the tree node under the cursor and return its
+    /// path, so the caller can point the other panel at it. `None` when not in
+    /// Tree view or the tree is empty.
+    pub async fn tree_toggle(&mut self) -> Option<VfsPath> {
+        if self.format != ViewFormat::Tree {
+            return None;
+        }
+        // Clone the backend handle to avoid borrowing `self` twice.
+        let backend = self.backend.clone();
+        let tree = self.tree.as_mut()?;
+        let path = tree.selected_path()?;
+        tree.toggle(&backend).await;
+        Some(path)
+    }
+
+    /// Whether the panel is currently showing the directory tree.
+    pub fn is_tree(&self) -> bool {
+        self.format == ViewFormat::Tree
     }
 
     /// Show an explicit list of result entries (find-file panelization).
@@ -203,7 +239,7 @@ impl Panel {
         let prev_selection = std::mem::replace(&mut self.selection, Selection::new());
 
         let _ = self.reload_keeping(focus_name).await;
-        if self.error.is_some() {
+        let ok = if self.error.is_some() {
             // Couldn't list the target: undo the move and stay put.
             self.cwd = prev_cwd;
             self.backend = prev_backend;
@@ -213,7 +249,13 @@ impl Panel {
             false
         } else {
             true
+        };
+        // A Tree-view panel that changed directory (e.g. via `cd`) re-roots its
+        // tree so it keeps reflecting where the panel is.
+        if self.format == ViewFormat::Tree {
+            self.build_tree().await;
         }
+        ok
     }
 
     pub fn current_entry(&self) -> Option<&VfsEntry> {
@@ -229,6 +271,12 @@ impl Panel {
     }
 
     pub fn move_cursor(&mut self, delta: isize) {
+        if self.format == ViewFormat::Tree {
+            if let Some(tree) = self.tree.as_mut() {
+                tree.move_cursor(delta);
+            }
+            return;
+        }
         if self.entries.is_empty() {
             return;
         }
@@ -244,10 +292,22 @@ impl Panel {
     }
 
     pub fn move_home(&mut self) {
+        if self.format == ViewFormat::Tree {
+            if let Some(tree) = self.tree.as_mut() {
+                tree.move_home();
+            }
+            return;
+        }
         self.cursor = 0;
     }
 
     pub fn move_end(&mut self) {
+        if self.format == ViewFormat::Tree {
+            if let Some(tree) = self.tree.as_mut() {
+                tree.move_end();
+            }
+            return;
+        }
         if !self.entries.is_empty() {
             self.cursor = self.entries.len() - 1;
         }
