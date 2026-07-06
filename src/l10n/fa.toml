@@ -124,3 +124,9 @@ rtl = true
 # -- Network password dialog --
 "Network connections" = "اتصالات شبکه"
 "Root password (blank = user mode, limited visibility):" = "گذرواژه‌ی root (خالی = حالت کاربر، دید محدود):"
+
+# -- Nested-subshell warning dialog --
+"Subshell disabled" = "زیرپوسته غیرفعال شد"
+"Rat Commander is already running in a subshell on this terminal. Subshell (Ctrl-O) support will be disabled for this instance." = "Rat Commander هم‌اکنون در یک زیرپوسته روی این پایانه در حال اجراست. پشتیبانی زیرپوسته (Ctrl-O) برای این نمونه غیرفعال خواهد شد."
+"Continue" = "ادامه"
+"This Rat Commander is running inside another instance's subshell." = "این Rat Commander درون زیرپوستهٔ نمونهٔ دیگری در حال اجراست."

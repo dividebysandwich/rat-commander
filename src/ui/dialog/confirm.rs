@@ -88,13 +88,17 @@ impl ConfirmDialog {
     /// nested instance can't run its own subshell. Offer to continue without it
     /// (the safe default) or quit back to the first instance's subshell.
     pub fn subshell_nested() -> Self {
-        let mut d = Self::from_buttons(
-            "Subshell disabled",
+        // Translated at construction (the caller raises this only after the UI
+        // language is loaded). "Rat Commander"/"Ctrl-O" stay verbatim.
+        let title = crate::l10n::trd("Subshell disabled");
+        let message = crate::l10n::trd(
             "Rat Commander is already running in a subshell on this terminal. \
-             Subshell (Ctrl-O) support will be disabled for this instance."
-                .to_string(),
-            vec![("Continue", None), ("Quit", Some(Submit::Quit))],
+             Subshell (Ctrl-O) support will be disabled for this instance.",
         );
+        let cont = crate::l10n::trd("Continue");
+        let quit = crate::l10n::trd("Quit");
+        let mut d =
+            Self::from_buttons(&title, message, vec![(&cont, None), (&quit, Some(Submit::Quit))]);
         d.focus = 0; // Continue: keep this instance running (subshell off)
         d
     }

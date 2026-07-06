@@ -120,3 +120,9 @@ code = "uk"
 # -- Network password dialog --
 "Network connections" = "Мережеві з'єднання"
 "Root password (blank = user mode, limited visibility):" = "Пароль root (порожньо = режим користувача, обмежена видимість):"
+
+# -- Nested-subshell warning dialog --
+"Subshell disabled" = "Підоболонку вимкнено"
+"Rat Commander is already running in a subshell on this terminal. Subshell (Ctrl-O) support will be disabled for this instance." = "Rat Commander уже запущено в підоболонці в цьому терміналі. Підтримку підоболонки (Ctrl-O) буде вимкнено для цього екземпляра."
+"Continue" = "Продовжити"
+"This Rat Commander is running inside another instance's subshell." = "Цей Rat Commander запущено всередині підоболонки іншого екземпляра."

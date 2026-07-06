@@ -35,6 +35,9 @@ pub async fn run(startup: crate::Startup) -> Result<()> {
     // before anything renders.
     crate::l10n::load_languages(state.config.language.as_deref());
     crate::l10n::set_reshape_rtl(state.config.reshape_rtl);
+    // Now that the language is active, raise the (localized) nested-subshell
+    // warning if this instance was started inside another's Ctrl-O subshell.
+    state.warn_nested_subshell();
     state.init().await;
 
     // `rc /edit <file>` (or the `rcedit` shim) opens straight into the editor;

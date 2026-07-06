@@ -120,3 +120,9 @@ code = "sr"
 # -- Network password dialog --
 "Network connections" = "Mrežne veze"
 "Root password (blank = user mode, limited visibility):" = "Root lozinka (prazno = korisnički režim, ograničena vidljivost):"
+
+# -- Nested-subshell warning dialog --
+"Subshell disabled" = "Podljuska onemogućena"
+"Rat Commander is already running in a subshell on this terminal. Subshell (Ctrl-O) support will be disabled for this instance." = "Rat Commander se već izvršava u podljusci na ovom terminalu. Podrška za podljusku (Ctrl-O) biće onemogućena za ovu instancu."
+"Continue" = "Nastavi"
+"This Rat Commander is running inside another instance's subshell." = "Ovaj Rat Commander se izvršava unutar podljuske druge instance."

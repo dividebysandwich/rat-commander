@@ -120,3 +120,9 @@ code = "zh-Hant"
 # -- Network password dialog --
 "Network connections" = "網路連線"
 "Root password (blank = user mode, limited visibility):" = "root 密碼（留空 = 使用者模式，可見範圍有限）："
+
+# -- Nested-subshell warning dialog --
+"Subshell disabled" = "子外殼已停用"
+"Rat Commander is already running in a subshell on this terminal. Subshell (Ctrl-O) support will be disabled for this instance." = "Rat Commander 已在此終端機的子外殼中執行。此執行個體將停用子外殼 (Ctrl-O) 功能。"
+"Continue" = "繼續"
+"This Rat Commander is running inside another instance's subshell." = "此 Rat Commander 正在另一個執行個體的子外殼中執行。"

@@ -124,3 +124,9 @@ rtl = true
 # -- Network password dialog --
 "Network connections" = "اتصالات الشبكة"
 "Root password (blank = user mode, limited visibility):" = "كلمة مرور الجذر (فارغ = وضع المستخدم، رؤية محدودة):"
+
+# -- Nested-subshell warning dialog --
+"Subshell disabled" = "الصدفة الفرعية معطّلة"
+"Rat Commander is already running in a subshell on this terminal. Subshell (Ctrl-O) support will be disabled for this instance." = "Rat Commander يعمل بالفعل في صدفة فرعية على هذه الطرفية. سيتم تعطيل دعم الصدفة الفرعية (Ctrl-O) لهذه النسخة."
+"Continue" = "متابعة"
+"This Rat Commander is running inside another instance's subshell." = "هذا Rat Commander يعمل داخل الصدفة الفرعية لنسخة أخرى."

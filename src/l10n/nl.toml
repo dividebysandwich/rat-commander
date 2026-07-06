@@ -120,3 +120,9 @@ code = "nl"
 # -- Network password dialog --
 "Network connections" = "Netwerkverbindingen"
 "Root password (blank = user mode, limited visibility):" = "Root-wachtwoord (leeg = gebruikersmodus, beperkte zichtbaarheid):"
+
+# -- Nested-subshell warning dialog --
+"Subshell disabled" = "Subshell uitgeschakeld"
+"Rat Commander is already running in a subshell on this terminal. Subshell (Ctrl-O) support will be disabled for this instance." = "Rat Commander draait al in een subshell op deze terminal. Subshell-ondersteuning (Ctrl-O) wordt voor deze instantie uitgeschakeld."
+"Continue" = "Doorgaan"
+"This Rat Commander is running inside another instance's subshell." = "Deze Rat Commander draait in de subshell van een andere instantie."

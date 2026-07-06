@@ -372,10 +372,11 @@ impl AppState {
                 // A nested instance (started inside another's subshell) can't run
                 // its own subshell; explain rather than toggle.
                 if self.subshell_disabled {
-                    self.show_info(
-                        "Subshell disabled",
+                    let title = crate::l10n::trd("Subshell disabled");
+                    let msg = crate::l10n::trd(
                         "This Rat Commander is running inside another instance's subshell.",
                     );
+                    self.show_info(&title, msg);
                 } else {
                     return Flow::SubShell;
                 }

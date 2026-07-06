@@ -120,3 +120,9 @@ code = "es"
 # -- Network password dialog --
 "Network connections" = "Conexiones de red"
 "Root password (blank = user mode, limited visibility):" = "Contraseña de root (vacío = modo usuario, visibilidad limitada):"
+
+# -- Nested-subshell warning dialog --
+"Subshell disabled" = "Subshell desactivado"
+"Rat Commander is already running in a subshell on this terminal. Subshell (Ctrl-O) support will be disabled for this instance." = "Rat Commander ya se está ejecutando en un subshell en esta terminal. La compatibilidad con subshell (Ctrl-O) se desactivará para esta instancia."
+"Continue" = "Continuar"
+"This Rat Commander is running inside another instance's subshell." = "Este Rat Commander se está ejecutando dentro del subshell de otra instancia."

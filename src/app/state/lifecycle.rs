@@ -18,16 +18,15 @@ impl AppState {
         let truecolor = config.truecolor.unwrap_or_else(detect_truecolor);
         let theme = Theme::by_name(&config.theme, truecolor);
         // Started from within another instance's Ctrl-O subshell? This instance
-        // can't provide its own subshell, so warn and disable it.
+        // can't provide its own subshell, so it's disabled. The warning dialog is
+        // raised later (see `warn_nested_subshell`), once the UI language loads.
         let subshell_disabled = crate::shell::in_subshell();
-        let dialog = subshell_disabled
-            .then(|| Dialog::Confirm(ConfirmDialog::subshell_nested()));
         AppState {
             panels: [left, right],
             active: 0,
             split: SplitDir::Vertical,
             cmd: CommandLine::new(),
-            dialog,
+            dialog: None,
             viewer: None,
             editor: None,
             menu: None,
@@ -476,6 +475,15 @@ impl AppState {
             message: msg.into(),
             is_error: false,
         }));
+    }
+
+    /// If this instance is nested inside another Rat Commander's subshell, raise
+    /// the warning dialog. Called from startup *after* the UI language is loaded
+    /// so the (construction-time translated) dialog is in the right language.
+    pub fn warn_nested_subshell(&mut self) {
+        if self.subshell_disabled {
+            self.dialog = Some(Dialog::Confirm(ConfirmDialog::subshell_nested()));
+        }
     }
 
     /// Quit, prompting for confirmation only when `confirm_exit` is enabled.
