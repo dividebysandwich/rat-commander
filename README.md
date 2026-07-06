@@ -1,4 +1,4 @@
-# rat-commander (`rc`)
+# Rat Commander (`rc`)
 
 A self-contained terminal file manager with modern features and built-in tools,
 while staying true to the heritage of classics such as Norton Commander and
@@ -18,9 +18,9 @@ The installed executable is named **`rc`** for quick typing.
 
 ## What it can do
 
-- **Two panels** with **full**, **brief** and **details** view formats, vertical
-  or horizontal split, configurable sort, multi-file selection, type markers and
-  file-type colors. Full **mouse** support.
+- **Two panels** with **full**, **brief**, **details** and **tree** view formats,
+  vertical or horizontal split, configurable sort, multi-file selection, type
+  markers and file-type colors. Full **mouse** support.
 - **File operations** — copy / move / delete with a progress window and
   transfer-speed chart, rich overwrite handling, chmod / chown / symlink (with
   recursion), and make-directory.
@@ -108,7 +108,7 @@ also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1
 | `Ctrl-O` | Toggle the persistent subshell |
 | `Ctrl-R` | Re-read the active panel |
 | `Ctrl-S` / `Ctrl-E` | Cycle sort key / toggle reverse |
-| `Ctrl-W` | Cycle view format (full / brief / details) |
+| `Ctrl-W` | Cycle view format (full / brief / details / tree) |
 | `Ctrl-X` | Toggle vertical / horizontal split |
 | `Ctrl-U` | Swap the two panels |
 | `Alt-F1` / `Alt-F2` | Drive / connection picker (left / right panel) |
