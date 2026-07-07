@@ -44,32 +44,29 @@ impl AppState {
             }
         }
 
-        // In the base panel view: Alt+<letter> either starts a quick search
-        // (when enabled, FAR/NC style) or opens the matching top menu (classic
-        // Midnight-Commander behavior). Alt also arms the menu-bar hotkey hint
-        // in classic mode; the hint is cleared by the next non-Alt key. Alt+F1/F2
+        // In the base panel view: Alt-S / Ctrl-S start a quick search with an
+        // empty box (Midnight-Commander style); the letters typed afterward build
+        // the query. Alt + a menu letter opens that top menu, and Alt alone arms
+        // the menu-bar hotkey hint (cleared by the next non-Alt key). Alt+F1/F2
         // drive pickers are F-key codes handled in handle_panel_key, not here.
         if self.in_panel_mode() {
             let alt = key.modifiers.contains(KeyModifiers::ALT);
-            if self.config.quick_search {
+            let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+            // `alt != ctrl` = exactly one held, so AltGr (Ctrl+Alt, a composing
+            // key on some layouts) still types normally.
+            if (alt != ctrl) && matches!(key.code, KeyCode::Char('s' | 'S')) {
                 self.alt_hint = false;
-                if alt && let KeyCode::Char(c) = key.code {
-                    self.start_quick_search(c);
-                    return Flow::Continue;
-                }
-            } else {
-                self.alt_hint = alt;
-                if alt && let KeyCode::Char(c) = key.code
-                    && let Some(idx) = menu_title_index(c)
-                {
-                    self.menu = Some(MenuBarState::new(
-                        idx,
-                        &self.session_list(),
-                        self.side_remote(),
-                    ));
-                    self.alt_hint = false;
-                    return Flow::Continue;
-                }
+                self.start_quick_search_empty();
+                return Flow::Continue;
+            }
+            self.alt_hint = alt;
+            if alt
+                && let KeyCode::Char(c) = key.code
+                && let Some(idx) = menu_title_index(c)
+            {
+                self.menu = Some(MenuBarState::new(idx, &self.session_list(), self.side_remote()));
+                self.alt_hint = false;
+                return Flow::Continue;
             }
         } else {
             self.alt_hint = false;
@@ -263,6 +260,7 @@ impl AppState {
             return self.handle_quick_search_key(key).await;
         }
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        let alt = key.modifiers.contains(KeyModifiers::ALT);
 
         // Alt-F1 / Alt-F2 open the drive/connection picker for the left/right panel.
         if key.modifiers.contains(KeyModifiers::ALT) {
@@ -317,6 +315,9 @@ impl AppState {
             KeyCode::End => self.active_panel().move_end(),
             KeyCode::Insert => self.active_panel().toggle_mark_and_advance(),
             KeyCode::Tab => self.active = self.other_index(),
+
+            // Alt-Enter copies the name under the cursor onto the command line.
+            KeyCode::Enter if alt => self.insert_name_under_cursor(),
 
             // -- Enter: run command or descend --
             KeyCode::Enter => {
@@ -391,7 +392,12 @@ impl AppState {
                 let next = self.panels[side].format.toggle();
                 self.set_format(side, next).await;
             }
-            KeyCode::Char('s') if ctrl => self.cycle_sort(),
+            // Command-line history: Alt-P/Alt-N cycle previous/next in place;
+            // Alt-H opens the scrollable Shell History window above it. (`!ctrl`
+            // so AltGr = Ctrl+Alt still composes characters instead.)
+            KeyCode::Char('p') if alt && !ctrl => self.cmd.history_prev(),
+            KeyCode::Char('n') if alt && !ctrl => self.cmd.history_next(),
+            KeyCode::Char('h') if alt && !ctrl => self.open_shell_history(),
             KeyCode::Char('e') if ctrl => {
                 let p = self.active_panel();
                 p.sort.reverse = !p.sort.reverse;
@@ -403,19 +409,45 @@ impl AppState {
             KeyCode::Char('-') if self.cmd.is_empty() => self.open_select_group(false),
             KeyCode::Char('*') if self.cmd.is_empty() => self.invert_selection(),
 
-            // -- Otherwise, type into the command line --
-            KeyCode::Char(c) => self.cmd.insert(c),
+            // -- Otherwise, type into the command line. A lone Ctrl or Alt with a
+            //    letter is an (unbound) shortcut, not text, so it isn't inserted;
+            //    plain keys and AltGr combos (Ctrl+Alt, for composed characters)
+            //    still type normally. --
+            KeyCode::Char(c) if ctrl == alt => self.cmd.insert(c),
 
             _ => {}
         }
         Flow::Continue
     }
 
-    /// Begin a quick search seeded with `c` and jump the active panel's cursor
-    /// to the first entry whose name starts with it.
-    fn start_quick_search(&mut self, c: char) {
-        self.quick_search = Some(QuickSearch { query: c.to_string() });
-        self.jump_quick_search();
+    /// Alt-Enter: copy the name under the cursor onto the command line (shell-
+    /// quoted when needed). In Tree view the highlighted directory's name is
+    /// used; `..` is never copied.
+    fn insert_name_under_cursor(&mut self) {
+        let p = &self.panels[self.active];
+        let name = if p.is_tree() {
+            p.tree.as_ref().and_then(|t| t.selected_path()).map(|path| path.file_name())
+        } else {
+            p.current_entry().filter(|e| e.name != "..").map(|e| e.name.clone())
+        };
+        if let Some(name) = name.filter(|n| !n.is_empty()) {
+            self.cmd.insert_arg(&shell_arg(&name));
+        }
+    }
+
+    /// Ctrl-H: open the Shell History window over the command line (a no-op when
+    /// nothing has been run yet).
+    fn open_shell_history(&mut self) {
+        let dlg = ShellHistoryDialog::new(&self.cmd.history);
+        if !dlg.is_empty() {
+            self.dialog = Some(Dialog::ShellHistory(dlg));
+        }
+    }
+
+    /// Begin a quick search with an empty query (Alt-S / Ctrl-S). The cursor
+    /// doesn't move until the first letter is typed (see `jump_quick_search`).
+    fn start_quick_search_empty(&mut self) {
+        self.quick_search = Some(QuickSearch { query: String::new() });
     }
 
     /// Move the active panel's cursor to the first entry (in display order)
@@ -443,27 +475,29 @@ impl AppState {
     }
 
     /// Handle a key while a quick search is active. Printable chars extend the
-    /// query and re-jump; Backspace trims it (exiting when it empties); Esc
-    /// cancels; Enter commits and falls through to the normal open-dir action;
-    /// any other key exits the search and is re-dispatched as a normal panel key.
+    /// query and re-jump; Backspace trims it (keeping the box open even when it
+    /// empties); Esc or a navigation key closes it; Enter commits and falls
+    /// through to the normal open-dir action; any other key exits the search and
+    /// is re-dispatched as a normal panel key.
     async fn handle_quick_search_key(&mut self, key: KeyEvent) -> Flow {
         match key.code {
+            // A modifier pressed on its own (Shift to reach an uppercase letter,
+            // Ctrl, Alt) is reported as its own key under the enhanced keyboard
+            // protocol — it must not dismiss the search.
+            KeyCode::Modifier(_) => {}
             KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
                 if let Some(qs) = self.quick_search.as_mut() {
                     qs.query.push(c);
                 }
                 self.jump_quick_search();
             }
+            // Backspace trims the query but keeps the (possibly empty) box open;
+            // only Esc or a navigation key dismisses it.
             KeyCode::Backspace => {
                 if let Some(qs) = self.quick_search.as_mut() {
                     qs.query.pop();
-                    if qs.query.is_empty() {
-                        self.quick_search = None;
-                    }
                 }
-                if self.quick_search.is_some() {
-                    self.jump_quick_search();
-                }
+                self.jump_quick_search();
             }
             KeyCode::Esc => {
                 self.quick_search = None;
@@ -538,14 +572,6 @@ impl AppState {
         };
         let other = self.other_index();
         self.panels[other].try_enter(path, backend, None).await;
-    }
-
-    fn cycle_sort(&mut self) {
-        let p = self.active_panel();
-        let cur = p.sort.key;
-        let idx = SortKey::ALL.iter().position(|k| *k == cur).unwrap_or(0);
-        p.sort.key = SortKey::ALL[(idx + 1) % SortKey::ALL.len()];
-        p.resort();
     }
 
     /// Handle a `cd` typed at the command line: change the active panel's
@@ -648,4 +674,17 @@ impl AppState {
         self.viewer = Some(v);
     }
 
+}
+
+/// Quote a filename for the command line only when it contains characters the
+/// shell would treat specially; plain names are inserted verbatim so the common
+/// case (`report.txt`) stays clean.
+fn shell_arg(name: &str) -> String {
+    let safe = !name.is_empty()
+        && name.chars().all(|c| c.is_alphanumeric() || "._-+,:@%=/~".contains(c));
+    if safe {
+        name.to_string()
+    } else {
+        crate::vfs::remote::shell_quote(name)
+    }
 }

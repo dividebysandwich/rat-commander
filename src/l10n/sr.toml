@@ -90,7 +90,6 @@ code = "sr"
 "Truecolor (gradients)" = "Truecolor (prelivi)"
 "Animations" = "Animacije"
 "System status widget" = "Vidžet stanja sistema"
-"Quick search (Alt+letter)" = "Brza pretraga (Alt+slovo)"
 "External editor" = "Spoljni uređivač"
 "External viewer" = "Spoljni pregledač"
 "Use internal viewer" = "Koristi interni pregledač"
@@ -284,3 +283,6 @@ code = "sr"
 
 # -- Tree view menu entry --
 "Tree v&iew" = "Prikaz stabla (&I)"
+
+# -- Shell history window --
+"Shell History" = "Istorija ljuske"

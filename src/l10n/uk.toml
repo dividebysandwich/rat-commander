@@ -90,7 +90,6 @@ code = "uk"
 "Truecolor (gradients)" = "Truecolor (градієнти)"
 "Animations" = "Анімації"
 "System status widget" = "Віджет стану системи"
-"Quick search (Alt+letter)" = "Швидкий пошук (Alt+буква)"
 "External editor" = "Зовнішній редактор"
 "External viewer" = "Зовнішній переглядач"
 "Use internal viewer" = "Використовувати внутрішній переглядач"
@@ -284,3 +283,6 @@ code = "uk"
 
 # -- Tree view menu entry --
 "Tree v&iew" = "Деревоподібний вигляд (&I)"
+
+# -- Shell history window --
+"Shell History" = "Історія оболонки"

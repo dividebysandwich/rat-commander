@@ -90,7 +90,6 @@ code = "zh-Hant"
 "Truecolor (gradients)" = "Truecolor（漸層）"
 "Animations" = "動畫"
 "System status widget" = "系統狀態小工具"
-"Quick search (Alt+letter)" = "快速搜尋 (Alt+字母)"
 "External editor" = "外部編輯器"
 "External viewer" = "外部檢視器"
 "Use internal viewer" = "使用內建檢視器"
@@ -284,3 +283,6 @@ code = "zh-Hant"
 
 # -- Tree view menu entry --
 "Tree v&iew" = "樹狀檢視(&I)"
+
+# -- Shell history window --
+"Shell History" = "Shell 歷史紀錄"

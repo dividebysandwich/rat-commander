@@ -14,13 +14,16 @@ Press **F1** inside the program to read this manual at any time.
 The window is divided into four areas, top to bottom:
 
 - **Menu bar** (top row) — `Left  File  Command  Options  Right`. Open it with
-  **F9** (or `Alt` + its first letter when quick search is disabled in Settings).
+  **F9** (or `Alt` + its first letter).
 - **Two panels** — the heart of the program. Each shows the contents of one
   directory. The **active panel** has a highlighted (brighter) border; it is the
   one your keystrokes act on. The other panel is usually the destination for
   copy/move operations.
 - **Command line** (second from bottom) — type a shell command here and press
-  Enter to run it in the active panel's directory.
+  Enter to run it in the active panel's directory. Recently run commands are
+  remembered: cycle them with `Alt-P` / `Alt-N`, or press `Alt-H` to pick one
+  from the **Shell History** window. `Alt-Enter` drops the name under the cursor
+  onto the command line.
 - **Function-key bar** (bottom row) — shows what F1–F10 do in the current
   context. The labels also work as buttons: click one to run it.
 
@@ -95,20 +98,27 @@ A quick **Alt** + digit does the same.
 - `Insert` / `Ctrl-T` — Tag the file and advance
 - `+` / `-` / `*` — Select / unselect a group (by wildcard) / invert the selection
 - `← →` — Move within the command line
+- `Alt-Enter` — Copy the name under the cursor onto the command line (appended,
+  and shell-quoted when it contains spaces or special characters)
+- `Alt-P` / `Alt-N` — Recall the previous / next command from history into the
+  command line, replacing its contents (press again to keep cycling)
+- `Alt-H` — Open the **Shell History** window just above the command line: move
+  with `↑`/`↓` (or `Alt-P`/`Alt-N`) and press `Enter` to copy the chosen command
+  into the command line **without running it**; `Esc` or `Alt-H` closes it
+- `Alt-S` / `Ctrl-S` — **Quick search** the active panel: opens an empty search
+  box; each letter you type filters, jumping the cursor to the first file whose
+  name starts with it (case-insensitive; `Shift` for uppercase works). The box
+  stays open even when empty — `Backspace` trims it, and only `Esc` or an arrow
+  key dismisses it. `Enter` opens the match
 - `Ctrl-O` — Toggle the persistent subshell (press again to return)
 - `Ctrl-R` — Re-read (refresh) the active panel
-- `Ctrl-S` / `Ctrl-E` — Cycle the sort key / toggle reverse order
+- `Ctrl-E` — Toggle reverse sort order (choose the sort key from the panel menu)
 - `Ctrl-W` — Cycle the view format (full → brief → details → tree)
 - `Ctrl-X` — Toggle vertical / horizontal split
 - `Ctrl-U` — Swap the two panels
 - `Alt-F1` / `Alt-F2` — Drive / connection picker for the left / right panel
-- `Alt` + a letter — **Quick search** the active panel (when enabled in
-  Settings): jump the cursor to the first file whose name starts with what you
-  type (case-insensitive). Keep typing to extend the prefix; `Esc` cancels,
-  `Enter` opens the match, and any other key ends the search and acts normally.
-  You can hold `Alt` down across the whole sequence (`Alt`+`h`+`i`+`g`). When
-  **disabled**, `Alt` + a menu letter (`F`/`O`/`C`/`L`/`R`) opens that top
-  menu instead — the classic Midnight-Commander behavior.
+- `Alt` + a menu letter (`F`/`O`/`C`/`L`/`R`) — Open that top menu (Midnight-
+  Commander style); `F9` opens the menu bar too
 
 ### Viewer (F3)
 
@@ -228,8 +238,8 @@ one from the **Left** / **Right** menu:
   pressing enter changes the opposite panel's directory and opens up the directory
   structure underneath.
 
-**Sorting** is configurable from the **Left** / **Right** menu, or cycled with
-**Ctrl-S** (key) and **Ctrl-E** (reverse): Unsorted, Name, Extension, Size,
+**Sorting** is configurable from the **Left** / **Right** menu; **Ctrl-E** toggles
+reverse order. The keys are: Unsorted, Name, Extension, Size,
 Modify / Access / Change time, or Inode — with reverse, case-sensitive and
 executables-first toggles.
 

@@ -1967,13 +1967,8 @@ async fn formatting_shows_busy_dialog_until_done() {
     assert!(st.mountview.as_ref().unwrap().status.contains("mkfs failed"));
 }
 
-#[tokio::test]
-async fn alt_letter_starts_quick_search_and_jumps_cursor() {
-    let (tx, _rx) = async_bridge::channel();
-    let mut st = AppState::new(tx);
-    st.init().await;
-    // Populate the active panel with a known set (sorted: hello, hi, high, yo).
-    let mk = |name: &str| VfsEntry {
+fn mk_entry(name: &str) -> VfsEntry {
+    VfsEntry {
         name: name.to_string(),
         kind: VfsKind::File,
         size: 0,
@@ -1986,108 +1981,132 @@ async fn alt_letter_starts_quick_search_and_jumps_cursor() {
         gid: None,
         symlink_target: None,
         symlink_broken: false,
-    };
-    st.panels[0].entries = vec![mk("yo"), mk("hello"), mk("hi"), mk("high")];
-    // Apply the panel's default (name) sort so the cursor positions are stable.
-    st.panels[0].resort();
-    // Cursor starts on the first entry (hello).
-    st.panels[0].cursor = 0;
-
-    // Alt+h seeds the query with 'h' and jumps to the first name starting 'h'.
-    st.handle_key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::ALT)).await;
-    assert_eq!(st.quick_search.as_ref().unwrap().query, "h");
-    assert_eq!(st.panels[0].entries[st.panels[0].cursor].name, "hello");
-
-    // Typing 'i' extends the prefix to "hi" → first match is "hi".
-    st.handle_key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE)).await;
-    assert_eq!(st.quick_search.as_ref().unwrap().query, "hi");
-    assert_eq!(st.panels[0].entries[st.panels[0].cursor].name, "hi");
-
-    // Adding 'g' → "hig" → "high".
-    st.handle_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE)).await;
-    assert_eq!(st.quick_search.as_ref().unwrap().query, "hig");
-    assert_eq!(st.panels[0].entries[st.panels[0].cursor].name, "high");
-
-    // Esc cancels the search (cursor stays on the last match).
-    st.handle_key(esc_key()).await;
-    assert!(st.quick_search.is_none());
-    assert_eq!(st.panels[0].entries[st.panels[0].cursor].name, "high");
+    }
 }
 
 #[tokio::test]
-async fn alt_letter_no_longer_opens_menus() {
+async fn alt_s_or_ctrl_s_starts_empty_quick_search_then_letters_extend() {
     let (tx, _rx) = async_bridge::channel();
     let mut st = AppState::new(tx);
     st.init().await;
-    // The old Alt+F/O/C/L/R menu shortcuts are gone: each now starts a quick
-    // search and never opens the pulldown menu.
+    st.panels[0].entries = vec![mk_entry("yo"), mk_entry("hello"), mk_entry("hi"), mk_entry("high")];
+    st.panels[0].resort(); // stable: hello, hi, high, yo
+    st.panels[0].cursor = 3; // start off the 'h' entries (on "yo")
+
+    // Alt-S opens an empty search box; the cursor hasn't moved yet.
+    st.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::ALT)).await;
+    assert_eq!(st.quick_search.as_ref().unwrap().query, "");
+    assert_eq!(st.panels[0].entries[st.panels[0].cursor].name, "yo");
+
+    // Every letter typed afterward is added to the box and jumps the cursor.
+    st.handle_key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE)).await;
+    assert_eq!(st.quick_search.as_ref().unwrap().query, "h");
+    assert_eq!(st.panels[0].entries[st.panels[0].cursor].name, "hello");
+    st.handle_key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE)).await;
+    assert_eq!(st.quick_search.as_ref().unwrap().query, "hi");
+    assert_eq!(st.panels[0].entries[st.panels[0].cursor].name, "hi");
+    st.handle_key(esc_key()).await;
+    assert!(st.quick_search.is_none());
+
+    // Ctrl-S starts it just the same.
+    st.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL)).await;
+    assert_eq!(st.quick_search.as_ref().unwrap().query, "");
+}
+
+#[tokio::test]
+async fn alt_menu_letter_opens_menu_but_alt_s_does_not() {
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.init().await;
+    // Alt + a menu letter (F/O/C/L/R) opens that top menu now, even with quick
+    // search enabled — Alt no longer starts a search on its own.
     for c in ['f', 'o', 'c', 'l', 'r'] {
         st.handle_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT)).await;
-        assert!(st.menu.is_none(), "Alt+{c} should not open a menu");
-        assert!(st.quick_search.is_some(), "Alt+{c} should start a quick search");
-        st.quick_search = None;
+        assert!(st.menu.is_some(), "Alt+{c} opens a menu");
+        assert!(st.quick_search.is_none(), "Alt+{c} does not start a search");
+        st.menu = None;
     }
-    // F9 still opens the menu (unchanged).
-    st.handle_key(KeyEvent::new(KeyCode::F(9), KeyModifiers::NONE)).await;
-    assert!(st.menu.is_some(), "F9 still opens the pulldown menu");
+    // Alt-S starts a search, not a menu ('s' isn't a menu letter anyway).
+    st.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::ALT)).await;
+    assert!(st.menu.is_none());
+    assert!(st.quick_search.is_some(), "Alt-S starts a quick search");
 }
 
 #[tokio::test]
 async fn quick_search_extends_while_alt_is_held() {
-    // Regression: holding Alt across the whole sequence (Alt+H, Alt+I, Alt+G)
-    // must extend the query, not restart it on each Alt+letter.
+    // Once the box is open, holding Alt across letters (Alt-H, Alt-I, Alt-G)
+    // must extend the query, not re-trigger anything.
     let (tx, _rx) = async_bridge::channel();
     let mut st = AppState::new(tx);
     st.init().await;
-    let mk = |name: &str| VfsEntry {
-        name: name.to_string(),
-        kind: VfsKind::File,
-        size: 0,
-        mtime: None,
-        atime: None,
-        ctime: None,
-        inode: None,
-        mode: Some(0o644),
-        uid: None,
-        gid: None,
-        symlink_target: None,
-        symlink_broken: false,
-    };
-    st.panels[0].entries = vec![mk("yo"), mk("hello"), mk("hi"), mk("high")];
+    st.panels[0].entries = vec![mk_entry("yo"), mk_entry("hello"), mk_entry("hi"), mk_entry("high")];
     st.panels[0].resort();
-    st.panels[0].cursor = 0;
+    st.panels[0].cursor = 3;
 
     let alt = KeyModifiers::ALT;
+    st.handle_key(KeyEvent::new(KeyCode::Char('s'), alt)).await; // open the box
     st.handle_key(KeyEvent::new(KeyCode::Char('h'), alt)).await;
     assert_eq!(st.quick_search.as_ref().unwrap().query, "h");
     assert_eq!(st.panels[0].entries[st.panels[0].cursor].name, "hello");
-    // Alt still held — must append, not restart.
     st.handle_key(KeyEvent::new(KeyCode::Char('i'), alt)).await;
     assert_eq!(st.quick_search.as_ref().unwrap().query, "hi");
-    assert_eq!(st.panels[0].entries[st.panels[0].cursor].name, "hi");
     st.handle_key(KeyEvent::new(KeyCode::Char('g'), alt)).await;
     assert_eq!(st.quick_search.as_ref().unwrap().query, "hig");
     assert_eq!(st.panels[0].entries[st.panels[0].cursor].name, "high");
 }
 
 #[tokio::test]
-async fn quick_search_disabled_restores_alt_menu_shortcuts() {
+async fn quick_search_survives_shift_and_empty_backspace() {
+    use ratatui::crossterm::event::ModifierKeyCode;
     let (tx, _rx) = async_bridge::channel();
     let mut st = AppState::new(tx);
     st.init().await;
-    st.config.quick_search = false;
+    st.panels[0].entries = vec![mk_entry("Alpha"), mk_entry("beta")];
+    st.panels[0].resort();
 
-    // Alt+F opens the File menu (index 1) in classic mode.
-    st.handle_key(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::ALT)).await;
-    assert!(st.menu.is_some(), "Alt+F opens a menu when quick search is off");
-    assert!(st.quick_search.is_none(), "no quick search started");
-    st.menu = None;
+    // Quick search is always available (no config toggle).
+    st.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::ALT)).await;
+    assert!(st.quick_search.is_some());
 
-    // A non-matching Alt letter just arms the hotkey hint (menu stays closed).
+    // A lone Shift key (reported on its own by the enhanced protocol) must NOT
+    // dismiss the search — otherwise uppercase letters can't be typed.
+    st.handle_key(KeyEvent::new(
+        KeyCode::Modifier(ModifierKeyCode::LeftShift),
+        KeyModifiers::SHIFT,
+    ))
+    .await;
+    assert!(st.quick_search.is_some(), "Shift alone does not close the search");
+    st.handle_key(KeyEvent::new(KeyCode::Char('A'), KeyModifiers::SHIFT)).await;
+    assert_eq!(st.quick_search.as_ref().unwrap().query, "A");
+
+    // Backspacing to empty keeps the (now empty) box open; pressing it again on
+    // an empty box still doesn't close it.
+    st.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE)).await;
+    assert_eq!(st.quick_search.as_ref().unwrap().query, "");
+    st.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE)).await;
+    assert!(st.quick_search.is_some(), "an empty box stays open");
+
+    // Esc dismisses.
+    st.handle_key(esc_key()).await;
+    assert!(st.quick_search.is_none());
+
+    // Re-open with Ctrl-S; an arrow key dismisses it (and moves the cursor).
+    st.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL)).await;
+    assert!(st.quick_search.is_some());
+    st.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)).await;
+    assert!(st.quick_search.is_none(), "an arrow key dismisses the search");
+}
+
+#[tokio::test]
+async fn alt_arms_and_disarms_the_hotkey_hint() {
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.init().await;
+    // A non-menu Alt letter just arms the menu-accelerator hint.
     st.handle_key(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::ALT)).await;
     assert!(st.alt_hint, "Alt arms the accelerator hint");
     assert!(st.menu.is_none());
-    // The next ordinary key clears the hint.
+    // The next ordinary key clears it.
     st.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)).await;
     assert!(!st.alt_hint, "a non-Alt key disarms the hint");
 }
@@ -2536,4 +2555,62 @@ async fn ctrl_o_is_disabled_for_a_nested_instance() {
     let flow = st.handle_key(ctrl_o).await;
     assert!(matches!(flow, Flow::Continue), "Ctrl-O must not open a subshell when nested");
     assert!(matches!(st.dialog, Some(Dialog::Message(_))), "it explains that the subshell is off");
+}
+
+/// Alt-Enter copies the name under the cursor to the command line; Alt-P recalls
+/// history; Alt-H opens the Shell History window and selecting recalls a command.
+#[tokio::test]
+async fn command_line_history_and_alt_enter() {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("rc_hist_{}_{nanos}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("report.txt"), b"x").unwrap();
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.panels[0].format = ViewFormat::Full;
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+    let i = st.panels[0].entries.iter().position(|e| e.name == "report.txt").unwrap();
+    st.panels[0].cursor = i;
+
+    let alt = |c| KeyEvent::new(c, KeyModifiers::ALT);
+    let alt_c = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT);
+    let plain = |c| KeyEvent::new(c, KeyModifiers::NONE);
+
+    // Alt-Enter appends the filename (with a trailing space).
+    st.handle_key(alt(KeyCode::Enter)).await;
+    assert_eq!(st.cmd.buffer, "report.txt ", "Alt-Enter copies the filename");
+    st.cmd.clear();
+
+    // Build some history by "running" commands (Enter records via take()).
+    for c in ["ls", "pwd"] {
+        st.cmd.set(c.to_string());
+        st.handle_key(plain(KeyCode::Enter)).await; // returns RunCommand; records history
+    }
+    assert_eq!(st.cmd.history, vec!["ls".to_string(), "pwd".to_string()]);
+
+    // Alt-P recalls the most recent, then the one before it.
+    st.handle_key(alt_c('p')).await;
+    assert_eq!(st.cmd.buffer, "pwd");
+    st.handle_key(alt_c('p')).await;
+    assert_eq!(st.cmd.buffer, "ls");
+    st.cmd.clear();
+
+    // Alt-H opens the Shell History window.
+    st.handle_key(alt_c('h')).await;
+    assert!(matches!(st.dialog, Some(Dialog::ShellHistory(_))), "Alt-H opens the history window");
+    // Up selects the older entry ("ls"); Enter recalls it without running.
+    st.handle_key(plain(KeyCode::Up)).await;
+    let flow = st.handle_key(plain(KeyCode::Enter)).await;
+    assert!(matches!(flow, Flow::Continue), "recall does not run the command");
+    assert!(st.dialog.is_none(), "the window closes");
+    assert_eq!(st.cmd.buffer, "ls", "the chosen command is on the command line");
+
+    std::fs::remove_dir_all(&root).ok();
 }

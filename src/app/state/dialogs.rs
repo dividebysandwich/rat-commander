@@ -203,7 +203,6 @@ impl AppState {
                 self.config.animation = v.animation;
                 self.config.system_status = v.system_status;
                 self.config.brief_columns = v.brief_columns;
-                self.config.quick_search = v.quick_search;
                 self.truecolor = v.truecolor;
                 // Apply the chosen language (store English as the default => None).
                 crate::l10n::set_active_by_name(&v.language);
@@ -241,6 +240,11 @@ impl AppState {
                 // Queue the executable to run in the foreground once the dialog
                 // closes (handle_dialog_result turns this into Flow::RunCommand).
                 self.pending_run = Some(run_program_cmd(&path));
+            }
+            Submit::RecallCommand(cmd) => {
+                // Copy the chosen history entry into the command line, ready to
+                // edit or run — never executed automatically.
+                self.cmd.set(cmd);
             }
             Submit::Mount { device, path } => {
                 // Create the mount point first if it doesn't exist (with consent).

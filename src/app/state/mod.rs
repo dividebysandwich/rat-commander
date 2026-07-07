@@ -10,7 +10,6 @@ use crate::diff::{DiffSignal, DiffView};
 use crate::disk::{DiskSignal, DiskView};
 use crate::mount::{MountSignal, MountView};
 use crate::net::{NetSignal, NetView, Pane};
-use crate::panel::sort::SortKey;
 use crate::panel::{Panel, ViewFormat};
 use crate::proc::{ProcSignal, ProcView};
 use crate::ui::cmdline::CommandLine;
@@ -19,8 +18,8 @@ use crate::ui::dialog::{
     ConfirmDialog, Dialog, DialogResult, DriveDialog,
     DupCriteria, FileBrowserDialog, FindDialog, FindParams, FlashTargetDialog, FormDialog, GotoDialog,
     ImageSaveDialog, InputDialog, InputPurpose, MessageDialog, MultiRenameDialog, OverwriteDialog,
-    ProgressDialog, SaveAsDialog, SearchReplaceDialog, SearchReplaceParams, SelectDialog, Submit,
-    UserMenuDialog,
+    ProgressDialog, SaveAsDialog, SearchReplaceDialog, SearchReplaceParams, SelectDialog,
+    ShellHistoryDialog, Submit, UserMenuDialog,
 };
 use crate::usermenu::{self, UserMenuEntry};
 use crate::ui::layout::SplitDir;

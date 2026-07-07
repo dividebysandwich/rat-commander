@@ -90,7 +90,6 @@ code = "es"
 "Truecolor (gradients)" = "Truecolor (degradados)"
 "Animations" = "Animaciones"
 "System status widget" = "Widget de estado del sistema"
-"Quick search (Alt+letter)" = "Búsqueda rápida (Alt+letra)"
 "External editor" = "Editor externo"
 "External viewer" = "Visor externo"
 "Use internal viewer" = "Usar el visor interno"
@@ -284,3 +283,6 @@ code = "es"
 
 # -- Tree view menu entry --
 "Tree v&iew" = "Vista de árbol (&I)"
+
+# -- Shell history window --
+"Shell History" = "Historial del shell"

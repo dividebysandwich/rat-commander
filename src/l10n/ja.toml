@@ -90,7 +90,6 @@ code = "ja"
 "Truecolor (gradients)" = "Truecolor（グラデーション）"
 "Animations" = "アニメーション"
 "System status widget" = "システム状態ウィジェット"
-"Quick search (Alt+letter)" = "クイック検索 (Alt+文字)"
 "External editor" = "外部エディタ"
 "External viewer" = "外部ビューア"
 "Use internal viewer" = "内蔵ビューアを使う"
@@ -284,3 +283,6 @@ code = "ja"
 
 # -- Tree view menu entry --
 "Tree v&iew" = "ツリー表示(&I)"
+
+# -- Shell history window --
+"Shell History" = "シェル履歴"

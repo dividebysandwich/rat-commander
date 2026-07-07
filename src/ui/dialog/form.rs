@@ -34,7 +34,7 @@ fn graphics_pref(label: &str) -> String {
 const SETTINGS_GROUPS: &[(&str, usize)] = &[
     ("Language", 2),
     ("Edit/View", 4),
-    ("Visual", 7),
+    ("Visual", 6),
 ];
 
 // ---------------------------------------------------------------------------
@@ -276,7 +276,6 @@ impl FormDialog {
                 (1..=6).map(|n| n.to_string()).collect(),
                 &cfg.brief_columns.to_string(),
             ),
-            Field::check("Quick search (Alt+letter)", cfg.quick_search),
         ]);
         FormDialog {
             title: "Settings".to_string(),
@@ -677,7 +676,6 @@ impl FormDialog {
                 system_status: fields[9].as_bool(),
                 graphics: graphics_pref(fields[10].as_text()),
                 brief_columns: fields[11].as_text().parse().unwrap_or(2).clamp(1, 6),
-                quick_search: fields[12].as_bool(),
             }),
             FormPurpose::Confirmations => Submit::Confirmations(ConfirmValues {
                 delete: fields[0].as_bool(),

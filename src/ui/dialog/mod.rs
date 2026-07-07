@@ -15,6 +15,7 @@ mod find;
 mod flash;
 mod form;
 mod goto;
+mod history;
 mod input;
 mod message;
 mod multirename;
@@ -48,6 +49,7 @@ pub use find::{FindDialog, FindParams};
 pub use flash::{FileBrowserDialog, FlashTargetDialog, ImageSaveDialog};
 pub use form::FormDialog;
 pub use goto::GotoDialog;
+pub use history::ShellHistoryDialog;
 pub use input::{InputDialog, InputPurpose};
 pub use message::MessageDialog;
 pub use multirename::MultiRenameDialog;
@@ -101,6 +103,8 @@ pub enum Dialog {
     ChecksumResult(ChecksumResultDialog),
     /// The list of running background transfers.
     BackgroundOps(BackgroundOpsDialog),
+    /// The Ctrl-H command history window, shown above the command line.
+    ShellHistory(ShellHistoryDialog),
 }
 
 /// What the app should do after a dialog handles a key.
@@ -183,6 +187,9 @@ pub enum Submit {
     OpenWith(std::path::PathBuf),
     /// Run a local executable file directly in the foreground (confirmed).
     RunProgram(std::path::PathBuf),
+    /// Copy a command chosen from the Shell History window into the command
+    /// line (without running it).
+    RecallCommand(String),
     /// Mount `device` at `path` (disk manager); the app handles create-if-missing.
     Mount { device: String, path: String },
     /// Create the (missing) mount point and then mount.
@@ -301,8 +308,6 @@ pub struct SettingsValues {
     pub graphics: String,
     /// Number of columns in the Brief view.
     pub brief_columns: usize,
-    /// Whether Alt+letter starts a quick search (true) or opens the top menu.
-    pub quick_search: bool,
 }
 
 /// Values collected by the Confirmations form (which actions need confirming).
@@ -349,6 +354,7 @@ impl Dialog {
             Dialog::Compare(d) => d.handle_key(key),
             Dialog::ChecksumResult(d) => d.handle_key(key),
             Dialog::BackgroundOps(d) => d.handle_key(key),
+            Dialog::ShellHistory(d) => d.handle_key(key),
         }
     }
 
@@ -381,6 +387,7 @@ impl Dialog {
             Dialog::Compare(d) => d.render(f, area, theme, gfx),
             Dialog::ChecksumResult(d) => d.render(f, area, theme, gfx),
             Dialog::BackgroundOps(d) => d.render(f, area, theme),
+            Dialog::ShellHistory(d) => d.render(f, area, theme),
         }
     }
 

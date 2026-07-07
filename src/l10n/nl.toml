@@ -90,7 +90,6 @@ code = "nl"
 "Truecolor (gradients)" = "Truecolor (verlopen)"
 "Animations" = "Animaties"
 "System status widget" = "Systeemstatus-widget"
-"Quick search (Alt+letter)" = "Snelzoeken (Alt+letter)"
 "External editor" = "Externe editor"
 "External viewer" = "Externe viewer"
 "Use internal viewer" = "Interne viewer gebruiken"
@@ -284,3 +283,6 @@ code = "nl"
 
 # -- Tree view menu entry --
 "Tree v&iew" = "Boomweergave (&I)"
+
+# -- Shell history window --
+"Shell History" = "Shell-geschiedenis"

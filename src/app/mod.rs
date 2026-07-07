@@ -474,7 +474,8 @@ mod tests {
         // real handler (never SIG_DFL) keeps the test process alive even if a
         // raise lands outside the shielded window.
         let prev = unsafe {
-            nix::libc::signal(nix::libc::SIGINT, count_sigint as nix::libc::sighandler_t)
+            let handler = count_sigint as extern "C" fn(nix::libc::c_int);
+            nix::libc::signal(nix::libc::SIGINT, handler as nix::libc::sighandler_t)
         };
         SIGINT_HITS.store(0, Ordering::SeqCst);
 

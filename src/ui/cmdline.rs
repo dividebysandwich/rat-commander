@@ -42,6 +42,33 @@ impl CommandLine {
         self.history_pos = None;
     }
 
+    /// Insert a whole string at the cursor (e.g. a filename from Alt-Enter).
+    pub fn insert_str(&mut self, s: &str) {
+        let b = self.byte_at(self.cursor);
+        self.buffer.insert_str(b, s);
+        self.cursor += s.chars().count();
+        self.history_pos = None;
+    }
+
+    /// Replace the buffer with `s`, placing the caret at its end (used to recall
+    /// a command from the Shell History window without running it).
+    pub fn set(&mut self, s: String) {
+        self.cursor = s.chars().count();
+        self.buffer = s;
+        self.history_pos = None;
+    }
+
+    /// Insert `arg` at the cursor as a command-line argument (Alt-Enter): a
+    /// separating space is added before it when the preceding character isn't
+    /// already whitespace, and a trailing space is appended so another argument
+    /// can follow.
+    pub fn insert_arg(&mut self, arg: &str) {
+        let needs_lead = self.cursor > 0
+            && self.buffer.chars().nth(self.cursor - 1).is_some_and(|c| !c.is_whitespace());
+        let text = if needs_lead { format!(" {arg} ") } else { format!("{arg} ") };
+        self.insert_str(&text);
+    }
+
     pub fn backspace(&mut self) {
         if self.cursor > 0 {
             let start = self.byte_at(self.cursor - 1);
@@ -88,7 +115,9 @@ impl CommandLine {
         let cmd = std::mem::take(&mut self.buffer);
         self.cursor = 0;
         self.history_pos = None;
-        if !cmd.trim().is_empty() {
+        // Record it, collapsing an immediate repeat of the previous command so
+        // the history (and Ctrl-P/Ctrl-N cycling) isn't cluttered with dupes.
+        if !cmd.trim().is_empty() && self.history.last() != Some(&cmd) {
             self.history.push(cmd.clone());
         }
         cmd
@@ -142,4 +171,69 @@ pub fn render(
     f.render_widget(Paragraph::new(line), area);
     let prompt_w = prompt.chars().count() as u16;
     Position::new(area.x + prompt_w + cmd.cursor as u16, area.y)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CommandLine;
+
+    #[test]
+    fn take_records_history_and_collapses_repeats() {
+        let mut c = CommandLine::new();
+        c.set("ls".to_string());
+        assert_eq!(c.take(), "ls");
+        c.set("ls".to_string());
+        c.take(); // immediate repeat is not re-recorded
+        c.set("pwd".to_string());
+        c.take();
+        assert_eq!(c.history, vec!["ls".to_string(), "pwd".to_string()]);
+        // Blank commands are never recorded.
+        c.set("   ".to_string());
+        c.take();
+        assert_eq!(c.history.len(), 2);
+    }
+
+    #[test]
+    fn ctrl_p_and_ctrl_n_cycle_history() {
+        let mut c = CommandLine::new();
+        for cmd in ["one", "two", "three"] {
+            c.set(cmd.to_string());
+            c.take();
+        }
+        // history_prev walks backward from the newest.
+        c.history_prev();
+        assert_eq!(c.buffer, "three");
+        c.history_prev();
+        assert_eq!(c.buffer, "two");
+        c.history_prev();
+        assert_eq!(c.buffer, "one");
+        c.history_prev(); // clamped at the oldest
+        assert_eq!(c.buffer, "one");
+        // history_next walks forward, then clears past the newest.
+        c.history_next();
+        assert_eq!(c.buffer, "two");
+        c.history_next();
+        assert_eq!(c.buffer, "three");
+        c.history_next();
+        assert_eq!(c.buffer, "");
+    }
+
+    #[test]
+    fn insert_arg_spaces_and_quotes() {
+        let mut c = CommandLine::new();
+        c.set("cp".to_string()); // caret at end, no trailing space
+        c.insert_arg("a.txt");
+        assert_eq!(c.buffer, "cp a.txt "); // leading + trailing space
+        c.insert_arg("b.txt");
+        assert_eq!(c.buffer, "cp a.txt b.txt "); // no double space after a space
+        assert_eq!(c.cursor, c.buffer.chars().count());
+    }
+
+    #[test]
+    fn set_places_caret_at_end() {
+        let mut c = CommandLine::new();
+        c.set("echo hi".to_string());
+        assert_eq!(c.cursor, 7);
+        assert_eq!(c.buffer, "echo hi");
+    }
 }

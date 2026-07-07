@@ -94,7 +94,6 @@ rtl = true
 "Truecolor (gradients)" = "Truecolor (تدرجات)"
 "Animations" = "الرسوم المتحركة"
 "System status widget" = "أداة حالة النظام"
-"Quick search (Alt+letter)" = "بحث سريع (Alt+حرف)"
 "External editor" = "محرر خارجي"
 "External viewer" = "عارض خارجي"
 "Use internal viewer" = "استخدام العارض الداخلي"
@@ -288,3 +287,6 @@ rtl = true
 
 # -- Tree view menu entry --
 "Tree v&iew" = "عرض شجري (&I)"
+
+# -- Shell history window --
+"Shell History" = "سجل الصدفة"

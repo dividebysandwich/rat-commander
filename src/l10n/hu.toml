@@ -90,7 +90,6 @@ code = "hu"
 "Truecolor (gradients)" = "Truecolor (átmenetek)"
 "Animations" = "Animációk"
 "System status widget" = "Rendszerállapot-widget"
-"Quick search (Alt+letter)" = "Gyorskeresés (Alt+betű)"
 "External editor" = "Külső szerkesztő"
 "External viewer" = "Külső megjelenítő"
 "Use internal viewer" = "Belső megjelenítő használata"
@@ -284,3 +283,6 @@ code = "hu"
 
 # -- Tree view menu entry --
 "Tree v&iew" = "Fa nézet (&I)"
+
+# -- Shell history window --
+"Shell History" = "Shell-előzmények"

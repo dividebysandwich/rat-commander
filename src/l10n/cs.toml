@@ -90,7 +90,6 @@ code = "cs"
 "Truecolor (gradients)" = "Truecolor (přechody)"
 "Animations" = "Animace"
 "System status widget" = "Widget stavu systému"
-"Quick search (Alt+letter)" = "Rychlé hledání (Alt+písmeno)"
 "External editor" = "Externí editor"
 "External viewer" = "Externí prohlížeč"
 "Use internal viewer" = "Použít interní prohlížeč"
@@ -284,3 +283,6 @@ code = "cs"
 
 # -- Tree view menu entry --
 "Tree v&iew" = "Stromové zobrazení (&I)"
+
+# -- Shell history window --
+"Shell History" = "Historie shellu"
