@@ -8,6 +8,10 @@ use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
+/// Fallback history cap for a bare `CommandLine` (mirrors `Config::default`);
+/// the app overwrites `history_max` from the loaded config.
+const DEFAULT_HISTORY_MAX: usize = 100;
+
 /// State for the persistent command line, including edit buffer and history.
 #[derive(Default)]
 pub struct CommandLine {
@@ -15,12 +19,15 @@ pub struct CommandLine {
     /// Caret position as a char index.
     pub cursor: usize,
     pub history: Vec<String>,
+    /// Maximum number of entries kept in `history` (0 = disabled); set from the
+    /// `command_history_max` config value.
+    pub history_max: usize,
     history_pos: Option<usize>,
 }
 
 impl CommandLine {
     pub fn new() -> Self {
-        CommandLine::default()
+        CommandLine { history_max: DEFAULT_HISTORY_MAX, ..Default::default() }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -116,9 +123,14 @@ impl CommandLine {
         self.cursor = 0;
         self.history_pos = None;
         // Record it, collapsing an immediate repeat of the previous command so
-        // the history (and Ctrl-P/Ctrl-N cycling) isn't cluttered with dupes.
+        // the history (and Alt-P/Alt-N cycling) isn't cluttered with dupes, then
+        // cap it to the configured maximum (dropping the oldest entries).
         if !cmd.trim().is_empty() && self.history.last() != Some(&cmd) {
             self.history.push(cmd.clone());
+            if self.history.len() > self.history_max {
+                let excess = self.history.len() - self.history_max;
+                self.history.drain(..excess);
+            }
         }
         cmd
     }
@@ -227,6 +239,24 @@ mod tests {
         c.insert_arg("b.txt");
         assert_eq!(c.buffer, "cp a.txt b.txt "); // no double space after a space
         assert_eq!(c.cursor, c.buffer.chars().count());
+    }
+
+    #[test]
+    fn history_is_capped_at_history_max() {
+        let mut c = CommandLine::new();
+        c.history_max = 3;
+        for cmd in ["a", "b", "c", "d", "e"] {
+            c.set(cmd.to_string());
+            c.take();
+        }
+        // Only the 3 most recent survive; the oldest were dropped.
+        assert_eq!(c.history, vec!["c".to_string(), "d".to_string(), "e".to_string()]);
+        // A max of 0 disables history entirely.
+        let mut c = CommandLine::new();
+        c.history_max = 0;
+        c.set("x".to_string());
+        c.take();
+        assert!(c.history.is_empty());
     }
 
     #[test]

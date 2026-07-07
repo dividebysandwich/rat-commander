@@ -2572,6 +2572,7 @@ async fn command_line_history_and_alt_enter() {
     let (tx, _rx) = async_bridge::channel();
     let mut st = AppState::new(tx);
     st.active = 0;
+    st.cmd.history.clear(); // ignore any real persisted history on this machine
     st.panels[0].format = ViewFormat::Full;
     st.panels[0].cwd = VfsPath::local(&root);
     st.panels[0].backend = st.registry.local();

@@ -21,9 +21,9 @@ The window is divided into four areas, top to bottom:
   copy/move operations.
 - **Command line** (second from bottom) — type a shell command here and press
   Enter to run it in the active panel's directory. Recently run commands are
-  remembered: cycle them with `Alt-P` / `Alt-N`, or press `Alt-H` to pick one
-  from the **Shell History** window. `Alt-Enter` drops the name under the cursor
-  onto the command line.
+  remembered across sessions: cycle them with `Alt-P` / `Alt-N`, or press `Alt-H`
+  to pick one from the **Shell History** window. `Alt-Enter` drops the name under
+  the cursor onto the command line.
 - **Function-key bar** (bottom row) — shows what F1–F10 do in the current
   context. The labels also work as buttons: click one to run it.
 
@@ -794,7 +794,11 @@ Configuration files live in your platform config directory
 - **`config.toml`** — written by the Settings dialog. Holds the active theme and
   language, the truecolor / animation / status-widget toggles, the external
   editor and viewer commands, the confirmation flags, and the remembered remote
-  servers (without passwords).
+  servers (without passwords). It also holds `command_history_max` (default
+  `100`) — the maximum number of command-line entries kept in the persistent
+  history; set it to `0` to disable history.
+- **`history`** — the persistent command-line history, one command per line
+  (recalled with `Alt-P` / `Alt-N` / `Alt-H`), trimmed to `command_history_max`.
 - **`themes.toml`** — your editable themes (see *Themes*).
 - **`lang/`** — the localization files, one TOML per language (see *Language*).
 - **`menu`** — the F2 user menu (see below).

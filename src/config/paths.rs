@@ -23,3 +23,9 @@ pub fn themes_file() -> Option<PathBuf> {
 pub fn lang_dir() -> Option<PathBuf> {
     ProjectDirs::from("", "", "rat-commander").map(|d| d.config_dir().join("lang"))
 }
+
+/// Path to the persistent command-line history file (`history`, one command per
+/// line), or `None` if the config directory can't be determined.
+pub fn history_file() -> Option<PathBuf> {
+    ProjectDirs::from("", "", "rat-commander").map(|d| d.config_dir().join("history"))
+}

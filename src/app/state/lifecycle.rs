@@ -21,11 +21,15 @@ impl AppState {
         // can't provide its own subshell, so it's disabled. The warning dialog is
         // raised later (see `warn_nested_subshell`), once the UI language loads.
         let subshell_disabled = crate::shell::in_subshell();
+        // Restore the persistent command history (capped at the configured max).
+        let mut cmd = CommandLine::new();
+        cmd.history_max = config.command_history_max;
+        cmd.history = crate::config::load_command_history(config.command_history_max);
         AppState {
             panels: [left, right],
             active: 0,
             split: SplitDir::Vertical,
-            cmd: CommandLine::new(),
+            cmd,
             dialog: None,
             viewer: None,
             editor: None,
@@ -87,6 +91,12 @@ impl AppState {
             };
         }
         let _ = self.config.save();
+    }
+
+    /// Persist the command-line history to disk (capped at the configured max),
+    /// so recent commands survive across sessions. Called on exit.
+    pub fn persist_command_history(&self) {
+        crate::config::save_command_history(&self.cmd.history, self.config.command_history_max);
     }
 
     /// Periodic tick (~100 ms): advances animation and samples system stats.

@@ -98,6 +98,10 @@ pub struct Config {
     /// Number of columns in the Brief (multi-column names) view.
     /// (Missing from an old config → the struct default, `2`.)
     pub brief_columns: usize,
+    /// Maximum number of command-line entries kept in the persistent history
+    /// (`history` file next to this config). `0` disables it. (Missing from an
+    /// old config → the struct default, `100`.)
+    pub command_history_max: usize,
     /// Per-panel view format and sort order, remembered across sessions
     /// (index 0 = left panel, 1 = right panel).
     #[serde(default)]
@@ -128,6 +132,7 @@ impl Default for Config {
             animation: true,
             system_status: true,
             brief_columns: 2,
+            command_history_max: 100,
             panels: [PanelView::default(); 2],
             recent_remotes: Vec::new(),
         }
@@ -178,6 +183,47 @@ impl Config {
         self.recent_remotes.insert(0, entry);
         self.recent_remotes.truncate(20);
     }
+}
+
+/// Load the persisted command-line history (oldest first), keeping at most the
+/// `max` most-recent entries. A missing file or any error yields an empty list.
+pub fn load_command_history(max: usize) -> Vec<String> {
+    paths::history_file().map(|p| load_history_from(&p, max)).unwrap_or_default()
+}
+
+/// Persist the command-line history (oldest first), one entry per line, keeping
+/// at most the `max` most-recent entries. Best-effort; errors are ignored.
+pub fn save_command_history(history: &[String], max: usize) {
+    if let Some(p) = paths::history_file() {
+        save_history_to(&p, history, max);
+    }
+}
+
+fn load_history_from(path: &std::path::Path, max: usize) -> Vec<String> {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let mut lines: Vec<String> =
+        text.lines().filter(|l| !l.trim().is_empty()).map(str::to_string).collect();
+    if lines.len() > max {
+        lines.drain(..lines.len() - max);
+    }
+    lines
+}
+
+fn save_history_to(path: &std::path::Path, history: &[String], max: usize) {
+    // One command per line, so skip entries with embedded newlines (a pasted
+    // multi-line command) and blank entries.
+    let clean: Vec<&String> = history
+        .iter()
+        .filter(|e| !e.trim().is_empty() && !e.contains(['\n', '\r']))
+        .collect();
+    let start = clean.len().saturating_sub(max);
+    let body: String = clean[start..].iter().map(|e| format!("{e}\n")).collect();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(path, body);
 }
 
 #[cfg(test)]
@@ -243,5 +289,35 @@ mod tests {
             1,
             "no duplicate"
         );
+    }
+
+    #[test]
+    fn command_history_round_trips_and_caps_at_max() {
+        let dir = std::env::temp_dir().join(format!("rc_hist_cfg_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("history");
+
+        let hist: Vec<String> = ["one", "two", "three", "four"].iter().map(|s| s.to_string()).collect();
+        // Save keeps only the most-recent `max` entries…
+        save_history_to(&path, &hist, 2);
+        assert_eq!(load_history_from(&path, 10), vec!["three".to_string(), "four".to_string()]);
+        // …and load also caps (e.g. after the max was lowered).
+        save_history_to(&path, &hist, 10);
+        assert_eq!(load_history_from(&path, 1), vec!["four".to_string()]);
+        // Blank / multi-line entries are not persisted; a missing file → empty.
+        save_history_to(&path, &["ok".into(), "  ".into(), "a\nb".into()], 100);
+        assert_eq!(load_history_from(&path, 100), vec!["ok".to_string()]);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(load_history_from(&path, 100).is_empty());
+    }
+
+    #[test]
+    fn config_ignores_unknown_and_missing_fields() {
+        // An old config without `command_history_max` gets the default; an
+        // unknown key (e.g. the removed `quick_search`) is ignored.
+        let c: Config = toml::from_str("quick_search = true\nbrief_columns = 3\n").unwrap();
+        assert_eq!(c.command_history_max, 100);
+        assert_eq!(c.brief_columns, 3);
     }
 }
