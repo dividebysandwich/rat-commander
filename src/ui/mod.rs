@@ -8,6 +8,7 @@ pub mod hexcolor;
 pub mod layout;
 pub mod menu;
 pub mod menubar;
+pub mod textedit;
 pub mod theme;
 
 use crate::app::state::AppState;

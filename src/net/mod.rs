@@ -547,32 +547,9 @@ impl NetView {
         }
     }
 
-    /// Minimal in-place edit of the filter buffer (insert/backspace/caret).
+    /// Edit the filter buffer with the shared Emacs/readline editor.
     fn edit_filter(&mut self, key: KeyEvent) {
-        let byte_at = |s: &str, idx: usize| s.char_indices().nth(idx).map(|(b, _)| b).unwrap_or(s.len());
-        match key.code {
-            KeyCode::Char(c) => {
-                let b = byte_at(&self.filter, self.filter_cursor);
-                self.filter.insert(b, c);
-                self.filter_cursor += 1;
-            }
-            KeyCode::Backspace if self.filter_cursor > 0 => {
-                let b = byte_at(&self.filter, self.filter_cursor - 1);
-                self.filter.remove(b);
-                self.filter_cursor -= 1;
-            }
-            KeyCode::Delete if self.filter_cursor < self.filter.chars().count() => {
-                let b = byte_at(&self.filter, self.filter_cursor);
-                self.filter.remove(b);
-            }
-            KeyCode::Left => self.filter_cursor = self.filter_cursor.saturating_sub(1),
-            KeyCode::Right if self.filter_cursor < self.filter.chars().count() => {
-                self.filter_cursor += 1
-            }
-            KeyCode::Home => self.filter_cursor = 0,
-            KeyCode::End => self.filter_cursor = self.filter.chars().count(),
-            _ => {}
-        }
+        let _ = crate::ui::textedit::edit_key(&mut self.filter, &mut self.filter_cursor, key);
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> NetSignal {

@@ -25,71 +25,46 @@ pub(crate) fn set_text_field(field: &mut Field, val: &str) {
     }
 }
 
-/// Apply a single editing key to a text buffer + char cursor.
+/// Apply a single editing key to a text buffer + char cursor. Every dialog input
+/// routes through the shared Emacs/readline editor — movement, word motions,
+/// kill/yank and the mark (see [`crate::ui::textedit`]).
 pub(crate) fn edit_text(value: &mut String, cursor: &mut usize, key: KeyEvent) {
-    let byte_at = |s: &str, idx: usize| {
-        s.char_indices().nth(idx).map(|(b, _)| b).unwrap_or(s.len())
-    };
-    match key.code {
-        KeyCode::Char(c) => {
-            let b = byte_at(value, *cursor);
-            value.insert(b, c);
-            *cursor += 1;
-        }
-        KeyCode::Backspace => {
-            if *cursor > 0 {
-                let b = byte_at(value, *cursor - 1);
-                value.remove(b);
-                *cursor -= 1;
-            }
-        }
-        KeyCode::Delete => {
-            if *cursor < value.chars().count() {
-                let b = byte_at(value, *cursor);
-                value.remove(b);
-            }
-        }
-        KeyCode::Left => *cursor = cursor.saturating_sub(1),
-        KeyCode::Right => {
-            if *cursor < value.chars().count() {
-                *cursor += 1;
-            }
-        }
-        KeyCode::Home => *cursor = 0,
-        KeyCode::End => *cursor = value.chars().count(),
-        _ => {}
-    }
+    let _ = crate::ui::textedit::edit_key(value, cursor, key);
 }
 
 /// Like [`edit_text`], but honours a "whole field marked" flag (as set when a
-/// field opens pre-filled). While marked, the first typed character replaces the
-/// text, a Backspace/Delete clears it, and any cursor move just drops the mark —
-/// mirroring the copy/rename input's select-all-on-open behaviour.
+/// field opens pre-filled). While marked, typing a character replaces the text, a
+/// plain Backspace/Delete clears it, and any other key (a cursor move or an
+/// Emacs editing chord) just drops the mark — mirroring the copy/rename input's
+/// select-all-on-open behaviour.
 pub(crate) fn edit_text_marked(
     value: &mut String,
     cursor: &mut usize,
     selected: &mut bool,
     key: KeyEvent,
 ) {
+    use ratatui::crossterm::event::KeyModifiers;
     if *selected {
+        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        let alt = key.modifiers.contains(KeyModifiers::ALT);
         match key.code {
-            KeyCode::Char(_) => {
+            // A typed character (plain, or AltGr = Ctrl+Alt) replaces the value.
+            KeyCode::Char(_) if ctrl == alt => {
                 value.clear();
                 *cursor = 0;
-                *selected = false;
                 // fall through to insert the typed character
             }
-            KeyCode::Backspace | KeyCode::Delete => {
+            // A plain Backspace/Delete over the whole selection just clears it.
+            KeyCode::Backspace | KeyCode::Delete if !ctrl && !alt => {
                 value.clear();
                 *cursor = 0;
                 *selected = false;
                 return;
             }
-            KeyCode::Left | KeyCode::Right | KeyCode::Home | KeyCode::End => {
-                *selected = false;
-            }
             _ => {}
         }
+        // Any key ends the "whole field marked" state.
+        *selected = false;
     }
     edit_text(value, cursor, key);
 }

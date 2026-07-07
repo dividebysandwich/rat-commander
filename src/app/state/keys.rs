@@ -63,6 +63,9 @@ impl AppState {
             if alt
                 && let KeyCode::Char(c) = key.code
                 && let Some(idx) = menu_title_index(c)
+                // Alt-F is word-forward while editing a non-empty command line;
+                // it only opens the File menu when the line is empty.
+                && (c != 'f' || self.cmd.is_empty())
             {
                 self.menu = Some(MenuBarState::new(idx, &self.session_list(), self.side_remote()));
                 self.alt_hint = false;
@@ -275,6 +278,15 @@ impl AppState {
                 }
                 _ => {}
             }
+        }
+
+        // Emacs/readline editing of the command line (the same set every dialog
+        // input honours). C-E, C-W and Alt-F only edit when the line has text;
+        // when empty they keep their panel meaning (reverse sort / cycle view /
+        // File menu), handled below and in `handle_key`.
+        if cmdline_edit_wanted(key, self.cmd.is_empty()) {
+            self.cmd.apply_readline(key);
+            return Flow::Continue;
         }
 
         match key.code {
@@ -674,6 +686,31 @@ impl AppState {
         self.viewer = Some(v);
     }
 
+}
+
+/// Whether `key` should be handled as Emacs/readline editing of the command line
+/// right now. The three keys that double as panel shortcuts (C-E reverse sort,
+/// C-W cycle view, Alt-F File menu) only edit when the line is non-empty; when
+/// empty they fall through to their panel meaning. Plain characters, Backspace,
+/// Delete and the arrows are left to the main match (which has its own
+/// empty-line special cases), so they are deliberately excluded here.
+fn cmdline_edit_wanted(key: KeyEvent, empty: bool) -> bool {
+    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+    let alt = key.modifiers.contains(KeyModifiers::ALT);
+    match key.code {
+        // Always-editing Ctrl chords: begin/end, char left/right, delete char,
+        // kill-to-end, yank, set-mark.
+        KeyCode::Char('a' | 'b' | 'f' | 'd' | 'k' | 'y' | '@' | ' ') if ctrl && !alt => true,
+        // C-H (delete prev char) and Alt-C-H (delete word back).
+        KeyCode::Char('h') if ctrl => true,
+        // Alt word motions / copy region.
+        KeyCode::Char('b' | 'w') if alt && !ctrl => true,
+        KeyCode::Backspace if alt => true,
+        // Panel-shortcut conflicts: edit only with text present.
+        KeyCode::Char('e' | 'w') if ctrl && !alt => !empty,
+        KeyCode::Char('f') if alt && !ctrl => !empty,
+        _ => false,
+    }
 }
 
 /// Quote a filename for the command line only when it contains characters the

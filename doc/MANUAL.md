@@ -120,6 +120,29 @@ A quick **Alt** + digit does the same.
 - `Alt` + a menu letter (`F`/`O`/`C`/`L`/`R`) — Open that top menu (Midnight-
   Commander style); `F9` opens the menu bar too
 
+### Editing text input lines
+
+The command line and every dialog input field (copy/move destination, make
+directory, find, rename, connection details, …) share the same Emacs/readline
+key bindings:
+
+- `Ctrl-A` / `Ctrl-E` — Move to the beginning / end of the line
+- `Ctrl-B` / `Ctrl-F` — Move one character left / right
+- `Alt-B` / `Alt-F` — Move one word backward / forward
+- `Ctrl-H` / `Backspace` — Delete the previous character
+- `Ctrl-D` / `Delete` — Delete the character under the cursor
+- `Alt-Backspace` / `Alt-Ctrl-H` — Delete the previous word
+- `Ctrl-@` (or `Ctrl-Space`) — Set the mark for cutting
+- `Ctrl-W` — Cut the text between the mark and the cursor into the kill buffer
+- `Alt-W` — Copy that text into the kill buffer (without removing it)
+- `Ctrl-K` — Kill (cut) from the cursor to the end of the line
+- `Ctrl-Y` — Yank (paste) the kill buffer at the cursor
+
+The kill buffer is shared, so text cut in one field can be yanked into another.
+On the **command line only**, `Ctrl-E`, `Ctrl-W` and `Alt-F` keep their panel
+meaning (reverse sort / cycle view / File menu) while the line is empty, and
+switch to editing as soon as it has text.
+
 ### Viewer (F3)
 
 - `F2` — Toggle line wrap

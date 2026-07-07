@@ -2615,3 +2615,93 @@ async fn command_line_history_and_alt_enter() {
 
     std::fs::remove_dir_all(&root).ok();
 }
+
+/// The command line supports Emacs/readline editing: cursor motions, word
+/// motions, kill-to-end and yank.
+#[tokio::test]
+async fn command_line_readline_editing() {
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.init().await;
+    st.cmd.history.clear();
+    let plain = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
+    let ctrl = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL);
+    let alt = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT);
+
+    for c in "echo hello".chars() {
+        st.handle_key(plain(c)).await;
+    }
+    assert_eq!(st.cmd.buffer, "echo hello");
+    assert_eq!(st.cmd.cursor, 10);
+
+    // C-a to start, C-e to end.
+    st.handle_key(ctrl('a')).await;
+    assert_eq!(st.cmd.cursor, 0);
+    st.handle_key(ctrl('e')).await;
+    assert_eq!(st.cmd.cursor, 10);
+
+    // Alt-b twice walks back over the two words; Alt-f walks forward one word.
+    st.handle_key(alt('b')).await;
+    assert_eq!(st.cmd.cursor, 5, "start of 'hello'");
+    st.handle_key(alt('b')).await;
+    assert_eq!(st.cmd.cursor, 0, "start of 'echo'");
+    st.handle_key(alt('f')).await;
+    assert_eq!(st.cmd.cursor, 4, "end of 'echo'");
+
+    // C-k kills " hello" to the end; C-y yanks it back.
+    st.handle_key(ctrl('k')).await;
+    assert_eq!(st.cmd.buffer, "echo");
+    st.handle_key(ctrl('e')).await;
+    st.handle_key(ctrl('y')).await;
+    assert_eq!(st.cmd.buffer, "echo hello");
+
+    // C-b (char left), C-d (delete at point), C-h (delete previous).
+    st.handle_key(ctrl('a')).await;
+    st.handle_key(ctrl('d')).await; // delete 'e'
+    assert_eq!(st.cmd.buffer, "cho hello");
+    st.handle_key(ctrl('f')).await; // cursor after 'c'
+    st.handle_key(ctrl('h')).await; // delete 'c'
+    assert_eq!(st.cmd.buffer, "ho hello");
+}
+
+/// C-E, C-W and Alt-F keep their panel meaning while the command line is empty,
+/// but edit the text once the line has content.
+#[tokio::test]
+async fn command_line_readline_conflicts_respect_empty_line() {
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.init().await;
+    st.cmd.history.clear();
+    st.panels[st.active].format = ViewFormat::Full;
+    let plain = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
+    let ctrl = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL);
+    let alt = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT);
+
+    // -- Empty line: the keys keep their panel/menu meaning. --
+    let fmt = st.panels[st.active].format;
+    st.handle_key(ctrl('w')).await;
+    assert_ne!(st.panels[st.active].format, fmt, "C-W cycles the view when empty");
+    let rev = st.panels[st.active].sort.reverse;
+    st.handle_key(ctrl('e')).await;
+    assert_ne!(st.panels[st.active].sort.reverse, rev, "C-E reverses sort when empty");
+    st.handle_key(alt('f')).await;
+    assert!(st.menu.is_some(), "Alt-F opens the File menu when empty");
+    st.menu = None;
+
+    // -- With text, the same keys edit the line. --
+    for c in "ab cd".chars() {
+        st.handle_key(plain(c)).await;
+    }
+    let fmt = st.panels[st.active].format;
+    let rev = st.panels[st.active].sort.reverse;
+    st.handle_key(ctrl('a')).await;
+    st.handle_key(ctrl('w')).await; // no mark → no-op, but NOT a view cycle
+    assert_eq!(st.panels[st.active].format, fmt, "C-W does not cycle the view with text");
+    st.handle_key(ctrl('e')).await;
+    assert_eq!(st.cmd.cursor, 5, "C-E goes to end of line");
+    assert_eq!(st.panels[st.active].sort.reverse, rev, "C-E does not reverse sort with text");
+    st.handle_key(ctrl('a')).await;
+    st.handle_key(alt('f')).await;
+    assert!(st.menu.is_none(), "Alt-F edits (word forward) with text, no menu");
+    assert_eq!(st.cmd.cursor, 2, "Alt-F moved to end of 'ab'");
+}

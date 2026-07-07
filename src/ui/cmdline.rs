@@ -1,8 +1,10 @@
 //! The command line at the bottom of the screen (above the F-key row).
 
+use crate::ui::textedit::{self, Edit};
 use crate::ui::theme::Theme;
 use crate::util::text::ellipsize;
 use ratatui::Frame;
+use ratatui::crossterm::event::KeyEvent;
 use ratatui::layout::{Position, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
@@ -42,11 +44,21 @@ impl CommandLine {
             .unwrap_or(self.buffer.len())
     }
 
+    /// Apply one Emacs/readline editing key to the buffer (the same editor the
+    /// dialogs use), resetting the history cursor on an actual edit.
+    pub fn apply_readline(&mut self, key: KeyEvent) {
+        if textedit::edit_key(&mut self.buffer, &mut self.cursor, key) == Edit::Modified {
+            self.history_pos = None;
+        }
+    }
+
     pub fn insert(&mut self, c: char) {
         let b = self.byte_at(self.cursor);
         self.buffer.insert(b, c);
         self.cursor += 1;
         self.history_pos = None;
+        // Keep the shared mark from pointing into stale text after typing.
+        textedit::mark_clear();
     }
 
     /// Insert a whole string at the cursor (e.g. a filename from Alt-Enter).
@@ -82,6 +94,7 @@ impl CommandLine {
             self.buffer.remove(start);
             self.cursor -= 1;
         }
+        textedit::mark_clear();
     }
 
     pub fn delete(&mut self) {
@@ -90,6 +103,7 @@ impl CommandLine {
             let start = self.byte_at(self.cursor);
             self.buffer.remove(start);
         }
+        textedit::mark_clear();
     }
 
     pub fn move_left(&mut self) {

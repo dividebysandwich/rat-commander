@@ -74,14 +74,6 @@ impl InputDialog {
         }
     }
 
-    fn byte_at(&self, char_idx: usize) -> usize {
-        self.buffer
-            .char_indices()
-            .nth(char_idx)
-            .map(|(b, _)| b)
-            .unwrap_or(self.buffer.len())
-    }
-
     pub(crate) fn handle_key(&mut self, key: KeyEvent) -> DialogResult {
         match key.code {
             KeyCode::Esc => DialogResult::Cancel,
@@ -121,69 +113,18 @@ impl InputDialog {
                 };
                 DialogResult::Submit(submit)
             }
-            KeyCode::Char(c) => {
-                // Typing over a fully-marked pre-fill replaces it.
-                if self.selected {
-                    self.buffer.clear();
-                    self.cursor = 0;
-                    self.selected = false;
-                }
-                let b = self.byte_at(self.cursor);
-                self.buffer.insert(b, c);
-                self.cursor += 1;
+            // Everything else is full Emacs/readline editing (shared with the
+            // command line and every other input), honouring the select-all mark.
+            _ => {
+                edit_text_marked(&mut self.buffer, &mut self.cursor, &mut self.selected, key);
                 DialogResult::None
             }
-            KeyCode::Backspace => {
-                if self.selected {
-                    self.buffer.clear();
-                    self.cursor = 0;
-                    self.selected = false;
-                } else if self.cursor > 0 {
-                    let start = self.byte_at(self.cursor - 1);
-                    self.buffer.remove(start);
-                    self.cursor -= 1;
-                }
-                DialogResult::None
-            }
-            KeyCode::Delete => {
-                if self.selected {
-                    self.buffer.clear();
-                    self.cursor = 0;
-                    self.selected = false;
-                } else {
-                    let len = self.buffer.chars().count();
-                    if self.cursor < len {
-                        let start = self.byte_at(self.cursor);
-                        self.buffer.remove(start);
-                    }
-                }
-                DialogResult::None
-            }
-            KeyCode::Left => {
-                self.selected = false;
-                self.cursor = self.cursor.saturating_sub(1);
-                DialogResult::None
-            }
-            KeyCode::Right => {
-                self.selected = false;
-                let len = self.buffer.chars().count();
-                if self.cursor < len {
-                    self.cursor += 1;
-                }
-                DialogResult::None
-            }
-            KeyCode::Home => {
-                self.selected = false;
-                self.cursor = 0;
-                DialogResult::None
-            }
-            KeyCode::End => {
-                self.selected = false;
-                self.cursor = self.buffer.chars().count();
-                DialogResult::None
-            }
-            _ => DialogResult::None,
         }
+    }
+
+    #[cfg(test)]
+    fn buffer_cursor(&self) -> (&str, usize) {
+        (&self.buffer, self.cursor)
     }
 
     pub(crate) fn render(&self, f: &mut Frame, area: Rect, theme: &Theme, gfx: Option<&mut Gfx>) {
@@ -232,6 +173,35 @@ impl InputDialog {
                 by,
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::crossterm::event::KeyModifiers;
+
+    fn ctrl(c: char) -> KeyEvent {
+        KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)
+    }
+
+    #[test]
+    fn input_dialog_supports_readline_editing() {
+        let mut d = InputDialog::new("t", "p", "hello", InputPurpose::MkDir);
+        // Pre-filled text opens fully marked; a cursor motion drops the mark
+        // without clearing (readline C-A goes to the start).
+        d.handle_key(ctrl('a'));
+        assert_eq!(d.buffer_cursor(), ("hello", 0));
+        assert!(!d.selected, "a readline motion drops the select-all mark");
+        // C-E to the end, then C-K kills to end of line.
+        d.handle_key(ctrl('e'));
+        assert_eq!(d.buffer_cursor(), ("hello", 5));
+        d.handle_key(ctrl('a'));
+        d.handle_key(ctrl('k'));
+        assert_eq!(d.buffer_cursor(), ("", 0));
+        // Yank it back.
+        d.handle_key(ctrl('y'));
+        assert_eq!(d.buffer_cursor(), ("hello", 5));
     }
 }
 
