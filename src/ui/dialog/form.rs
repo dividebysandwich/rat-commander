@@ -1104,6 +1104,42 @@ impl FormDialog {
         None
     }
 
+    /// Route a click onto a Text/Password/Check field row: focus a text field and
+    /// place its caret under the pointer, or focus and toggle a checkbox. Returns
+    /// `Some` when a field row was hit. Choice rows are left to `click_choice`
+    /// (which opens their dropdown), and the OK/Cancel row to the button handler.
+    pub(crate) fn click_field(&mut self, area: Rect, col: u16, row: u16) -> Option<DialogResult> {
+        let inner = self.dialog_inner(area);
+        let rows = self.field_rows(inner);
+        let i = rows.iter().position(|r| row == r.y && col >= r.x && col < r.x + r.width)?;
+        let r = rows[i];
+        match self.form.fields.get_mut(i)? {
+            Field::Check { value, .. } => {
+                *value = !*value;
+                self.form.focus = i;
+                Some(DialogResult::None)
+            }
+            Field::Text { label, value, cursor } | Field::Password { label, value, cursor } => {
+                // Place the caret under the click, mirroring the label width and
+                // horizontal scroll used by `render`/`draw_input_field`.
+                let label_str = crate::l10n::display(&format!("{}: ", crate::l10n::tr(label)));
+                let lw = (label_str.chars().count() as u16).min(r.width);
+                let value_x = r.x + lw;
+                let char_count = value.chars().count();
+                if col >= value_x {
+                    let field_w = r.width.saturating_sub(lw) as usize;
+                    let inner_w = field_w.saturating_sub(3); // room for the "[^]" affordance
+                    let start = cursor.saturating_sub(inner_w.saturating_sub(1));
+                    *cursor = (start + (col - value_x) as usize).min(char_count);
+                }
+                self.form.focus = i;
+                Some(DialogResult::None)
+            }
+            // A Choice row opens via `click_choice`, not here.
+            Field::Choice { .. } => None,
+        }
+    }
+
     /// Test accessor: `(sel, top)` of the currently open Choice dropdown, if any.
     #[cfg(test)]
     pub(crate) fn open_choice_state(&self) -> Option<(usize, usize)> {

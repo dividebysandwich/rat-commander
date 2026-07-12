@@ -36,6 +36,36 @@ impl ShellHistoryDialog {
         }
     }
 
+    /// A left click on a listed command recalls it into the command line. The
+    /// geometry mirrors `render` (bottom-anchored above the command line), using
+    /// the scroll `offset` the last render recorded.
+    pub(crate) fn handle_click(&mut self, area: Rect, col: u16, row: u16) -> DialogResult {
+        let width = 76u16.min(area.width.saturating_sub(2));
+        let avail = area.height.saturating_sub(2 + 2);
+        let height = (self.entries.len() as u16).clamp(1, avail.max(1)) + 2;
+        let rect = Rect {
+            x: area.x + 1,
+            y: area.y + area.height.saturating_sub(2 + height),
+            width,
+            height,
+        };
+        let inner = Rect {
+            x: rect.x + 1,
+            y: rect.y + 1,
+            width: rect.width.saturating_sub(2),
+            height: rect.height.saturating_sub(2),
+        };
+        if col < inner.x || col >= inner.x + inner.width || row < inner.y || row >= inner.y + inner.height {
+            return DialogResult::None;
+        }
+        let idx = self.offset + (row - inner.y) as usize;
+        if idx < self.entries.len() {
+            self.cursor = idx;
+            return self.submit_current();
+        }
+        DialogResult::None
+    }
+
     pub(crate) fn handle_key(&mut self, key: KeyEvent) -> DialogResult {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         let max = self.entries.len().saturating_sub(1);
@@ -158,5 +188,19 @@ mod tests {
     fn empty_history_is_reported() {
         assert!(ShellHistoryDialog::new(&[]).is_empty());
         assert!(!ShellHistoryDialog::new(&["x".into()]).is_empty());
+    }
+
+    #[test]
+    fn click_recalls_the_clicked_command() {
+        let mut d = ShellHistoryDialog::new(&["ls".into(), "pwd".into(), "cd /".into()]);
+        // 80x24: the box is bottom-anchored, 3 entries → height 5 at y=17, so the
+        // interior starts at y=18. Row 19 is the middle entry ("pwd").
+        let area = Rect::new(0, 0, 80, 24);
+        match d.handle_click(area, 10, 19) {
+            DialogResult::Submit(Submit::RecallCommand(c)) => assert_eq!(c, "pwd"),
+            _ => panic!("clicking a command recalls it"),
+        }
+        // A click above the window does nothing.
+        assert!(matches!(d.handle_click(area, 10, 2), DialogResult::None));
     }
 }

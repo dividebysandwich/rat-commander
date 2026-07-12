@@ -30,21 +30,30 @@ impl SelectDialog {
         }
     }
 
+    /// Build the submit result, or `Cancel` when the pattern is blank.
+    fn submit(&self) -> DialogResult {
+        if self.pattern.trim().is_empty() {
+            return DialogResult::Cancel;
+        }
+        DialogResult::Submit(Submit::Select {
+            select: self.select,
+            pattern: self.pattern.clone(),
+            files_only: self.files_only,
+            case_sensitive: self.case_sensitive,
+            shell: self.shell,
+        })
+    }
+
+    /// The centered outer box (kept in sync with `render`), for click geometry.
+    /// Height 8 leaves a blank row between the checkboxes and the button row.
+    fn box_rect(&self, area: Rect) -> Rect {
+        centered(area, 54u16.min(area.width.saturating_sub(2)), 8)
+    }
+
     pub(crate) fn handle_key(&mut self, key: KeyEvent) -> DialogResult {
         match key.code {
             KeyCode::Esc => return DialogResult::Cancel,
-            KeyCode::Enter => {
-                if self.pattern.trim().is_empty() {
-                    return DialogResult::Cancel;
-                }
-                return DialogResult::Submit(Submit::Select {
-                    select: self.select,
-                    pattern: self.pattern.clone(),
-                    files_only: self.files_only,
-                    case_sensitive: self.case_sensitive,
-                    shell: self.shell,
-                });
-            }
+            KeyCode::Enter => return self.submit(),
             KeyCode::Tab | KeyCode::Down => self.focus = (self.focus + 1) % 4,
             KeyCode::BackTab | KeyCode::Up => self.focus = (self.focus + 3) % 4,
             KeyCode::Char(' ') if self.focus > 0 => match self.focus {
@@ -59,9 +68,54 @@ impl SelectDialog {
         DialogResult::None
     }
 
-    pub(crate) fn render(&self, f: &mut Frame, area: Rect, theme: &Theme) {
+    /// Route a left click: focus/position the pattern field, tick a checkbox, or
+    /// press OK/Cancel. The layout mirrors `render`.
+    pub(crate) fn handle_click(&mut self, area: Rect, col: u16, row: u16) -> DialogResult {
+        let rect = self.box_rect(area);
+        let inner = Rect {
+            x: rect.x + 1,
+            y: rect.y + 1,
+            width: rect.width.saturating_sub(2),
+            height: rect.height.saturating_sub(2),
+        };
+        let in_x = col >= inner.x && col < inner.x + inner.width;
+        // Pattern field (top interior row): focus it and place the caret.
+        if row == inner.y && in_x {
+            self.focus = 0;
+            let inner_w = (inner.width as usize).saturating_sub(3);
+            let start = self.cursor.saturating_sub(inner_w.saturating_sub(1));
+            let char_count = self.pattern.chars().count();
+            self.cursor = (start + (col - inner.x) as usize).min(char_count);
+            return DialogResult::None;
+        }
+        // Checkbox rows: "Files only" | "Case sensitive" on one row, "Using shell
+        // patterns" on the next.
+        let half = inner.width / 2;
+        if row == inner.y + 2 && in_x {
+            if col < inner.x + half {
+                self.files_only = !self.files_only;
+                self.focus = 1;
+            } else {
+                self.case_sensitive = !self.case_sensitive;
+                self.focus = 2;
+            }
+            return DialogResult::None;
+        }
+        if row == inner.y + 3 && in_x {
+            self.shell = !self.shell;
+            self.focus = 3;
+            return DialogResult::None;
+        }
+        // OK / Cancel on the last interior row (left half OK, right half Cancel).
+        if row == inner.y + inner.height.saturating_sub(1) && in_x {
+            return if col < inner.x + inner.width / 2 { self.submit() } else { DialogResult::Cancel };
+        }
+        DialogResult::None
+    }
+
+    pub(crate) fn render(&self, f: &mut Frame, area: Rect, theme: &Theme, gfx: Option<&mut Gfx>) {
         let title = if self.select { "Select" } else { "Unselect" };
-        let rect = centered(area, 54u16.min(area.width.saturating_sub(2)), 7);
+        let rect = self.box_rect(area);
         draw_shadow(f, rect, theme);
         f.render_widget(Clear, rect);
         let block = dialog_block(&crate::l10n::trd(title), theme);
@@ -104,6 +158,18 @@ impl SelectDialog {
             .style(Style::default().bg(theme.dialog_bg)),
             r2,
         );
+
+        // OK / Cancel on the last interior row (a blank row sits above it), as
+        // graphical buttons when available, else a text button line.
+        let by = Rect { y: inner.y + inner.height.saturating_sub(1), height: 1, ..inner };
+        if !draw_ok_cancel(f, gfx, by, theme) {
+            f.render_widget(
+                Paragraph::new(ok_cancel_line(true, theme))
+                    .alignment(ratatui::layout::Alignment::Center)
+                    .style(Style::default().bg(theme.dialog_bg)),
+                by,
+            );
+        }
 
         if let Some(p) = caret {
             f.set_cursor_position(p);

@@ -127,6 +127,26 @@ impl InputDialog {
         (&self.buffer, self.cursor)
     }
 
+    /// Route a click onto the text field: drop the select-all mark and place the
+    /// caret under the pointer. The OK/Cancel row is left to the generic dialog
+    /// button handler. Returns `Some` when the field row was hit.
+    pub(crate) fn click_field(&mut self, area: Rect, col: u16, row: u16) -> Option<DialogResult> {
+        let rect = centered(area, 60u16.min(area.width.saturating_sub(4)), 7);
+        let inner = Rect {
+            x: rect.x + 1,
+            y: rect.y + 1,
+            width: rect.width.saturating_sub(2),
+            height: rect.height.saturating_sub(2),
+        };
+        // The input sits on the second interior row (below the prompt label).
+        if row == inner.y + 1 && col >= inner.x && col < inner.x + inner.width {
+            self.selected = false;
+            self.cursor = (col.saturating_sub(inner.x) as usize).min(self.buffer.chars().count());
+            return Some(DialogResult::None);
+        }
+        None
+    }
+
     pub(crate) fn render(&self, f: &mut Frame, area: Rect, theme: &Theme, gfx: Option<&mut Gfx>) {
         let w = 60u16.min(area.width.saturating_sub(4));
         let rect = centered(area, w, 7);

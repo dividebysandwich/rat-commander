@@ -25,6 +25,39 @@ impl UserMenuDialog {
         }
     }
 
+    /// The centered outer box and its scrolled first-visible index (kept in sync
+    /// with `render`), for click hit-testing.
+    fn geometry(&self, area: Rect) -> (Rect, usize) {
+        let width = 64u16.min(area.width.saturating_sub(2));
+        let max_h = area.height.saturating_sub(2);
+        let height = (self.entries.len() as u16 + 2).min(max_h.max(3));
+        let rect = centered(area, width, height);
+        let rows = rect.height.saturating_sub(2) as usize;
+        let first = if self.cursor < rows { 0 } else { self.cursor + 1 - rows };
+        (rect, first)
+    }
+
+    /// A left click on an entry activates it (runs its command), like the app's
+    /// pulldown menus. Clicks off the list do nothing.
+    pub(crate) fn handle_click(&mut self, area: Rect, col: u16, row: u16) -> DialogResult {
+        let (rect, first) = self.geometry(area);
+        let inner = Rect {
+            x: rect.x + 1,
+            y: rect.y + 1,
+            width: rect.width.saturating_sub(2),
+            height: rect.height.saturating_sub(2),
+        };
+        if col < inner.x || col >= inner.x + inner.width || row < inner.y || row >= inner.y + inner.height {
+            return DialogResult::None;
+        }
+        let idx = first + (row - inner.y) as usize;
+        if idx < self.entries.len() {
+            self.cursor = idx;
+            return self.submit_current();
+        }
+        DialogResult::None
+    }
+
     pub(crate) fn handle_key(&mut self, key: KeyEvent) -> DialogResult {
         let max = self.entries.len().saturating_sub(1);
         match key.code {

@@ -132,6 +132,55 @@ impl SearchReplaceDialog {
         DialogResult::None
     }
 
+    /// Route a click onto a text field, mode radio, or option checkbox (the
+    /// OK/Cancel row is left to the generic dialog button handler). The geometry
+    /// mirrors `render`. Returns `Some` when a field/radio/check was hit.
+    pub(crate) fn click_field(&mut self, area: Rect, col: u16, row: u16) -> Option<DialogResult> {
+        let height = if self.replace { 14 } else { 12 };
+        let rect = centered(area, 64u16.min(area.width.saturating_sub(2)), height);
+        let inner = Rect {
+            x: rect.x + 1,
+            y: rect.y + 1,
+            width: rect.width.saturating_sub(2),
+            height: rect.height.saturating_sub(2),
+        };
+        if col < inner.x || col >= inner.x + inner.width {
+            return None;
+        }
+        let caret_at = |value: &str| (col.saturating_sub(inner.x) as usize).min(value.chars().count());
+        // Search field (one row below its label).
+        if row == inner.y + 1 {
+            self.focus = 0;
+            self.search_selected = false;
+            self.search_cursor = caret_at(&self.search);
+            return Some(DialogResult::None);
+        }
+        // Replacement field (only when replacing).
+        if self.replace && row == inner.y + 3 {
+            self.focus = 1;
+            self.repl_selected = false;
+            self.repl_cursor = caret_at(&self.replacement);
+            return Some(DialogResult::None);
+        }
+        // Options block: radios (left half) + checkboxes (right half).
+        let opt_y = inner.y + if self.replace { 5 } else { 3 };
+        if row >= opt_y && row < opt_y + 5 {
+            let r = (row - opt_y) as usize;
+            let base = if self.replace { 2 } else { 1 };
+            if col < inner.x + inner.width / 2 {
+                if r < 4 {
+                    self.mode = r;
+                    self.focus = base + r;
+                }
+            } else {
+                self.toggle_check(r);
+                self.focus = base + 4 + r;
+            }
+            return Some(DialogResult::None);
+        }
+        None
+    }
+
     fn toggle_check(&mut self, c: usize) {
         match c {
             0 => self.case_sensitive = !self.case_sensitive,

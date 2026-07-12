@@ -64,8 +64,15 @@ The mouse works throughout:
 - Click a **menu-bar title** to open it and an entry to run it.
 - Click the bottom **F-key bar** to run that function.
 - Click **OK / Cancel** (or **Yes / No**) buttons in dialogs, and the
-  **Abort** button on a scan/search progress dialog. In the **Find file** dialog
-  you can click a field to edit it, a checkbox to toggle it, and OK/Cancel.
+  **Abort** button on a scan/search progress dialog.
+- In any dialog with input fields — **Copy/Move**, **Make directory**,
+  **Chmod**, **Chown**, **Checksum**, **Select/Unselect group**, the
+  **FTP/SFTP/SCP connection** form, **Settings**, **Confirmations**, **Find
+  file**, editor **Search/Replace**, and more — click a **text field** to focus
+  it and place the caret, click a **checkbox** or **radio** to toggle it, click a
+  **dropdown** to open and pick from it, and click **OK/Cancel** to finish.
+- Click an entry in the **user menu** (F2) or the **shell-history** window to run
+  / recall it.
 - In the **disk explorer**, click a box to select it and **double-click** to
   enter that subdirectory.
 

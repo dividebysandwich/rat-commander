@@ -1016,16 +1016,19 @@ fn button_labels_fall_back_to_text_for_unrenderable_scripts() {
 
 #[test]
 fn find_dialog_mouse_toggles_focuses_and_submits() {
-    // Box: centered(80x24, 66, 13) → x=7, y=5; inner_x=8, inner.y=6; half=32.
-    // Rows within: fields at 7/10/12, checkbox rows at 14/15, OK/Cancel at 16.
+    // Box: centered(80x24, 66, 14) → x=7, y=5; inner_x=8, inner.y=6; half=32.
+    // Rows within: fields at 7/10/12, checkbox rows at 14/15, a blank spacer at
+    // 16, and OK/Cancel at 17.
     let area = Rect::new(0, 0, 80, 24);
     let mut d = FindDialog::new("/tmp".into());
     // "Find recursively" (row 14, left half) toggles off; "Case sensitive"
     // (row 14, right half) toggles on.
     assert!(matches!(d.handle_click(area, 12, 14), DialogResult::None));
     assert!(matches!(d.handle_click(area, 50, 14), DialogResult::None));
+    // The spacer row above the buttons is inert.
+    assert!(matches!(d.handle_click(area, 20, 16), DialogResult::None));
     // Clicking OK (left half of the button row) submits with the updated flags.
-    match d.handle_click(area, 20, 16) {
+    match d.handle_click(area, 20, 17) {
         DialogResult::Submit(Submit::Find(p)) => {
             assert!(!p.recursive, "recursively was unchecked by the click");
             assert!(p.case_sensitive, "case-sensitive was checked by the click");
@@ -1035,7 +1038,7 @@ fn find_dialog_mouse_toggles_focuses_and_submits() {
     }
     // The right half of the button row cancels; a click outside does nothing.
     let mut d = FindDialog::new("/tmp".into());
-    assert!(matches!(d.handle_click(area, 60, 16), DialogResult::Cancel));
+    assert!(matches!(d.handle_click(area, 60, 17), DialogResult::Cancel));
     assert!(matches!(d.handle_click(area, 0, 0), DialogResult::None));
     // Clicking the Content field (row 12) focuses it, so typing edits `content`.
     let mut d = FindDialog::new("/tmp".into());
@@ -1044,5 +1047,148 @@ fn find_dialog_mouse_toggles_focuses_and_submits() {
     match d.handle_key(key(KeyCode::Enter)) {
         DialogResult::Submit(Submit::Find(p)) => assert_eq!(p.content, "x"),
         _ => panic!("expected a Find submit"),
+    }
+}
+
+// --- Mouse controls for the form / select / user-menu / search dialogs ------
+
+#[test]
+fn chmod_form_mouse_toggles_bits_and_submits() {
+    // 80x24 → chmod (10 fields) box is 60x14 centered at {10,5}; inner {11,6,…}.
+    let area = Rect::new(0, 0, 80, 24);
+    let mut dlg = Dialog::Form(FormDialog::chmod(vec![VfsPath::local("/tmp/f")], 0));
+    // Click "Owner read (400)" (row 6) and "Owner exec (100)" (row 8).
+    assert!(matches!(dlg.handle_click(area, 14, 6), DialogResult::None));
+    assert!(matches!(dlg.handle_click(area, 14, 8), DialogResult::None));
+    // Click OK (button row y=17, left half).
+    match dlg.handle_click(area, 20, 17) {
+        DialogResult::Submit(Submit::Chmod(_, mode, recurse)) => {
+            assert_eq!(mode, 0o500, "clicked bits 400 | 100");
+            assert!(!recurse);
+        }
+        _ => panic!("clicking OK should submit the chmod form"),
+    }
+}
+
+#[test]
+fn chown_form_mouse_focuses_the_clicked_text_field() {
+    let area = Rect::new(0, 0, 80, 24);
+    // chown has 3 fields (Owner text, Group text, Recurse check); box 60x7 at
+    // {10,8}; inner.y = 9, so Group is the second field row (y=10).
+    let mut dlg = Dialog::Form(FormDialog::chown(vec![VfsPath::local("/tmp/f")], String::new(), String::new()));
+    assert!(matches!(dlg.handle_click(area, 40, 10), DialogResult::None));
+    // Typing now goes to the focused Group field, not Owner.
+    for c in "staff".chars() {
+        dlg.handle_key(key(KeyCode::Char(c)));
+    }
+    // Click OK (button row y = 8 + 7 - 2 = 13, left half).
+    match dlg.handle_click(area, 20, 13) {
+        DialogResult::Submit(Submit::Chown(_, owner, group, _)) => {
+            assert_eq!(owner, "", "owner stayed empty");
+            assert_eq!(group, "staff", "the click focused the Group field");
+        }
+        _ => panic!("clicking OK should submit the chown form"),
+    }
+}
+
+#[test]
+fn settings_form_mouse_toggles_grouped_checkbox() {
+    // Settings uses three group boxes; "Truecolor (gradients)" is the second
+    // field of the Visual group. Box 72x22 at {4,1}; that row lands at y=14.
+    let area = Rect::new(0, 0, 80, 24);
+    let cfg = crate::config::Config::default();
+    let mut dlg = Dialog::Form(FormDialog::settings(&cfg, true)); // truecolor starts on
+    assert!(matches!(dlg.handle_click(area, 10, 14), DialogResult::None));
+    // Click OK (button row y = 1 + 22 - 2 = 21, left half).
+    match dlg.handle_click(area, 10, 21) {
+        DialogResult::Submit(Submit::Settings(v)) => {
+            assert!(!v.truecolor, "clicking the checkbox turned truecolor off");
+        }
+        _ => panic!("clicking OK should submit the settings form"),
+    }
+}
+
+#[test]
+fn select_dialog_mouse_ticks_boxes_and_submits() {
+    // 80x24 → box 54x8 at {13,8}; inner {14,9,52,6}. Checkboxes at 11/12, a blank
+    // spacer at 13, and OK/Cancel at 14.
+    let area = Rect::new(0, 0, 80, 24);
+    let mut dlg = Dialog::Select(SelectDialog::new(true));
+    // "Files only" checkbox (row 11, left half) toggles on.
+    assert!(matches!(dlg.handle_click(area, 16, 11), DialogResult::None));
+    // "Using shell patterns" (row 12) toggles off.
+    assert!(matches!(dlg.handle_click(area, 16, 12), DialogResult::None));
+    // The spacer row above the buttons is inert.
+    assert!(matches!(dlg.handle_click(area, 16, 13), DialogResult::None));
+    // OK button (row 14, left half) submits.
+    match dlg.handle_click(area, 16, 14) {
+        DialogResult::Submit(Submit::Select { select, pattern, files_only, case_sensitive, shell }) => {
+            assert!(select);
+            assert_eq!(pattern, "*");
+            assert!(files_only, "click ticked Files only");
+            assert!(case_sensitive, "unchanged");
+            assert!(!shell, "click unticked shell patterns");
+        }
+        _ => panic!("clicking OK should submit the Select form"),
+    }
+    // The right half of the button row cancels.
+    let mut dlg = Dialog::Select(SelectDialog::new(false));
+    assert!(matches!(dlg.handle_click(area, 60, 14), DialogResult::Cancel));
+}
+
+#[test]
+fn user_menu_mouse_click_activates_entry() {
+    use crate::usermenu::UserMenuEntry;
+    let entries = vec![
+        UserMenuEntry { hotkey: 'a', title: "Alpha".into(), command: "echo a".into() },
+        UserMenuEntry { hotkey: 'b', title: "Beta".into(), command: "echo b".into() },
+        UserMenuEntry { hotkey: 'c', title: "Gamma".into(), command: "echo c".into() },
+    ];
+    // 80x24 → box 64x5 at {8,9}; inner.y = 10, so entry 1 is at row 11.
+    let area = Rect::new(0, 0, 80, 24);
+    let mut dlg = Dialog::UserMenu(UserMenuDialog::new(entries));
+    match dlg.handle_click(area, 20, 11) {
+        DialogResult::Submit(Submit::UserCommand(cmd)) => assert_eq!(cmd, "echo b"),
+        _ => panic!("clicking an entry should run it"),
+    }
+    // A click below the list does nothing.
+    let mut dlg = Dialog::UserMenu(UserMenuDialog::new(vec![
+        UserMenuEntry { hotkey: 'a', title: "Alpha".into(), command: "echo a".into() },
+    ]));
+    assert!(matches!(dlg.handle_click(area, 20, 23), DialogResult::None));
+}
+
+#[test]
+fn search_replace_mouse_toggles_option_and_mode() {
+    // 80x24, non-replace → box 64x12 at {8,6}; inner {9,7,62,10}. Options start
+    // at inner.y+3 = 10: "Case sensitive" checkbox is the right half of that row.
+    let area = Rect::new(0, 0, 80, 24);
+    let mut dlg = Dialog::SearchReplace(SearchReplaceDialog::new(false, "x".into(), String::new()));
+    // Right-half of the first options row ticks "Case sensitive".
+    assert!(matches!(dlg.handle_click(area, 45, 10), DialogResult::None));
+    // Left-half of the second options row selects the "Regular expression" mode.
+    assert!(matches!(dlg.handle_click(area, 12, 11), DialogResult::None));
+    match dlg.handle_key(key(KeyCode::Enter)) {
+        DialogResult::Submit(Submit::SearchReplace(p)) => {
+            assert!(p.case_sensitive, "click ticked Case sensitive");
+            assert!(p.regex, "click selected the Regular expression mode");
+            assert_eq!(p.search, "x");
+        }
+        _ => panic!("Enter should submit the search"),
+    }
+}
+
+#[test]
+fn input_dialog_mouse_positions_the_caret() {
+    // 80x24 → box 60x7 at {10,8}; inner {11,9,…}; the field is on row inner.y+1=10.
+    let area = Rect::new(0, 0, 80, 24);
+    let mut dlg = Dialog::Input(InputDialog::new("t", "p", "hello", InputPurpose::MkDir));
+    // Click at column 15 → char offset 4 (between the two l's), dropping select-all.
+    assert!(matches!(dlg.handle_click(area, 15, 10), DialogResult::None));
+    dlg.handle_key(key(KeyCode::Char('X')));
+    if let Dialog::Input(d) = &dlg {
+        assert_eq!(d.buffer, "hellXo", "the click placed the caret at offset 4");
+    } else {
+        panic!("still an input dialog");
     }
 }

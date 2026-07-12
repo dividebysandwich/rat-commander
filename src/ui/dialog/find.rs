@@ -54,8 +54,9 @@ impl FindDialog {
     const FOCUS_COUNT: usize = 7;
 
     /// The centered dialog box, matching [`Self::render`], for click hit-testing.
+    /// Height 14 leaves a blank row between the checkboxes and the button row.
     fn box_rect(&self, area: Rect) -> Rect {
-        centered(area, 66u16.min(area.width.saturating_sub(2)), 13)
+        centered(area, 66u16.min(area.width.saturating_sub(2)), 14)
     }
 
     /// Build the find request, or cancel when no file-name pattern was given.
@@ -112,7 +113,7 @@ impl FindDialog {
         // Place the caret at the clicked character within a text field.
         let caret_at = |value: &str| (col.saturating_sub(inner_x) as usize).min(value.chars().count());
         // Row offset within the interior (see `render`: fields at 1/4/6, the two
-        // checkbox rows at 8/9, and the OK/Cancel row at 10).
+        // checkbox rows at 8/9, a blank spacer at 10, and the OK/Cancel row at 11).
         match row as i32 - (rect.y + 1) as i32 {
             1 => {
                 self.focus = 0;
@@ -144,7 +145,7 @@ impl FindDialog {
                     self.shell = !self.shell;
                 }
             }
-            10 => {
+            11 => {
                 // Button row: OK on the left half, Cancel on the right.
                 return if col < rect.x + rect.width / 2 {
                     self.submit()
@@ -158,7 +159,7 @@ impl FindDialog {
     }
 
     pub(crate) fn render(&self, f: &mut Frame, area: Rect, theme: &Theme, gfx: Option<&mut Gfx>) {
-        let rect = centered(area, 66u16.min(area.width.saturating_sub(2)), 13);
+        let rect = centered(area, 66u16.min(area.width.saturating_sub(2)), 14);
         draw_shadow(f, rect, theme);
         f.render_widget(Clear, rect);
         let block = dialog_block(&crate::l10n::trd("Find File"), theme);

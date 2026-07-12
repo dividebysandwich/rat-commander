@@ -379,7 +379,7 @@ impl Dialog {
             Dialog::MultiRename(d) => d.render(f, area, theme, gfx),
             Dialog::Message(d) => d.render(f, area, theme, gfx),
             Dialog::Form(d) => d.render(f, area, theme, gfx),
-            Dialog::Select(d) => d.render(f, area, theme),
+            Dialog::Select(d) => d.render(f, area, theme, gfx),
             Dialog::SearchReplace(d) => d.render(f, area, theme, gfx),
             Dialog::Find(d) => d.render(f, area, theme, gfx),
             Dialog::UserMenu(d) => d.render(f, area, theme),
@@ -423,6 +423,9 @@ impl Dialog {
             Dialog::Drive(d) => return d.handle_click(area, col, row),
             Dialog::MultiRename(d) => return d.handle_click(area, col, row),
             Dialog::Find(d) => return d.handle_click(area, col, row),
+            Dialog::Select(d) => return d.handle_click(area, col, row),
+            Dialog::UserMenu(d) => return d.handle_click(area, col, row),
+            Dialog::ShellHistory(d) => return d.handle_click(area, col, row),
             Dialog::BackgroundOps(d) => return d.handle_click(area, col, row),
             // The connect form's history chevron/dropdown and the Choice
             // dropdowns take clicks first.
@@ -431,6 +434,11 @@ impl Dialog {
                     return res;
                 }
                 if let Some(res) = d.click_choice(area, col, row) {
+                    return res;
+                }
+                // A click on a text field focuses it (placing the caret) and a
+                // click on a checkbox toggles it.
+                if let Some(res) = d.click_field(area, col, row) {
                     return res;
                 }
                 // A click on the OK/Cancel button row: focus that button first so
@@ -449,7 +457,18 @@ impl Dialog {
                     return self.handle_key(KeyEvent::new(code, KeyModifiers::NONE));
                 }
             }
-            _ => {}
+            // A click on a text field / radio / checkbox is handled here; the
+            // OK/Cancel button row falls through to the generic handler below.
+            Dialog::Input(d) => {
+                if let Some(res) = d.click_field(area, col, row) {
+                    return res;
+                }
+            }
+            Dialog::SearchReplace(d) => {
+                if let Some(res) = d.click_field(area, col, row) {
+                    return res;
+                }
+            }
         }
 
         let Some(rect) = self.click_bounds(area) else {
