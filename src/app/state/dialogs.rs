@@ -163,6 +163,7 @@ impl AppState {
             }
             Submit::DiffDiscardQuit => self.diffview = None,
             Submit::EditorDiscardQuit => {
+                self.record_editor_position();
                 self.editor = None;
                 self.reload_all().await;
             }

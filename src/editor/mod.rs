@@ -89,6 +89,9 @@ pub struct EditorState {
     /// A fresh buffer with no filename yet (`rc /edit` with no file). Its first
     /// save is redirected to "Save as"; cleared once a path is chosen.
     unnamed: bool,
+    /// Set by [`restore_position`](EditorState::restore_position) so the next
+    /// render scrolls the restored cursor to the vertical center of the view.
+    pending_center: bool,
 }
 
 /// Above this size a file is opened straight into hex mode (text mode loads the
@@ -147,7 +150,30 @@ impl EditorState {
             help_open: false,
             hint_mods: KeyModifiers::NONE,
             unnamed: false,
+            pending_center: false,
         }
+    }
+
+    /// The cursor's 0-based `(line, column)` — the unit remembered across
+    /// sessions so a file re-opens where it was left.
+    pub fn cursor_line_col(&self) -> (usize, usize) {
+        let line = self.buf.char_to_line(self.cursor);
+        let col = self.cursor - self.buf.line_to_char(line);
+        (line, col)
+    }
+
+    /// Restore a remembered cursor `(line, column)` (clamped to the buffer, which
+    /// may have changed since) and request that the next render scroll it to the
+    /// vertical center. A no-op in hex mode, whose cursor is a byte offset.
+    pub fn restore_position(&mut self, line: usize, col: usize) {
+        if self.hex.is_some() {
+            return;
+        }
+        let last_line = self.buf.len_lines().saturating_sub(1);
+        let line = line.min(last_line);
+        let col = col.min(self.buf.line_len(line));
+        self.cursor = self.buf.line_to_char(line) + col;
+        self.pending_center = true;
     }
 
     /// A fresh, unnamed buffer (`rc /edit` with no file). It carries no path, so
@@ -1294,6 +1320,38 @@ mod tests {
 
     fn ed(text: &str) -> EditorState {
         EditorState::new("t".into(), VfsPath::local("/tmp/x"), text)
+    }
+
+    #[test]
+    fn restore_position_sets_cursor_and_clamps() {
+        let mut e = ed("aaaa\nbbbb\ncccc\ndddd");
+        e.restore_position(2, 3);
+        assert_eq!(e.cursor_line_col(), (2, 3));
+        // The char index is line start + column (line 2 starts at char 10).
+        assert_eq!(e.cursor, 10 + 3);
+        // A line/column past the end clamps to the last line and its length.
+        e.restore_position(999, 999);
+        assert_eq!(e.cursor_line_col(), (3, 4), "clamped to last line, end of line");
+    }
+
+    #[test]
+    fn restore_position_centers_the_cursor_on_render() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        // 40 lines; restore onto line 20 and render into a 12-row area (status +
+        // 10 text rows + footer), so the cursor should sit ~5 rows from the top.
+        let text: String = (0..40).map(|i| format!("line{i}\n")).collect();
+        let mut e = ed(&text);
+        e.restore_position(20, 0);
+        assert_eq!(e.top_line, 0, "not scrolled until the first render");
+        let theme = crate::ui::theme::Theme::mc();
+        let mut t = Terminal::new(TestBackend::new(30, 12)).unwrap();
+        t.draw(|f| crate::editor::render::render(f, f.area(), &mut e, &theme)).unwrap();
+        assert_eq!(e.view_rows, 10);
+        assert_eq!(e.top_line, 15, "cursor line 20 centered in a 10-row view");
+        assert_eq!(e.cur_line(), 20, "the cursor itself stays on the restored line");
+        // The one-shot centering doesn't re-fire on the next render.
+        assert!(!e.pending_center);
     }
 
     #[test]

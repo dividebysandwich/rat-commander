@@ -29,3 +29,9 @@ pub fn lang_dir() -> Option<PathBuf> {
 pub fn history_file() -> Option<PathBuf> {
     ProjectDirs::from("", "", "rat-commander").map(|d| d.config_dir().join("history"))
 }
+
+/// Path to the editor cursor-position memory file (`editor-positions.toml`), or
+/// `None` if the config directory can't be determined.
+pub fn editor_positions_file() -> Option<PathBuf> {
+    ProjectDirs::from("", "", "rat-commander").map(|d| d.config_dir().join("editor-positions.toml"))
+}

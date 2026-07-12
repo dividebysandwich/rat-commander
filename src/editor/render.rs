@@ -40,6 +40,14 @@ pub fn render(f: &mut Frame, area: Rect, ed: &mut EditorState, theme: &Theme) {
         return;
     }
 
+    // A just-restored cursor (see `EditorState::restore_position`) is scrolled to
+    // the vertical center of the view, once, before the usual visibility clamp.
+    if ed.pending_center {
+        ed.pending_center = false;
+        let line = ed.buf.char_to_line(ed.cursor);
+        ed.top_line = line.saturating_sub(ed.view_rows / 2);
+        ed.top_sub = 0;
+    }
     if ed.wrap() {
         ensure_visible_wrapped(ed);
     } else {

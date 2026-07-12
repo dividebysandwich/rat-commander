@@ -462,6 +462,9 @@ impl AppState {
                                 let text = String::from_utf8_lossy(&bytes).into_owned();
                                 let mut ed = EditorState::new(name, orig_path, &text);
                                 ed.enable_syntax(self.dark_ui());
+                                // No-op for remote paths (keys aren't stable), but
+                                // keeps every editor-open site uniform.
+                                Self::restore_editor_position(&mut ed);
                                 self.editor = Some(ed);
                             }
                             Err(e) => self.show_error(format!("cannot open file: {e}")),

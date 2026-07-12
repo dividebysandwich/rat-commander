@@ -184,6 +184,10 @@ switch to editing as soon as it has text.
 While **Shift** or **Ctrl** is held, the F-key bar relabels **F2 → Save as**
 and **F9 → Wrap** to show those alternates.
 
+The editor remembers where you left the cursor in each of the last **50** local
+files (in `editor-positions.toml`); re-opening a file restores the cursor and
+scrolls so it sits in the vertical center of the view.
+
 ### Hex editor (F9 in the editor)
 
 - `0`–`9`, `a`–`f` — Overwrite the current byte's nibble (hex column)
@@ -829,6 +833,8 @@ Configuration files live in your platform config directory
   history; set it to `0` to disable history.
 - **`history`** — the persistent command-line history, one command per line
   (recalled with `Alt-P` / `Alt-N` / `Alt-H`), trimmed to `command_history_max`.
+- **`editor-positions.toml`** — the editor's cursor-position memory for the last
+  50 files edited (see *Editor*).
 - **`themes.toml`** — your editable themes (see *Themes*).
 - **`lang/`** — the localization files, one TOML per language (see *Language*).
 - **`menu`** — the F2 user menu (see below).

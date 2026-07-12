@@ -3,12 +3,38 @@
 use super::*;
 
 impl AppState {
+    /// If we remember where the cursor was last left in this (local) file, put it
+    /// there and center it. Only local text files are keyed (a remote session's
+    /// path isn't stable across runs); hex buffers restore nothing.
+    pub(in crate::app::state) fn restore_editor_position(ed: &mut EditorState) {
+        if ed.path.scheme != "file" || ed.is_hex() || ed.is_unnamed() {
+            return;
+        }
+        if let Some((line, col)) = crate::config::load_editor_position(&ed.path.display()) {
+            ed.restore_position(line, col);
+        }
+    }
+
+    /// Remember the current editor cursor position for the (local) file being
+    /// edited, so re-opening it restores the cursor. Called as the editor closes.
+    pub(in crate::app::state) fn record_editor_position(&self) {
+        let Some(ed) = self.editor.as_ref() else {
+            return;
+        };
+        if ed.path.scheme != "file" || ed.is_hex() || ed.is_unnamed() {
+            return;
+        }
+        let (line, col) = ed.cursor_line_col();
+        crate::config::save_editor_position(&ed.path.display(), line, col);
+    }
+
     /// Apply an [`EditorSignal`] (from a key or a mouse gesture): save, close,
     /// or raise the relevant modal dialog.
     pub(in crate::app::state) async fn apply_editor_signal(&mut self, signal: EditorSignal) {
         match signal {
             EditorSignal::Stay => {}
             EditorSignal::Close => {
+                self.record_editor_position();
                 self.editor = None;
                 self.reload_all().await;
             }
@@ -131,6 +157,7 @@ impl AppState {
                     let text = String::from_utf8_lossy(&data).into_owned();
                     let mut ed = EditorState::new(name, path, &text);
                     ed.enable_syntax(self.dark_ui());
+                    Self::restore_editor_position(&mut ed);
                     self.editor = Some(ed);
                 }
                 Err(e) => self.show_error(format!("cannot open file: {e}")),
@@ -182,6 +209,7 @@ impl AppState {
             .unwrap_or_default();
         let mut ed = EditorState::new(name, vpath, &text);
         ed.enable_syntax(self.dark_ui());
+        Self::restore_editor_position(&mut ed);
         self.editor = Some(ed);
     }
 
@@ -284,6 +312,7 @@ impl AppState {
         match write_file(&backend, &path, contents.as_bytes()).await {
             Ok(()) => {
                 if close_after {
+                    self.record_editor_position();
                     self.editor = None;
                     self.reload_all().await;
                 } else if let Some(ed) = self.editor.as_mut() {

@@ -226,6 +226,68 @@ fn save_history_to(path: &std::path::Path, history: &[String], max: usize) {
     let _ = std::fs::write(path, body);
 }
 
+/// How many files' cursor positions the editor remembers.
+const EDITOR_POSITIONS_MAX: usize = 50;
+
+/// One remembered editor cursor position: a file key (its [`VfsPath::display`])
+/// and the 0-based line/column the cursor was on.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct EditorPos {
+    key: String,
+    line: usize,
+    col: usize,
+}
+
+/// The editor's cursor-position memory, most-recent first.
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct EditorPositions {
+    #[serde(default)]
+    positions: Vec<EditorPos>,
+}
+
+/// The remembered `(line, col)` cursor position for the file `key` (a
+/// [`crate::vfs::VfsPath::display`] string), or `None` if not remembered.
+pub fn load_editor_position(key: &str) -> Option<(usize, usize)> {
+    paths::editor_positions_file().and_then(|p| position_from(&p, key))
+}
+
+/// Remember the cursor `(line, col)` for the file `key`, moving it to the front
+/// and evicting the oldest beyond the 50-file cap. Best-effort; errors ignored.
+pub fn save_editor_position(key: &str, line: usize, col: usize) {
+    if let Some(p) = paths::editor_positions_file() {
+        store_position_to(&p, key, line, col);
+    }
+}
+
+fn read_editor_positions(path: &std::path::Path) -> EditorPositions {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|s| toml::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+fn position_from(path: &std::path::Path, key: &str) -> Option<(usize, usize)> {
+    read_editor_positions(path)
+        .positions
+        .into_iter()
+        .find(|e| e.key == key)
+        .map(|e| (e.line, e.col))
+}
+
+fn store_position_to(path: &std::path::Path, key: &str, line: usize, col: usize) {
+    let mut data = read_editor_positions(path);
+    data.positions.retain(|e| e.key != key);
+    data.positions.insert(0, EditorPos { key: key.to_string(), line, col });
+    data.positions.truncate(EDITOR_POSITIONS_MAX);
+    let Ok(text) = toml::to_string(&data) else {
+        return;
+    };
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(path, text);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -319,5 +381,37 @@ mod tests {
         let c: Config = toml::from_str("quick_search = true\nbrief_columns = 3\n").unwrap();
         assert_eq!(c.command_history_max, 100);
         assert_eq!(c.brief_columns, 3);
+    }
+
+    #[test]
+    fn editor_positions_round_trip_move_to_front_and_cap() {
+        let dir = std::env::temp_dir().join(format!("rc_edpos_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("editor-positions.toml");
+
+        // A missing file → no remembered position.
+        assert_eq!(position_from(&path, "/a"), None);
+
+        store_position_to(&path, "/a", 10, 2);
+        store_position_to(&path, "/b", 5, 0);
+        assert_eq!(position_from(&path, "/a"), Some((10, 2)));
+        assert_eq!(position_from(&path, "/b"), Some((5, 0)));
+
+        // Re-storing the same file updates it and moves it to the front.
+        store_position_to(&path, "/a", 33, 7);
+        assert_eq!(position_from(&path, "/a"), Some((33, 7)));
+        assert_eq!(read_editor_positions(&path).positions[0].key, "/a");
+
+        // Only the 50 most-recent files are kept.
+        for i in 0..60 {
+            store_position_to(&path, &format!("/f{i}"), i, 0);
+        }
+        let data = read_editor_positions(&path);
+        assert_eq!(data.positions.len(), EDITOR_POSITIONS_MAX);
+        assert_eq!(position_from(&path, "/f59"), Some((59, 0)), "newest kept");
+        assert_eq!(position_from(&path, "/f0"), None, "oldest evicted");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
