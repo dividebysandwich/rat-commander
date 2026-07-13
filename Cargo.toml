@@ -54,23 +54,23 @@ directories = "6.0.0"
 flate2 = "1.1.9"
 futures = "0.3.32"
 globset = "0.4.18"
-md5 = "0.8.0"
-memchr = "2.7.6"
+md5 = "0.8.1"
+memchr = "2.8.3"
 portable-pty = "0.9.0"
 ratatui = "0.30.2"
-regex = "1.12.4"
+regex = "1.13.0"
 ropey = "1.6.1"
-russh = "0.61.2"
+russh = "0.62.2"
 russh-sftp = "2.3.0"
 serde = { version = "1.0.228", features = ["derive"] }
-sevenz-rust2 = "0.21.1"
+sevenz-rust2 = "0.21.3"
 sha1 = "0.11.0"
 sha2 = "0.11.0"
 # Syntax highlighting. Pure-Rust regex backend (no C `onig`) keeps the ARM
 # cross-compile builds working; bundles Sublime syntaxes + themes, and more
 # `.sublime-syntax`/theme files can be loaded later to extend it.
 syntect = { version = "5.2.0", default-features = false, features = ["default-fancy"] }
-suppaftp = { version = "9.0.0", default-features = false, features = ["tokio"] }
+suppaftp = { version = "10.0.0", default-features = false, features = ["tokio"] }
 tar = "0.4.46"
 thiserror = "2.0.18"
 tokio = { version = "1.52.3", features = ["full"] }
@@ -85,7 +85,7 @@ zip = "8.6.0"
 # explorer (Linux, Windows, macOS). Pure Rust, no external C deps. Only the
 # `system` + `network` + `user` features are needed (drops temperature/components
 # and the mounted-disk listing we don't use). `user` maps process UIDs to names.
-sysinfo = { version = "0.39.5", default-features = false, features = ["system", "network", "user"] }
+sysinfo = { version = "0.39.6", default-features = false, features = ["system", "network", "user"] }
 ar-reshaper = "1.5.0"
 unicode-bidi = "0.3.18"
 ratatui-image = { version = "11.0.6", default-features = false, features = ["crossterm"] }
@@ -97,7 +97,7 @@ image = { version = "0.25.10", default-features = false }
 # shipped separately. Baking (rather than overlaying cell text) is required
 # because graphics protocols draw pixels over the terminal cells.
 fontdue = "0.9"
-epaint_default_fonts = "0.34"
+epaint_default_fonts = "0.35.0"
 
 # nix (chmod/chown/uid lookups, process signals) is Unix-only.
 [target.'cfg(unix)'.dependencies]
