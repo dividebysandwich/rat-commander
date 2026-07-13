@@ -89,6 +89,12 @@ impl AppState {
         let path = p.cwd.join(&name);
         let backend = p.backend.clone();
 
+        // An rc.ext `View` rule takes precedence (MC behaviour): pipe a command's
+        // output into the viewer, or run it in the foreground.
+        if let Some(flow) = self.try_ext_view(&name) {
+            return flow;
+        }
+
         if !self.config.wants_internal_viewer() {
             return Flow::RunExternal {
                 program: self.config.viewer.clone(),
@@ -134,6 +140,12 @@ impl AppState {
         let size = e.size;
         let path = p.cwd.join(&name);
         let backend = p.backend.clone();
+
+        // An rc.ext `Edit` rule takes precedence (MC behaviour): run its command
+        // in the foreground instead of the built-in editor.
+        if let Some(flow) = self.try_ext_edit() {
+            return flow;
+        }
 
         if !self.config.wants_internal_editor() {
             return Flow::RunExternal {

@@ -63,6 +63,7 @@ impl AppState {
             gfx: None,
             graphics_backup: None,
             user_menu: usermenu::load_or_create(),
+            ext_rules: crate::ext::ExtRules::load_or_create(),
             pending_run: None,
             pending_quit: false,
             alt_hint: false,

@@ -75,7 +75,7 @@ pub(crate) fn parse_unix_listing_line(line: &str) -> Option<ParsedListing> {
 }
 
 /// Convert a `rwxr-xr-x` permission string (after the type char) to mode bits.
-fn perms_to_mode(perms: &str) -> u32 {
+pub(crate) fn perms_to_mode(perms: &str) -> u32 {
     let bytes = perms.as_bytes();
     let mut mode = 0u32;
     // perms[1..10] = owner/group/other rwx.

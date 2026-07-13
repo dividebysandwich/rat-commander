@@ -537,8 +537,13 @@ impl AppState {
             .target_dir_under_cursor()
             .or_else(|| archive_target_under_cursor(p));
         let Some((newcwd, focus)) = target else {
-            // Not a directory/archive: an image opens the flasher (Linux); an
-            // executable is run; anything else opens with its default app.
+            // Not a directory/native archive: an rc.ext `Open` rule may mount it
+            // via an extfs script or run a command; else an image opens the
+            // flasher (Linux), an executable is run, anything else with its
+            // default app.
+            if let Some(flow) = self.try_ext_open().await {
+                return flow;
+            }
             #[cfg(target_os = "linux")]
             if self.try_flash_under_cursor() {
                 return Flow::Continue;
@@ -645,6 +650,10 @@ impl AppState {
         let p = &self.panels[self.active];
         let cwd = p.cwd.path.to_string_lossy().into_owned();
         let cur = p.current_entry().map(|e| e.name.clone()).unwrap_or_default();
+        let ext = p
+            .current_entry()
+            .map(|e| e.extension().to_string())
+            .unwrap_or_default();
         let marked: Vec<String> = p.selection.marked_names(&p.entries).iter().map(|n| shell_quote(n)).collect();
         let tagged = marked.join(" ");
         let selected = if marked.is_empty() {
@@ -665,6 +674,7 @@ impl AppState {
                 Some('%') => out.push('%'),
                 Some('f') | Some('p') => out.push_str(&cur),
                 Some('d') => out.push_str(&cwd),
+                Some('x') => out.push_str(&ext),
                 Some('t') => out.push_str(&tagged),
                 Some('s') => out.push_str(&selected),
                 Some(other) => {

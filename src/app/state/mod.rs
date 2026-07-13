@@ -207,6 +207,9 @@ pub struct AppState {
     graphics_backup: Option<String>,
     /// F2 user-menu entries (loaded from the config `menu` file).
     user_menu: Vec<UserMenuEntry>,
+    /// File-association rules (loaded from the config `rc.ext` file), consulted
+    /// on Enter/F3/F4 to run Open/View/Edit actions and mount extfs scripts.
+    ext_rules: crate::ext::ExtRules,
     /// A user-menu command to run after the dialog closes (expanded).
     pending_run: Option<String>,
     /// Set when a confirmed quit should propagate out as `Flow::Quit`.
@@ -478,6 +481,7 @@ mod find;
 mod duplicates;
 mod details;
 mod viewer_editor;
+mod ext;
 
 /// Read a file fully into memory (capped just above the viewer limit).
 async fn load_file(backend: &std::sync::Arc<dyn Vfs>, path: &VfsPath) -> crate::util::Result<Vec<u8>> {

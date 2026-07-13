@@ -10,6 +10,7 @@ mod diff;
 mod disk;
 mod drive;
 mod editor;
+mod ext;
 mod flash;
 mod l10n;
 mod mount;

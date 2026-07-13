@@ -6,6 +6,7 @@
 //! interchangeable implementations of [`Vfs`].
 
 pub mod archive;
+pub mod extfs;
 pub mod local;
 pub mod membuf;
 pub mod path;

@@ -45,6 +45,71 @@ async fn enters_zip_archive_and_lists_contents() {
     std::fs::remove_dir_all(&root).ok();
 }
 
+/// Full dispatch: pressing Enter on a file matched by an rc.ext `Open=%cd
+/// …/uzip://` rule mounts it through the real MC `uzip` extfs script. Uses a
+/// `.pk3` (a zip the native archive backend does not recognise) so the path
+/// goes through rc.ext, not `ArchiveFs`. Skipped when uzip/zip are absent.
+#[cfg(unix)]
+#[tokio::test]
+async fn enter_dir_mounts_extfs_via_rc_ext() {
+    let have_script = crate::vfs::extfs::find_extfs_script("uzip").is_some();
+    let have_zip = std::process::Command::new("zip")
+        .arg("-v")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if !have_script || !have_zip {
+        eprintln!("skipping enter_dir_mounts_extfs test: uzip script or zip not available");
+        return;
+    }
+
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("rc_ext_nav_{}_{nanos}", std::process::id()));
+    std::fs::create_dir_all(root.join("sub")).unwrap();
+    std::fs::write(root.join("sub/file.txt"), b"hi").unwrap();
+    std::fs::write(root.join("top.txt"), b"top").unwrap();
+    assert!(std::process::Command::new("zip")
+        .current_dir(&root)
+        .arg("-r")
+        .arg("bundle.pk3")
+        .arg("sub")
+        .arg("top.txt")
+        .output()
+        .unwrap()
+        .status
+        .success());
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    // Map .pk3 → the uzip extfs script (native ArchiveFs ignores .pk3).
+    st.ext_rules = crate::ext::parse("shell/.pk3\n    Open=%cd %p/uzip://\n");
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+
+    let idx = st.panels[0]
+        .entries
+        .iter()
+        .position(|e| e.name == "bundle.pk3")
+        .unwrap();
+    st.panels[0].cursor = idx;
+    st.active = 0;
+    st.enter_dir().await;
+
+    assert_eq!(st.panels[0].cwd.scheme, "uzip", "panel should be in the uzip mount");
+    assert!(st.panels[0].cwd.is_archive(), "extfs path is container-backed");
+    assert!(!st.panels[0].cwd.is_remote(), "extfs counts as local");
+    let names: Vec<String> = st.panels[0].entries.iter().map(|e| e.name.clone()).collect();
+    assert!(names.contains(&"sub".to_string()), "names: {names:?}");
+    assert!(names.contains(&"top.txt".to_string()), "names: {names:?}");
+    assert!(names.contains(&"..".to_string()), "mount has a parent link");
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn cannot_enter_unreadable_directory() {

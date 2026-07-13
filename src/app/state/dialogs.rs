@@ -133,7 +133,7 @@ impl AppState {
             Submit::Move(sources, dest) => self.begin_transfer(OpKind::Move, sources, &dest).await,
             Submit::MultiRename(plan) => self.do_multi_rename(plan).await,
             Submit::Delete(targets) => {
-                if targets.iter().any(|t| t.is_archive()) {
+                if targets.iter().any(|t| t.is_native_archive()) {
                     self.start_archive_remove(targets);
                 } else {
                     self.start_op(OpKind::Delete, targets, None, None, None);
@@ -423,8 +423,13 @@ impl AppState {
             self.show_error("Cannot copy into a search-result panel");
             return;
         }
-        // Destination is an archive → add into it (rebuild), not a file copy.
-        if self.panels[self.other_index()].cwd.is_archive() {
+        // Destination is a native archive → add into it (rebuild), not a file
+        // copy. (An extfs mount is writable via its own `open_write`/copyin, so
+        // it falls through to the generic transfer below.)
+        if self.panels[self.other_index()].cwd.is_native_archive() {
+            // start_archive_add reads sources from local disk, so any
+            // container-backed source (archive or extfs mount) must be extracted
+            // first rather than added directly.
             if self.panels[self.active].cwd.is_archive() {
                 self.show_error("Cannot copy directly between archives; extract first");
                 return;

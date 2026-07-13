@@ -36,6 +36,19 @@ impl VfsPath {
         }
     }
 
+    /// A path inside a file mounted via an MC-style `extfs` script. The `prefix`
+    /// (e.g. `"uzip"`, `"iso9660"`) is both the backend scheme and the script
+    /// name; `container` is the archive file on local disk, `inner` the absolute
+    /// path within the mount (root = `/`). Structurally identical to an archive
+    /// path (container-backed → treated as local, not remote).
+    pub fn extfs(prefix: &str, container: impl Into<PathBuf>, inner: impl Into<PathBuf>) -> Self {
+        VfsPath {
+            scheme: prefix.to_string(),
+            path: inner.into(),
+            container: Some(container.into()),
+        }
+    }
+
     /// The current local working directory, or `/` if it cannot be determined.
     pub fn local_cwd() -> Self {
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
@@ -46,10 +59,19 @@ impl VfsPath {
         self.container.is_some()
     }
 
+    /// True for the built-in `archive` backend specifically (as opposed to an
+    /// `extfs` mount, which is also container-backed). Used to route archive
+    /// mutations to the in-process rebuild path rather than the extfs scripts.
+    pub fn is_native_archive(&self) -> bool {
+        self.scheme == "archive"
+    }
+
     /// True for a non-local backend (an `sftp-`/`ftp-`/`scp-` session scheme).
-    /// The local disk (`file`) and archives (`archive`) both count as local.
+    /// The local disk (`file`) and any container-backed path (built-in archives
+    /// and `extfs` mounts) all count as local — their files can be extracted to
+    /// a temp on local disk, so they are exempt from the one-remote invariant.
     pub fn is_remote(&self) -> bool {
-        self.scheme != "file" && self.scheme != "archive"
+        self.container.is_none() && self.scheme != "file"
     }
 
     /// True when this points at the root of an archive.
