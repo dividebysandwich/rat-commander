@@ -139,7 +139,7 @@ impl Default for Config {
             reshape_rtl: true,
             graphics: "auto".to_string(),
             truecolor: None,
-            animation: true,
+            animation: false,
             system_status: true,
             brief_columns: 2,
             command_history_max: 100,
