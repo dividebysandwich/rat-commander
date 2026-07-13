@@ -279,6 +279,7 @@ code = "sk"
 "Username" = "Používateľské meno"
 "Password" = "Heslo"
 "Remote path (blank = home)" = "Vzdialená cesta (prázdne = domov)"
+"Passive mode (PASV)" = "Pasívny režim (PASV)"
 "&Background operations..." = "Operácie na pozadí… (&B)"
 
 # -- Tree view menu entry --

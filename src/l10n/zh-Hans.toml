@@ -279,6 +279,7 @@ code = "zh-Hans"
 "Username" = "用户名"
 "Password" = "密码"
 "Remote path (blank = home)" = "远程路径 (留空 = 主目录)"
+"Passive mode (PASV)" = "被动模式 (PASV)"
 "&Background operations..." = "后台操作…(&B)"
 
 # -- Tree view menu entry --

@@ -279,6 +279,7 @@ code = "zh-Hant"
 "Username" = "使用者名稱"
 "Password" = "密碼"
 "Remote path (blank = home)" = "遠端路徑 (空白 = 家目錄)"
+"Passive mode (PASV)" = "被動模式 (PASV)"
 "&Background operations..." = "背景作業…(&B)"
 
 # -- Tree view menu entry --

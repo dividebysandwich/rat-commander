@@ -455,13 +455,19 @@ impl FormDialog {
         side: usize,
         history: Vec<crate::config::RemoteHistoryEntry>,
     ) -> Self {
-        let form = Form::new(vec![
+        let mut fields = vec![
             Field::text("Host", ""),
             Field::text("Port", protocol.default_port().to_string()),
             Field::text("Username", ""),
             Field::password("Password"),
             Field::text("Remote path (blank = home)", ""),
-        ]);
+        ];
+        // Passive mode (PASV) is a plain-FTP concept; SFTP/SCP tunnel their data
+        // over the single SSH connection, so the checkbox is FTP-only.
+        if matches!(protocol, Protocol::Ftp) {
+            fields.push(Field::check("Passive mode (PASV)", true));
+        }
+        let form = Form::new(fields);
         // Only this protocol's recent connections.
         let history: Vec<_> = history
             .into_iter()
@@ -502,6 +508,10 @@ impl FormDialog {
         set_text_field(&mut self.form.fields[2], &entry.user);
         if let Some(field) = self.form.fields.get_mut(4) {
             set_text_field(field, &entry.path);
+        }
+        // Restore the remembered PASV choice (FTP forms only have this checkbox).
+        if let Some(Field::Check { value, .. }) = self.form.fields.get_mut(5) {
+            *value = entry.passive;
         }
         self.form.focus = 3; // password
     }
@@ -746,6 +756,9 @@ impl FormDialog {
                         user: fields[2].as_text().trim().to_string(),
                         password: fields[3].as_text().to_string(),
                         path: fields[4].as_text().trim().to_string(),
+                        // The PASV checkbox exists only on FTP forms; SFTP/SCP
+                        // ignore the value, so a missing field is fine.
+                        passive: fields.get(5).map(Field::as_bool).unwrap_or(false),
                     },
                 )
             }

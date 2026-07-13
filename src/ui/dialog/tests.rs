@@ -561,6 +561,7 @@ fn connect_history_dropdown_fills_fields() {
             port: 2222,
             user: "alice".into(),
             path: "/srv".into(),
+            passive: true,
         },
         // A different protocol must be filtered out of the dropdown.
         RemoteHistoryEntry {
@@ -569,6 +570,7 @@ fn connect_history_dropdown_fills_fields() {
             port: 21,
             user: String::new(),
             path: String::new(),
+            passive: false,
         },
     ];
     let mut d = FormDialog::connect(Protocol::Sftp, 1, history);
@@ -600,6 +602,69 @@ fn down_does_not_open_dropdown_without_history() {
 }
 
 #[test]
+fn ftp_connect_form_has_a_passive_checkbox_but_ssh_forms_do_not() {
+    // PASV is FTP-only: the FTP form adds a 6th field, SFTP/SCP keep five.
+    assert_eq!(FormDialog::connect(Protocol::Ftp, 0, vec![]).form.field_count(), 6);
+    assert_eq!(FormDialog::connect(Protocol::Sftp, 0, vec![]).form.field_count(), 5);
+    assert_eq!(FormDialog::connect(Protocol::Scp, 0, vec![]).form.field_count(), 5);
+}
+
+#[test]
+fn ftp_connect_passive_defaults_on_and_can_be_unticked() {
+    // Fresh FTP form: PASV is on by default.
+    let mut d = FormDialog::connect(Protocol::Ftp, 0, vec![]);
+    for c in "h.example".chars() {
+        d.handle_key(key(KeyCode::Char(c)));
+    }
+    match d.handle_key(key(KeyCode::Enter)) {
+        DialogResult::Submit(Submit::Connect(_, creds)) => {
+            assert!(matches!(creds.protocol, Protocol::Ftp));
+            assert!(creds.passive, "passive on by default");
+        }
+        _ => panic!("expected a Connect submit"),
+    }
+
+    // Tab to the PASV checkbox (field 5) and Space to untick it.
+    let mut d = FormDialog::connect(Protocol::Ftp, 0, vec![]);
+    for c in "h.example".chars() {
+        d.handle_key(key(KeyCode::Char(c)));
+    }
+    for _ in 0..5 {
+        d.handle_key(key(KeyCode::Tab));
+    }
+    d.handle_key(key(KeyCode::Char(' ')));
+    match d.handle_key(key(KeyCode::Enter)) {
+        DialogResult::Submit(Submit::Connect(_, creds)) => {
+            assert!(!creds.passive, "PASV unticked → active mode");
+        }
+        _ => panic!("expected a Connect submit"),
+    }
+}
+
+#[test]
+fn connect_history_restores_the_passive_choice() {
+    // A remembered FTP server with PASV off reconnects in active mode.
+    let history = vec![RemoteHistoryEntry {
+        protocol: "ftp".into(),
+        host: "ftp.example".into(),
+        port: 21,
+        user: "u".into(),
+        path: "/pub".into(),
+        passive: false,
+    }];
+    let mut d = FormDialog::connect(Protocol::Ftp, 0, history);
+    d.handle_key(key(KeyCode::Down)); // open the recent-servers dropdown
+    d.handle_key(key(KeyCode::Enter)); // pick the only entry (fills fields + PASV)
+    match d.handle_key(key(KeyCode::Enter)) {
+        DialogResult::Submit(Submit::Connect(_, creds)) => {
+            assert_eq!(creds.host, "ftp.example");
+            assert!(!creds.passive, "the remembered active-mode choice is restored");
+        }
+        _ => panic!("expected a Connect submit"),
+    }
+}
+
+#[test]
 fn connect_dialog_renders_chevron_and_dropdown() {
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
@@ -609,6 +674,7 @@ fn connect_dialog_renders_chevron_and_dropdown() {
         port: 22,
         user: "bob".into(),
         path: "/home".into(),
+        passive: true,
     }];
     let mut d = FormDialog::connect(Protocol::Sftp, 0, history);
     let theme = crate::ui::theme::Theme::mc();

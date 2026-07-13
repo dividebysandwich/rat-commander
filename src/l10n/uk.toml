@@ -279,6 +279,7 @@ code = "uk"
 "Username" = "Ім'я користувача"
 "Password" = "Пароль"
 "Remote path (blank = home)" = "Віддалений шлях (порожньо = домашня тека)"
+"Passive mode (PASV)" = "Пасивний режим (PASV)"
 "&Background operations..." = "Фонові операції… (&B)"
 
 # -- Tree view menu entry --

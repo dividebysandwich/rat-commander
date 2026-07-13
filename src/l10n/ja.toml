@@ -279,6 +279,7 @@ code = "ja"
 "Username" = "ユーザー名"
 "Password" = "パスワード"
 "Remote path (blank = home)" = "リモートパス (空欄 = ホーム)"
+"Passive mode (PASV)" = "パッシブモード (PASV)"
 "&Background operations..." = "バックグラウンド処理…(&B)"
 
 # -- Tree view menu entry --

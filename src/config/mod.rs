@@ -20,6 +20,16 @@ pub struct RemoteHistoryEntry {
     pub user: String,
     #[serde(default)]
     pub path: String,
+    /// FTP passive mode for this server (see [`crate::vfs::remote::RemoteCreds`]).
+    /// Defaults to `true` so entries saved before this field existed reconnect in
+    /// passive mode, the FTP default.
+    #[serde(default = "crate::config::default_true")]
+    pub passive: bool,
+}
+
+/// serde default for [`RemoteHistoryEntry::passive`].
+pub(crate) fn default_true() -> bool {
+    true
 }
 
 impl RemoteHistoryEntry {
@@ -299,6 +309,7 @@ mod tests {
             port: 22,
             user: "u".into(),
             path: path.into(),
+            passive: true,
         }
     }
 
@@ -372,6 +383,18 @@ mod tests {
         assert_eq!(load_history_from(&path, 100), vec!["ok".to_string()]);
         let _ = std::fs::remove_dir_all(&dir);
         assert!(load_history_from(&path, 100).is_empty());
+    }
+
+    #[test]
+    fn remote_history_defaults_passive_true_for_old_entries() {
+        // An entry saved before the PASV field existed reconnects in passive mode.
+        let e: RemoteHistoryEntry =
+            toml::from_str("protocol = \"ftp\"\nhost = \"h\"\nport = 21\n").unwrap();
+        assert!(e.passive);
+        // A stored value is honoured either way.
+        let e: RemoteHistoryEntry =
+            toml::from_str("protocol = \"ftp\"\nhost = \"h\"\nport = 21\npassive = false\n").unwrap();
+        assert!(!e.passive);
     }
 
     #[test]

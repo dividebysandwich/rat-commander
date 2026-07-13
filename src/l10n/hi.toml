@@ -279,6 +279,7 @@ code = "hi"
 "Username" = "उपयोक्ता नाम"
 "Password" = "पासवर्ड"
 "Remote path (blank = home)" = "रिमोट पथ (खाली = होम)"
+"Passive mode (PASV)" = "निष्क्रिय मोड (PASV)"
 "&Background operations..." = "बैकग्राउंड ऑपरेशन… (&B)"
 
 # -- Tree view menu entry --

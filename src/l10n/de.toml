@@ -284,6 +284,7 @@ code = "de"
 "Username" = "Benutzername"
 "Password" = "Passwort"
 "Remote path (blank = home)" = "Remote-Pfad (leer = Home)"
+"Passive mode (PASV)" = "Passiver Modus (PASV)"
 "&Background operations..." = "Hintergrund&vorgänge..."
 
 # -- Tree view menu entry --

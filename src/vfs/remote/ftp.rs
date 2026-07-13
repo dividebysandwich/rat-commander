@@ -8,6 +8,7 @@ use crate::util::{Error, Result};
 use crate::vfs::membuf::{pipe_download, pipe_upload};
 use crate::vfs::{BoxRead, BoxWrite, Capabilities, Vfs, VfsEntry, VfsKind, VfsPath, WriteMeta};
 use std::sync::Arc;
+use suppaftp::Mode;
 use suppaftp::tokio::AsyncFtpStream;
 use suppaftp::types::FileType;
 use tokio::sync::Mutex;
@@ -24,6 +25,9 @@ pub async fn connect(creds: &RemoteCreds) -> Result<Connection> {
         .login(&creds.user, &creds.password)
         .await
         .map_err(|e| Error::other(format!("FTP login failed: {e}")))?;
+    // Passive mode (PASV) has the client open the data connection — the default,
+    // and what works behind NAT/firewalls; active has the server connect back.
+    stream.set_mode(if creds.passive { Mode::Passive } else { Mode::Active });
     // Binary mode so SIZE and transfers are byte-accurate.
     let _ = stream.transfer_type(FileType::Binary).await;
 

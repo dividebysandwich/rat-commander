@@ -213,6 +213,7 @@ fn creds() -> RemoteCreds {
         user: "u".into(),
         password: "p".into(),
         path: String::new(),
+        passive: true,
     }
 }
 

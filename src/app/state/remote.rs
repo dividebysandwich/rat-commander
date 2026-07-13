@@ -99,6 +99,7 @@ impl AppState {
                     port: creds.port,
                     user: creds.user,
                     path: creds.path,
+                    passive: creds.passive,
                 });
                 let _ = self.config.save();
             }

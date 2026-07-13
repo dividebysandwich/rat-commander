@@ -279,6 +279,7 @@ code = "fr"
 "Username" = "Nom d'utilisateur"
 "Password" = "Mot de passe"
 "Remote path (blank = home)" = "Chemin distant (vide = dossier personnel)"
+"Passive mode (PASV)" = "Mode passif (PASV)"
 "&Background operations..." = "Opérations en arrière-plan… (&B)"
 
 # -- Tree view menu entry --

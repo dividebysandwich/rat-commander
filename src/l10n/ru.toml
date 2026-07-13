@@ -279,6 +279,7 @@ code = "ru"
 "Username" = "Имя пользователя"
 "Password" = "Пароль"
 "Remote path (blank = home)" = "Удалённый путь (пусто = домашний каталог)"
+"Passive mode (PASV)" = "Пассивный режим (PASV)"
 "&Background operations..." = "Фоновые операции… (&B)"
 
 # -- Tree view menu entry --

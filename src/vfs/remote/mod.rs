@@ -127,6 +127,10 @@ pub struct RemoteCreds {
     pub password: String,
     /// Initial remote directory (defaults to the server's choice if empty).
     pub path: String,
+    /// FTP passive mode (PASV): the client opens the data connection. On by
+    /// default and needed behind most NAT/firewalls. Ignored by SFTP/SCP, which
+    /// tunnel data over the single SSH connection.
+    pub passive: bool,
 }
 
 /// A live remote connection: a VFS backend plus the directory to open.

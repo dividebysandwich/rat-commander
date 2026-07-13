@@ -279,6 +279,7 @@ code = "hu"
 "Username" = "Felhasználónév"
 "Password" = "Jelszó"
 "Remote path (blank = home)" = "Távoli útvonal (üres = saját mappa)"
+"Passive mode (PASV)" = "Passzív mód (PASV)"
 "&Background operations..." = "Háttérműveletek… (&B)"
 
 # -- Tree view menu entry --

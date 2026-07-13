@@ -279,6 +279,7 @@ code = "sr"
 "Username" = "Korisničko ime"
 "Password" = "Lozinka"
 "Remote path (blank = home)" = "Udaljena putanja (prazno = početni direktorijum)"
+"Passive mode (PASV)" = "Pasivni režim (PASV)"
 "&Background operations..." = "Pozadinske operacije… (&B)"
 
 # -- Tree view menu entry --

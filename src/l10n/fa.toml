@@ -283,6 +283,7 @@ rtl = true
 "Username" = "نام کاربری"
 "Password" = "گذرواژه"
 "Remote path (blank = home)" = "مسیر راه دور (خالی = خانه)"
+"Passive mode (PASV)" = "حالت غیرفعال (PASV)"
 "&Background operations..." = "عملیات پس‌زمینه… (&B)"
 
 # -- Tree view menu entry --

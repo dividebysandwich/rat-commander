@@ -279,6 +279,7 @@ code = "nl"
 "Username" = "Gebruikersnaam"
 "Password" = "Wachtwoord"
 "Remote path (blank = home)" = "Extern pad (leeg = thuismap)"
+"Passive mode (PASV)" = "Passieve modus (PASV)"
 "&Background operations..." = "Achtergrondbewerkingen… (&B)"
 
 # -- Tree view menu entry --

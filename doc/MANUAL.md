@@ -602,6 +602,12 @@ remote path. Previously used servers are remembered (passwords are **not**
 stored): open the **history dropdown** with the **▼** on the Host field, or by
 pressing **↓** while the Host field is focused, to refill the form.
 
+**FTP** connections have a **Passive mode (PASV)** checkbox (on by default): in
+passive mode the client opens the data connection, which is what works behind
+most NAT/firewalls; untick it for **active** mode, where the server connects
+back. The choice is remembered per server. (SFTP and SCP tunnel their data over
+the single SSH connection, so they have no such option.)
+
 SSH host keys are checked against `~/.ssh/known_hosts` (trust-on-first-use; a
 changed key is rejected).
 

@@ -288,6 +288,7 @@ code = "en"
 "Username" = "Username"
 "Password" = "Password"
 "Remote path (blank = home)" = "Remote path (blank = home)"
+"Passive mode (PASV)" = "Passive mode (PASV)"
 "&Background operations..." = "&Background operations..."
 
 # -- Tree view menu entry --

@@ -283,6 +283,7 @@ rtl = true
 "Username" = "اسم المستخدم"
 "Password" = "كلمة المرور"
 "Remote path (blank = home)" = "المسار البعيد (فارغ = المجلد الرئيسي)"
+"Passive mode (PASV)" = "الوضع السلبي (PASV)"
 "&Background operations..." = "عمليات الخلفية… (&B)"
 
 # -- Tree view menu entry --
