@@ -587,6 +587,45 @@ RAR archives are **read-only** — you can browse and extract them, but no tool 
 create RAR archives. (RAR support is an optional build feature, on by default.)
 
 
+## File associations and extfs (rc.ext)
+
+Beyond the built-in archive formats above, Rat Commander can open a file type
+with a command of your choosing — or browse it **as a directory** using a
+Midnight-Commander **extfs** script. Both are configured in the **`rc.ext`**
+file (Midnight Commander's `mc.ext` format), created with a few examples on first
+run.
+
+**Useful for** stepping into formats the built-in browser doesn't cover
+(`.iso`, `.rpm`, `.deb`, `.lha`, …), and for wiring **Enter** / **F3** / **F4**
+on a file type to your own commands.
+
+**extfs — browse via scripts.** An `Open` rule of the form
+`Open=%cd %p/<prefix>://` mounts the file with the extfs script named `<prefix>`
+and shows its contents like a folder. Rat Commander runs the **same scripts as
+Midnight Commander**, looked up in `~/.local/share/mc/extfs.d`,
+`/usr/lib/mc/extfs.d` (and the other MC directories) plus your own
+`~/.config/rat-commander/extfs.d`. So with MC installed, `.iso` (`iso9660`),
+`.rpm` (`rpm`), `.deb` (`deb`) and the rest work out of the box. Inside a mount
+you browse, copy **out** with **F5** (extract) or **in** with **F5** (add),
+**F8** to delete and **F7** to make a directory — whatever that script supports;
+an unsupported action reports a clear error. **..** at the top steps back out to
+the file. (extfs scripts are shell/Perl/Python programs, so this is a Unix
+feature.)
+
+**Open / View / Edit commands.** A rule can also just run a command: `Open` on
+**Enter**, `View` on **F3**, `Edit` on **F4**. A `View` beginning with
+`%view{ascii}` (or `%view{hex}`) pipes the command's **output** into the built-in
+viewer — e.g. `View=%view{ascii} unzip -v %f` shows the archive's contents
+listing; a plain `Open` / `View` / `Edit` command runs in the foreground. When a
+rule matches a file, its `View` / `Edit` takes precedence over the built-in
+viewer / editor for that type.
+
+Native archive browsing (the formats above) takes precedence over an extfs
+`Open` rule, so `.zip` still opens with the fast built-in handler while `rc.ext`
+covers everything else. The file format is detailed under
+*Configuration → The rc.ext file format*.
+
+
 ## Remote filesystems (SFTP / FTP / SCP)
 
 Mounts a remote server into a panel, so you browse and transfer
@@ -844,6 +883,8 @@ Configuration files live in your platform config directory
 - **`themes.toml`** — your editable themes (see *Themes*).
 - **`lang/`** — the localization files, one TOML per language (see *Language*).
 - **`menu`** — the F2 user menu (see below).
+- **`rc.ext`** — file associations for Open/View/Edit actions and extfs mounts
+  (see *The rc.ext file format*).
 
 ### Settings (Options → Settings…)
 
@@ -951,3 +992,39 @@ Macros expand before the command runs: `%f` / `%p` the current file, `%d` the
 current directory, `%t` the tagged files, `%s` the tagged-or-current files, and
 `%%` a literal percent. (Condition lines `+ …` / `= …` are accepted and ignored;
 entries always show.)
+
+### The rc.ext file format
+
+The `rc.ext` file maps file names to actions, in Midnight Commander's `mc.ext`
+format. A line starting in column 0 is a **matcher**; the indented `Key=Value`
+lines below it are the **actions** for files it matches:
+
+```
+# zip
+regex/\.(zip|ZIP)$
+    Open=%cd %p/uzip://
+    View=%view{ascii} unzip -v %f
+
+# ISO9660 CD image
+shell/i/.iso
+    Open=%cd %p/iso9660://
+```
+
+**Matchers** (first match wins): `regex/PATTERN` matches the file name with a
+regular expression (`regex/i/…` case-insensitive); `shell/.ext` matches a name
+suffix and `shell/name` an exact name (`shell/i/…` case-insensitive). Other
+Midnight Commander matcher kinds (`type/…`, `directory/…`) are recognised and
+skipped.
+
+**Actions.** `Open` runs on **Enter**, `View` on **F3**, `Edit` on **F4**.
+`Open=%cd <path>/<prefix>://` mounts the file with the extfs script `<prefix>`
+(see *File associations and extfs*); any other `Open` / `View` / `Edit` value is
+a shell command run in the file's directory. A `View` value prefixed with
+`%view{ascii}` or `%view{hex}` pipes the command's output into the built-in
+viewer instead. `Icon=` and unknown keys are ignored.
+
+**Macros** are the same as the user menu — `%f` / `%p` the current file, `%d` its
+directory, `%s` / `%t` the tagged files, `%%` a literal percent — plus `%x` for
+the file's extension.
+
+Delete the file to regenerate the default examples.
