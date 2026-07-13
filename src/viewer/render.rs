@@ -1,13 +1,14 @@
 //! Rendering for the internal viewer (text / hex).
 
 use super::{ViewMode, ViewerState};
+use crate::ui::dialog::widgets::{centered, dialog_block, draw_shadow};
 use crate::ui::theme::Theme;
 use crate::util::text::{ellipsize, pad_right};
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::Paragraph;
+use ratatui::widgets::{Clear, Paragraph};
 
 pub fn render(f: &mut Frame, area: Rect, v: &mut ViewerState, theme: &Theme) {
     if area.height < 3 {
@@ -45,6 +46,78 @@ pub fn render(f: &mut Frame, area: Rect, v: &mut ViewerState, theme: &Theme) {
         ViewMode::Text => render_text(f, content, v, theme),
     }
     render_footer(f, footer, v, theme);
+    // The F6 document outline draws over the content as a modal overlay.
+    if v.outline_open {
+        render_outline(f, content, v, theme);
+    }
+}
+
+/// Draw the F6 document-outline navigator: a centered, bordered list of the
+/// document's headings, indented by nesting level and colored per level (the
+/// selected entry highlighted). Records its interior rect on the viewer for
+/// mouse hit-testing and keeps the selection scrolled into view.
+fn render_outline(f: &mut Frame, area: Rect, v: &mut ViewerState, theme: &Theme) {
+    let items = v.outline.clone().unwrap_or_default();
+    let title = crate::l10n::trd("Outline");
+    let empty = crate::l10n::trd("(no headings)");
+
+    // Size the box to the longest entry (indent + text), clamped to what the
+    // content area allows (guarding against narrow terminals and huge headings so
+    // the arithmetic below can never overflow or clamp with an inverted range).
+    let label_w = items
+        .iter()
+        .map(|it| it.level.saturating_sub(1) * 2 + it.text.chars().count())
+        .max()
+        .unwrap_or(0)
+        .max(empty.chars().count())
+        .max(title.chars().count() + 2);
+    let avail_w = area.width.saturating_sub(2); // interior width inside the borders
+    let want_w = label_w.min(u16::MAX as usize) as u16;
+    let inner_w = want_w.saturating_add(1).clamp(1, avail_w.max(1));
+    let box_w = inner_w.saturating_add(2).min(area.width.max(2));
+    let avail_h = area.height.saturating_sub(2);
+    let want_h = items.len().max(1).min(u16::MAX as usize) as u16;
+    let inner_h = want_h.clamp(1, avail_h.max(1));
+    let box_h = inner_h.saturating_add(2).min(area.height.max(2));
+    let rect = centered(area, box_w, box_h);
+
+    draw_shadow(f, rect, theme);
+    f.render_widget(Clear, rect);
+    let block = dialog_block(&title, theme);
+    let inner = block.inner(rect);
+    f.render_widget(block, rect);
+
+    v.outline_area = inner;
+    let rows = inner.height as usize;
+
+    // Keep the selection within the visible window, then clamp the scroll offset.
+    if v.outline_sel < v.outline_top {
+        v.outline_top = v.outline_sel;
+    } else if rows > 0 && v.outline_sel >= v.outline_top + rows {
+        v.outline_top = v.outline_sel + 1 - rows;
+    }
+    v.outline_top = v.outline_top.min(items.len().saturating_sub(rows));
+
+    let width = inner.width as usize;
+    let mut lines: Vec<Line> = Vec::with_capacity(rows.max(1));
+    if items.is_empty() {
+        lines.push(Line::from(Span::styled(
+            pad_right(&empty, width),
+            Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg).add_modifier(Modifier::ITALIC),
+        )));
+    } else {
+        for (i, it) in items.iter().enumerate().skip(v.outline_top).take(rows) {
+            let indent = "  ".repeat(it.level.saturating_sub(1));
+            let text = pad_right(&format!("{indent}{}", it.text), width);
+            let style = if i == v.outline_sel {
+                theme.dialog_selection
+            } else {
+                Style::default().fg(super::markdown::heading_color(it.level, theme)).bg(theme.dialog_bg)
+            };
+            lines.push(Line::from(Span::styled(text, style)));
+        }
+    }
+    f.render_widget(Paragraph::new(lines).style(Style::default().bg(theme.dialog_bg)), inner);
 }
 
 /// Build a styled line from `chars`, coloring each by `fg[base + j]` (falling

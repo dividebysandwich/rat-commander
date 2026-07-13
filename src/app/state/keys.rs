@@ -693,6 +693,8 @@ impl AppState {
     pub(in crate::app::state) fn open_help(&mut self) {
         let mut v = ViewerState::new(HELP_NAME.to_string(), HELP_TEXT.as_bytes().to_vec());
         v.enable_syntax(self.dark_ui());
+        // Land on the manual's outline so the reader can jump straight to a topic.
+        v.open_outline();
         self.viewer = Some(v);
     }
 

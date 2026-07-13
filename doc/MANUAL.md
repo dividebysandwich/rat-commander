@@ -155,6 +155,10 @@ switch to editing as soon as it has text.
 - `F2` — Toggle line wrap
 - `F4` — Toggle hex / text mode
 - `F5` — Goto (line / percent / byte offset)
+- `F6` — (Markdown files) show the document outline — a tree of the headings.
+  Use `↑ ↓` / `PgUp PgDn` / `Home End` or the mouse to pick a heading, `Enter`
+  (or a click) to jump to it, `Esc` / `F6` to dismiss. Opening this manual with
+  `F1` lands on its outline.
 - `F7` — Search
 - `F8` — (Markdown files) toggle Raw / Render
 - `n` — Repeat the last search

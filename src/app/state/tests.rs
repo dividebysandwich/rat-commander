@@ -1770,6 +1770,7 @@ async fn f1_opens_help_in_viewer() {
         v.markdown_active(),
         "help should open in rendered Markdown mode (tags hidden), not raw"
     );
+    assert!(v.is_outline_open(), "help opens with the document outline shown");
 }
 
 #[tokio::test]

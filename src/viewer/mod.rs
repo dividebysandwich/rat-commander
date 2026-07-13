@@ -144,6 +144,17 @@ pub struct ViewerState {
     /// mouse hit-testing.
     content_area: Rect,
     footer_area: Rect,
+    /// Cached document outline (headings), built lazily on the first F6 press.
+    outline: Option<Vec<markdown::OutlineItem>>,
+    /// Whether the F6 outline navigator overlay is currently shown.
+    outline_open: bool,
+    /// Selected entry in the outline list.
+    outline_sel: usize,
+    /// First visible entry (scroll offset) of the outline list; kept in sync by
+    /// the renderer so the selection stays on screen.
+    outline_top: usize,
+    /// Interior rect of the outline list, recorded by the renderer for mouse hits.
+    outline_area: Rect,
 }
 
 impl ViewerState {
@@ -180,6 +191,11 @@ impl ViewerState {
             view_cols: 1,
             content_area: Rect::default(),
             footer_area: Rect::default(),
+            outline: None,
+            outline_open: false,
+            outline_sel: 0,
+            outline_top: 0,
+            outline_area: Rect::default(),
         }
     }
 
@@ -219,6 +235,11 @@ impl ViewerState {
             view_cols: 1,
             content_area: Rect::default(),
             footer_area: Rect::default(),
+            outline: None,
+            outline_open: false,
+            outline_sel: 0,
+            outline_top: 0,
+            outline_area: Rect::default(),
         }
     }
 
@@ -357,6 +378,10 @@ impl ViewerState {
             self.handle_search_key(key);
             return ViewerSignal::Stay;
         }
+        // While the outline navigator is open it captures navigation keys.
+        if self.outline_open {
+            return self.handle_outline_key(key);
+        }
 
         match key.code {
             // F3 toggles the viewer (open in the panels, close here), matching
@@ -373,6 +398,8 @@ impl ViewerState {
                 self.top = self.top.min(self.max_top());
             }
             KeyCode::F(5) => return ViewerSignal::OpenGoto,
+            // F6 (Markdown files in text mode): open the document outline.
+            KeyCode::F(6) if self.is_markdown && self.mode == ViewMode::Text => self.open_outline(),
             // F8 (Markdown files only): toggle the Markdown render and the raw
             // (syntax-highlighted) text.
             KeyCode::F(8) if self.is_markdown && self.mode == ViewMode::Text => {
@@ -410,6 +437,12 @@ impl ViewerState {
     /// acts as buttons.
     pub fn handle_mouse(&mut self, ev: MouseEvent) -> ViewerSignal {
         let (col, row) = (ev.column, ev.row);
+
+        // The outline navigator, while open, captures the mouse (wheel scrolls it,
+        // a click on an entry jumps there, a click outside dismisses it).
+        if self.outline_open {
+            return self.handle_outline_mouse(ev);
+        }
 
         // F-key bar clicks (when not capturing a search query).
         if matches!(ev.kind, MouseEventKind::Down(MouseButton::Left))
@@ -463,7 +496,9 @@ impl ViewerState {
         } else {
             ""
         };
-        ["Help", wrap, "Quit", mode, "Goto", "", "Search", md, "Next", "Quit"]
+        // F6: the document outline, offered for Markdown files in text mode.
+        let outline = if self.is_markdown && self.mode == ViewMode::Text { "Outline" } else { "" };
+        ["Help", wrap, "Quit", mode, "Goto", outline, "Search", md, "Next", "Quit"]
     }
 
     /// Perform the action of F-key index `i` (0-based) from a bar click.
@@ -473,12 +508,126 @@ impl ViewerState {
             2 | 9 => return ViewerSignal::Close, // Quit
             3 => KeyCode::F(4),               // Text / Hex
             4 => return ViewerSignal::OpenGoto, // Goto
+            5 => KeyCode::F(6),               // Outline (Markdown)
             6 => KeyCode::F(7),               // Search
             7 => KeyCode::F(8),               // Raw / Render (Markdown)
             8 => KeyCode::Char('n'),          // Next match
             _ => return ViewerSignal::Stay,   // Help / empty: no-op
         };
         self.handle_key(KeyEvent::new(code, KeyModifiers::NONE))
+    }
+
+    /// Whether the F6 document-outline overlay is currently shown.
+    pub fn is_outline_open(&self) -> bool {
+        self.outline_open
+    }
+
+    /// Open the document-outline navigator, building the heading list on first
+    /// use and pre-selecting the heading at or before the current position.
+    pub fn open_outline(&mut self) {
+        if self.outline.is_none() {
+            let items = self.build_outline();
+            self.outline = Some(items);
+        }
+        self.outline_sel = self
+            .outline
+            .as_ref()
+            .map_or(0, |o| o.iter().rposition(|it| it.line <= self.top).unwrap_or(0));
+        self.outline_open = true;
+    }
+
+    /// Scan the whole document for ATX headings, producing the outline entries.
+    /// Headings inside fenced code blocks are ignored.
+    fn build_outline(&mut self) -> Vec<markdown::OutlineItem> {
+        self.index_fully();
+        let mut items = Vec::new();
+        let mut in_fence = false;
+        for li in 0..self.line_count() {
+            let line = self.line_str(li);
+            if markdown::is_fence(&line) {
+                in_fence = !in_fence;
+                continue;
+            }
+            if in_fence {
+                continue;
+            }
+            if let Some((level, text)) = markdown::heading_of(&line) {
+                items.push(markdown::OutlineItem { level, text, line: li });
+            }
+        }
+        items
+    }
+
+    /// Keys while the outline overlay is open: navigate the list, jump on Enter,
+    /// dismiss on Esc/F6.
+    fn handle_outline_key(&mut self, key: KeyEvent) -> ViewerSignal {
+        let len = self.outline.as_ref().map_or(0, |o| o.len());
+        // A page is the visible height of the list (set by the renderer).
+        let page = (self.outline_area.height as isize).max(1);
+        match key.code {
+            KeyCode::Esc | KeyCode::F(6) => self.outline_open = false,
+            KeyCode::Enter => {
+                self.jump_to_outline_sel();
+                self.outline_open = false;
+            }
+            KeyCode::Up => self.outline_move(-1),
+            KeyCode::Down => self.outline_move(1),
+            KeyCode::PageUp => self.outline_move(-page),
+            KeyCode::PageDown => self.outline_move(page),
+            KeyCode::Home => self.outline_sel = 0,
+            KeyCode::End => self.outline_sel = len.saturating_sub(1),
+            _ => {}
+        }
+        ViewerSignal::Stay
+    }
+
+    /// Mouse while the outline overlay is open: wheel scrolls the selection, a
+    /// left click on an entry jumps there, a click elsewhere dismisses it.
+    fn handle_outline_mouse(&mut self, ev: MouseEvent) -> ViewerSignal {
+        match ev.kind {
+            MouseEventKind::ScrollDown => self.outline_move(1),
+            MouseEventKind::ScrollUp => self.outline_move(-1),
+            MouseEventKind::Down(MouseButton::Left) => {
+                let a = self.outline_area;
+                let inside = a.height > 0
+                    && ev.row >= a.y
+                    && ev.row < a.y + a.height
+                    && ev.column >= a.x
+                    && ev.column < a.x + a.width;
+                if inside {
+                    let idx = self.outline_top + (ev.row - a.y) as usize;
+                    if idx < self.outline.as_ref().map_or(0, |o| o.len()) {
+                        self.outline_sel = idx;
+                        self.jump_to_outline_sel();
+                    }
+                }
+                self.outline_open = false;
+            }
+            _ => {}
+        }
+        ViewerSignal::Stay
+    }
+
+    /// Move the outline selection by `delta`, clamped to the list bounds.
+    fn outline_move(&mut self, delta: isize) {
+        let len = self.outline.as_ref().map_or(0, |o| o.len());
+        if len == 0 {
+            return;
+        }
+        self.outline_sel =
+            (self.outline_sel as isize).saturating_add(delta).clamp(0, len as isize - 1) as usize;
+    }
+
+    /// Scroll the view to the currently selected heading's source line.
+    fn jump_to_outline_sel(&mut self) {
+        let Some(line) =
+            self.outline.as_ref().and_then(|o| o.get(self.outline_sel)).map(|it| it.line)
+        else {
+            return;
+        };
+        self.extend_to_line(line);
+        self.top = line.min(self.max_top());
+        self.h_offset = 0;
     }
 
     fn handle_search_key(&mut self, key: KeyEvent) {
@@ -740,6 +889,139 @@ mod tests {
         let v = ViewerState::new("notes.txt".into(), b"# not a heading\n".to_vec());
         assert!(!v.markdown_active());
         assert_eq!(v.footer_labels()[7], "");
+    }
+
+    #[test]
+    fn outline_extracts_headings_and_skips_fenced_code() {
+        let md = concat!(
+            "# Title\n",           // 0
+            "intro\n",             // 1
+            "## Section A\n",      // 2
+            "```\n",               // 3  code fence opens
+            "# not a heading\n",   // 4  inside the fence — ignored
+            "```\n",               // 5  fence closes
+            "## Section B\n",      // 6
+            "### Sub `B1`\n",      // 7  inline code stripped
+            "text\n",              // 8
+            "#### Deep\n",         // 9
+        );
+        let mut v = ViewerState::new("doc.md".into(), md.as_bytes().to_vec());
+        let items = v.build_outline();
+        let got: Vec<(usize, &str, usize)> =
+            items.iter().map(|it| (it.level, it.text.as_str(), it.line)).collect();
+        assert_eq!(
+            got,
+            vec![
+                (1, "Title", 0),
+                (2, "Section A", 2),
+                (2, "Section B", 6),
+                (3, "Sub B1", 7),
+                (4, "Deep", 9),
+            ]
+        );
+    }
+
+    #[test]
+    fn f6_opens_outline_navigates_and_jumps() {
+        let md = concat!(
+            "# One\n",   // 0
+            "a\n",       // 1
+            "## Two\n",  // 2
+            "b\n",       // 3
+            "## Three\n",// 4
+            "c\n",       // 5
+        );
+        let mut v = ViewerState::new("d.md".into(), md.as_bytes().to_vec());
+        let press = |v: &mut ViewerState, c: KeyCode| {
+            v.handle_key(KeyEvent::new(c, KeyModifiers::NONE));
+        };
+
+        press(&mut v, KeyCode::F(6));
+        assert!(v.is_outline_open());
+        assert_eq!(v.outline.as_ref().unwrap().len(), 3);
+        assert_eq!(v.outline_sel, 0, "starts on the heading at/before the top line");
+
+        // Navigate to "Three" and jump: the view scrolls to its source line.
+        press(&mut v, KeyCode::Down);
+        press(&mut v, KeyCode::Down);
+        assert_eq!(v.outline_sel, 2);
+        press(&mut v, KeyCode::Enter);
+        assert!(!v.is_outline_open(), "Enter closes the outline");
+        assert_eq!(v.top, 4, "jumped to the 'Three' heading line");
+
+        // Reopening reflects the new position; Esc dismisses without moving.
+        press(&mut v, KeyCode::F(6));
+        assert_eq!(v.outline_sel, 2);
+        press(&mut v, KeyCode::Esc);
+        assert!(!v.is_outline_open());
+        assert_eq!(v.top, 4);
+    }
+
+    #[test]
+    fn f6_outline_only_for_markdown_text_mode() {
+        // A non-markdown file offers no outline and F6 is inert.
+        let mut v = ViewerState::new("notes.txt".into(), b"# not markdown\n".to_vec());
+        assert_eq!(v.footer_labels()[5], "");
+        v.handle_key(KeyEvent::new(KeyCode::F(6), KeyModifiers::NONE));
+        assert!(!v.is_outline_open());
+
+        // Markdown in text mode: the label shows and F6 opens the outline.
+        let mut v = ViewerState::new("r.md".into(), b"# H\n".to_vec());
+        assert_eq!(v.footer_labels()[5], "Outline");
+        v.handle_key(KeyEvent::new(KeyCode::F(6), KeyModifiers::NONE));
+        assert!(v.is_outline_open());
+        v.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+
+        // Switching to hex mode hides the outline affordance.
+        v.handle_key(KeyEvent::new(KeyCode::F(4), KeyModifiers::NONE));
+        assert_eq!(v.mode, ViewMode::Hex);
+        assert_eq!(v.footer_labels()[5], "");
+        v.handle_key(KeyEvent::new(KeyCode::F(6), KeyModifiers::NONE));
+        assert!(!v.is_outline_open(), "F6 does nothing in hex mode");
+    }
+
+    #[test]
+    fn outline_overlay_renders_headings_and_highlights_selection() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let md = concat!("# One\n", "a\n", "## Two\n", "b\n", "### Three\n");
+        let mut v = ViewerState::new("d.md".into(), md.as_bytes().to_vec());
+        v.open_outline(); // selection starts on "One" (index 0)
+        let theme = crate::ui::theme::Theme::mc();
+        let mut t = Terminal::new(TestBackend::new(50, 16)).unwrap();
+        t.draw(|f| crate::viewer::render::render(f, f.area(), &mut v, &theme)).unwrap();
+        let b = t.backend().buffer();
+
+        // Every heading title is drawn somewhere in the overlay.
+        let rows: Vec<String> = (0..b.area.height)
+            .map(|y| (0..b.area.width).map(|x| b[(x, y)].symbol().to_string()).collect())
+            .collect();
+        for title in ["One", "Two", "Three"] {
+            assert!(rows.iter().any(|r| r.contains(title)), "outline shows '{title}'");
+        }
+
+        // The selected entry ("One") is drawn with the dialog selection background.
+        // (The document's own "One" heading is also visible outside the centered
+        // overlay box, so match the row that both shows "One" and is highlighted.)
+        let sel_bg = theme.dialog_selection.bg.unwrap();
+        let highlighted = rows.iter().enumerate().any(|(y, r)| {
+            r.contains("One") && (0..b.area.width).any(|x| b[(x, y as u16)].bg == sel_bg)
+        });
+        assert!(highlighted, "the selected heading row is highlighted");
+    }
+
+    #[test]
+    fn outline_click_selects_and_jumps() {
+        let md = concat!("# One\n", "a\n", "## Two\n", "b\n", "## Three\n");
+        let mut v = ViewerState::new("d.md".into(), md.as_bytes().to_vec());
+        v.open_outline();
+        // Stand in for the renderer's recorded list rect (rows 2,3,4).
+        v.outline_area = Rect::new(0, 2, 20, 3);
+        v.outline_top = 0;
+        // Click the third row → entry index 2 ("Three" on source line 4).
+        v.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 5, 4));
+        assert!(!v.is_outline_open(), "a click jumps and closes the outline");
+        assert_eq!(v.top, 4);
     }
 
     #[test]

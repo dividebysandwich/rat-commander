@@ -4,7 +4,7 @@
 //! consumes key events and reports a [`DialogResult`]; the app acts on
 //! `Submit`/`Abort` outcomes.
 
-mod widgets;
+pub(crate) mod widgets;
 
 mod backgroundops;
 mod checksum;

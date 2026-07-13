@@ -166,7 +166,7 @@ fn find_run(chars: &[char], from: usize, marker: char, len: usize) -> Option<usi
     (from..=chars.len().saturating_sub(len)).find(|&j| chars[j..j + len].iter().all(|c| *c == marker))
 }
 
-fn heading_color(level: usize, theme: &Theme) -> Color {
+pub(crate) fn heading_color(level: usize, theme: &Theme) -> Color {
     match level {
         1 => theme.header_fg,
         2 => theme.symlink_fg,
@@ -199,6 +199,98 @@ fn is_hr(body: &[char]) -> bool {
         && (marks.iter().all(|c| *c == '-')
             || marks.iter().all(|c| *c == '*')
             || marks.iter().all(|c| *c == '_'))
+}
+
+// ---------------------------------------------------------------------------
+// Document outline (the viewer's F6 heading navigator)
+// ---------------------------------------------------------------------------
+
+/// One entry in the document outline: a heading's nesting level (1–6), its
+/// display text (markup stripped) and the source line it starts on.
+#[derive(Debug, Clone)]
+pub struct OutlineItem {
+    pub level: usize,
+    pub text: String,
+    pub line: usize,
+}
+
+/// If `line` is an ATX heading (1–6 `#` then a space), return its level and the
+/// heading text with the markers and inline markup removed. Mirrors the heading
+/// rule in [`render_line`]. Headings with no text (a bare `##`) return `None`,
+/// since they make no useful navigation target.
+pub fn heading_of(line: &str) -> Option<(usize, String)> {
+    let chars: Vec<char> = line.chars().collect();
+    let indent = chars.iter().take_while(|c| **c == ' ' || **c == '\t').count();
+    let body = &chars[indent..];
+    let hashes = body.iter().take_while(|c| **c == '#').count();
+    if !(1..=6).contains(&hashes)
+        || !body.get(hashes).map(|c| *c == ' ').unwrap_or(body.len() == hashes)
+    {
+        return None;
+    }
+    let mut start = hashes;
+    if body.get(start) == Some(&' ') {
+        start += 1;
+    }
+    let text = strip_inline(&body[start..]);
+    let text = text.trim().to_string();
+    if text.is_empty() {
+        return None;
+    }
+    Some((hashes, text))
+}
+
+/// Whether `line` opens or closes a fenced code block (` ``` ` or `~~~`). The
+/// outline scanner toggles on each such line so `#` lines inside code fences are
+/// not mistaken for headings.
+pub fn is_fence(line: &str) -> bool {
+    let chars: Vec<char> = line.chars().collect();
+    let indent = chars.iter().take_while(|c| **c == ' ' || **c == '\t').count();
+    let body = &chars[indent..];
+    body.starts_with(&['`', '`', '`']) || body.starts_with(&['~', '~', '~'])
+}
+
+/// Strip inline markup (`` `code` ``, `**bold**`/`*italic*`, `[text](url)`) from
+/// `chars`, returning the plain display text — the same transform
+/// [`emit_inline`] applies, but without styling (used for outline labels).
+fn strip_inline(chars: &[char]) -> String {
+    let n = chars.len();
+    let mut out = String::with_capacity(n);
+    let mut i = 0;
+    while i < n {
+        match chars[i] {
+            '`' => {
+                if let Some(j) = (i + 1..n).find(|&j| chars[j] == '`') {
+                    out.extend(&chars[i + 1..j]);
+                    i = j + 1;
+                    continue;
+                }
+            }
+            '*' => {
+                let bold = chars.get(i + 1) == Some(&'*');
+                let mlen = if bold { 2 } else { 1 };
+                if let Some(j) = find_run(chars, i + mlen, '*', mlen) {
+                    out.extend(&chars[i + mlen..j]);
+                    i = j + mlen;
+                    continue;
+                }
+            }
+            '[' => {
+                if let Some(close) = (i + 1..n).find(|&j| chars[j] == ']')
+                    && chars.get(close + 1) == Some(&'(')
+                    && let Some(end) = (close + 2..n).find(|&j| chars[j] == ')')
+                {
+                    out.extend(&chars[i + 1..close]);
+                    i = end + 1; // skip the `](url)` part entirely
+                    continue;
+                }
+            }
+            _ => {}
+        }
+        out.push(chars[i]);
+        i += 1;
+    }
+    out
 }
 
 #[cfg(test)]
@@ -251,5 +343,30 @@ mod tests {
         assert_eq!(render("---").0, "───");
         // Underscores are not emphasis, so identifiers pass through untouched.
         assert_eq!(render("foo_bar_baz").0, "foo_bar_baz");
+    }
+
+    #[test]
+    fn heading_of_detects_levels_and_strips_markup() {
+        assert_eq!(heading_of("# Title"), Some((1, "Title".to_string())));
+        assert_eq!(heading_of("###   Spaced  "), Some((3, "Spaced".to_string())));
+        // Inline markup and a link are reduced to plain text.
+        assert_eq!(
+            heading_of("## The `code` and [a link](http://x)"),
+            Some((2, "The code and a link".to_string()))
+        );
+        // Not a heading without a following space, beyond level 6, or with no text.
+        assert_eq!(heading_of("##x"), None);
+        assert_eq!(heading_of("####### too deep"), None);
+        assert_eq!(heading_of("##"), None);
+        assert_eq!(heading_of("plain text"), None);
+    }
+
+    #[test]
+    fn is_fence_matches_backticks_and_tildes() {
+        assert!(is_fence("```"));
+        assert!(is_fence("```rust"));
+        assert!(is_fence("  ~~~"));
+        assert!(!is_fence("`inline`"));
+        assert!(!is_fence("text"));
     }
 }
