@@ -114,6 +114,8 @@ code = "ja"
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "チェックサム…(&K)"
+"Send over &LAN..." = "LANで送信…(&L)"
+"Send file over LAN" = "LANでファイルを送信"
 "Checksum" = "チェックサム"
 "Network &connections..." = "ネットワーク接続…(&C)"
 "Go &local (keep session)" = "ローカルへ (セッション保持)(&L)"

@@ -59,6 +59,12 @@ The installed executable is named **`rc`** for quick typing.
   side-by-side **Compare files** diff with in-place merging.
 - **Checksum** — compute a CRC32/MD5/SHA-1/SHA-256/SHA-512 digest of a file with
   a progress bar, and optionally verify it against a pasted reference checksum.
+- **Send over LAN** (File menu) — share the highlighted file with a nearby phone
+  or laptop: a one-shot HTTP server starts on a free port bound to your LAN IP,
+  and the download URL is shown as a **QR code** (pixel graphics, or half-block
+  cell art as a fallback). Select several files or a directory and they are
+  zipped first (with a progress bar); the box shows a live download count and the
+  server stops when you close it.
 - **Archives** — browse `.zip`, `.tar(.gz/.bz2/.xz)`, `.7z` and `.rar` like
   directories; copy in/out, delete, and compress a selection.
 - **Remote filesystems** — SFTP, SCP and FTP/FTPS, each mounted into a panel;

@@ -117,6 +117,17 @@ pub enum AppEvent {
         generation: u64,
         preview: Box<crate::details::Preview>,
     },
+    /// A "Send file over LAN" selection finished being zipped to a temp archive;
+    /// `Ok(path)` gives the archive to serve, `Err(msg)` reports a failure. `name`
+    /// is the friendly download name to advertise. Only used for the multi-file /
+    /// directory case (a lone file skips zipping).
+    SendPrepared {
+        name: String,
+        result: Result<std::path::PathBuf, String>,
+    },
+    /// A device fully downloaded the shared file from the LAN send server; the
+    /// open Send dialog bumps its download counter.
+    FileSent,
     /// A view/edit fetch streamed a (remote/archive) file to a local temp file;
     /// the handler opens it (paged viewer, or editor targeting `orig_path`).
     FileFetched {

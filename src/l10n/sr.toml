@@ -114,6 +114,8 @@ code = "sr"
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "Kontrolni zbir… (&K)"
+"Send over &LAN..." = "Pošalji preko LAN-a… (&L)"
+"Send file over LAN" = "Pošalji fajl preko LAN-a"
 "Checksum" = "Kontrolni zbir"
 "Network &connections..." = "Mrežne veze… (&C)"
 "Go &local (keep session)" = "Idi na lokalno (zadrži sesiju) (&L)"

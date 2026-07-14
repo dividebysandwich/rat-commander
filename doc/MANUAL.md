@@ -577,6 +577,42 @@ download against the digest published alongside it.
 Works on local files, files inside archives, and files on a remote panel.
 
 
+## Send a file over the LAN
+
+*File menu → Send over LAN…* (also in the command palette).
+
+Shares the highlighted file with another device on the same network — a phone,
+a tablet, or a laptop — without any cloud service, account, or cable. Rat
+Commander starts a small one-shot HTTP server and shows the download URL as a
+**QR code**; scan it with the other device's camera and the file downloads.
+
+**Operation.**
+
+- Put the cursor on a file (or **tag** several files / a directory) and choose
+  **Send over LAN**.
+- A single file is served as-is. A **multi-file or directory** selection is
+  **zipped** first, with a progress bar; the zip is named after the directory.
+- The dialog shows the **QR code** — a true-pixel image on terminals with a
+  graphics protocol (Kitty / Sixel / iTerm2), or **half-block cell art**
+  otherwise — plus the URL, the file name and size, and a live count of
+  completed downloads. The QR is always drawn black-on-white so a phone camera
+  reads it regardless of your colour theme.
+- Scan the code (or type the URL) on a device on the **same network**. The URL
+  uses a **LAN IP address** (a private one is preferred when the machine has
+  several) and a **free port** chosen automatically.
+- Press **Esc**, **Enter**, or click to **close** the dialog. Closing stops the
+  server immediately and deletes any temporary zip — the link stops working, so
+  keep the dialog open until the transfer finishes.
+
+**Notes.**
+
+- The server binds all interfaces on the LAN so any device on the subnet can
+  reach it; it only ever serves this one file and forgets everything when closed.
+- Only **local** files can be sent (a remote or in-archive panel has nothing on
+  local disk to serve). Firewalls that block inbound connections on the chosen
+  port will stop the download.
+
+
 ## The viewer (F3)
 
 A read-only file viewer with text and hex modes, search,

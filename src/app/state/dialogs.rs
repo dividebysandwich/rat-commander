@@ -37,6 +37,11 @@ impl AppState {
         match res {
             DialogResult::None => Flow::Continue,
             DialogResult::Cancel => {
+                // Closing the Send-file dialog stops its HTTP server and removes
+                // any temporary archive it was serving.
+                if matches!(self.dialog, Some(Dialog::SendFile(_))) {
+                    self.stop_send_server();
+                }
                 self.dialog = None;
                 // Revert a live theme/language preview when Settings is cancelled.
                 if let Some(name) = self.theme_backup.take() {

@@ -114,6 +114,8 @@ code = "zh-Hans"
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "校验和…(&K)"
+"Send over &LAN..." = "通过局域网发送…(&L)"
+"Send file over LAN" = "通过局域网发送文件"
 "Checksum" = "校验和"
 "Network &connections..." = "网络连接…(&C)"
 "Go &local (keep session)" = "切换到本地 (保留会话)(&L)"

@@ -123,6 +123,8 @@ code = "en"
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "Chec&ksum..."
+"Send over &LAN..." = "Send over &LAN..."
+"Send file over LAN" = "Send file over LAN"
 "Checksum" = "Checksum"
 "Network &connections..." = "Network &connections..."
 "Go &local (keep session)" = "Go &local (keep session)"

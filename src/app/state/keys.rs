@@ -212,6 +212,7 @@ impl AppState {
             MenuAction::Symlink => self.open_symlink(),
             MenuAction::Compress => self.open_compress(),
             MenuAction::Checksum => self.open_checksum(),
+            MenuAction::SendFile => self.send_file(),
             MenuAction::GitStage => self.git_stage_toggle().await,
             MenuAction::GitDiff => self.open_git_diff().await,
             MenuAction::BackgroundOps => self.open_background_ops(),

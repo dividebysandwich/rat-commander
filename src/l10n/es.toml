@@ -114,6 +114,8 @@ code = "es"
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "Suma de comprobación… (&K)"
+"Send over &LAN..." = "Enviar por LAN… (&L)"
+"Send file over LAN" = "Enviar archivo por LAN"
 "Checksum" = "Suma de comprobación"
 "Network &connections..." = "Conexiones de red… (&C)"
 "Go &local (keep session)" = "Ir a local (mantener sesión) (&L)"

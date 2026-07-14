@@ -118,6 +118,8 @@ rtl = true
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "المجموع الاختباري… (&K)"
+"Send over &LAN..." = "إرسال عبر الشبكة المحلية… (&L)"
+"Send file over LAN" = "إرسال ملف عبر الشبكة المحلية"
 "Checksum" = "المجموع الاختباري"
 "Network &connections..." = "اتصالات الشبكة… (&C)"
 "Go &local (keep session)" = "الانتقال إلى المحلي (إبقاء الجلسة) (&L)"

@@ -69,6 +69,8 @@ pub async fn run(startup: crate::Startup) -> Result<()> {
     // history, for the next session.
     state.persist_panel_views();
     state.persist_command_history();
+    // Stop any running "Send file over LAN" server and delete its temp archive.
+    state.stop_send_server();
     restore_terminal(&mut term, state.kbd_enhanced)?;
     result
 }

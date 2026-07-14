@@ -114,6 +114,8 @@ code = "hu"
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "Ellenőrző összeg… (&K)"
+"Send over &LAN..." = "Küldés LAN-on… (&L)"
+"Send file over LAN" = "Fájl küldése LAN-on"
 "Checksum" = "Ellenőrző összeg"
 "Network &connections..." = "Hálózati kapcsolatok… (&C)"
 "Go &local (keep session)" = "Helyi nézet (munkamenet megtartása) (&L)"

@@ -114,6 +114,8 @@ code = "cs"
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "Kontrolní součet… (&K)"
+"Send over &LAN..." = "Odeslat přes LAN… (&L)"
+"Send file over LAN" = "Odeslat soubor přes LAN"
 "Checksum" = "Kontrolní součet"
 "Network &connections..." = "Síťová připojení… (&C)"
 "Go &local (keep session)" = "Přejít na místní (ponechat relaci) (&L)"

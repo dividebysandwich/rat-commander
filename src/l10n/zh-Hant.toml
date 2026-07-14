@@ -114,6 +114,8 @@ code = "zh-Hant"
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "校驗和…(&K)"
+"Send over &LAN..." = "透過區域網路傳送…(&L)"
+"Send file over LAN" = "透過區域網路傳送檔案"
 "Checksum" = "校驗和"
 "Network &connections..." = "網路連線…(&C)"
 "Go &local (keep session)" = "切換到本機 (保留工作階段)(&L)"

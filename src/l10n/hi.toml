@@ -114,6 +114,8 @@ code = "hi"
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "चेकसम… (&K)"
+"Send over &LAN..." = "LAN से भेजें… (&L)"
+"Send file over LAN" = "LAN से फ़ाइल भेजें"
 "Checksum" = "चेकसम"
 "Network &connections..." = "नेटवर्क कनेक्शन… (&C)"
 "Go &local (keep session)" = "स्थानीय पर जाएँ (सत्र रखें) (&L)"

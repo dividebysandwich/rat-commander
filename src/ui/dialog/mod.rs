@@ -26,6 +26,7 @@ mod progress;
 mod saveas;
 mod search;
 mod select;
+mod send;
 mod usermenu;
 
 // Shared widget helpers used by `src/disk/render.rs` and kept accessible at the
@@ -62,6 +63,7 @@ pub use progress::{BusyDialog, ProgressDialog};
 pub use saveas::SaveAsDialog;
 pub use search::{SearchReplaceDialog, SearchReplaceParams};
 pub use select::SelectDialog;
+pub use send::SendFileDialog;
 pub use usermenu::UserMenuDialog;
 
 use crate::ops::progress::{OverwriteDecision, TaskId};
@@ -113,6 +115,8 @@ pub enum Dialog {
     CommandPalette(CommandPaletteDialog),
     /// The Ctrl-\ directory hotlist (bookmarked directories).
     Hotlist(HotlistDialog),
+    /// The "Send file over LAN" QR-code sharing dialog.
+    SendFile(SendFileDialog),
 }
 
 /// What the app should do after a dialog handles a key.
@@ -372,6 +376,7 @@ impl Dialog {
             Dialog::ShellHistory(d) => d.handle_key(key),
             Dialog::CommandPalette(d) => d.handle_key(key),
             Dialog::Hotlist(d) => d.handle_key(key),
+            Dialog::SendFile(d) => d.handle_key(key),
         }
     }
 
@@ -407,6 +412,7 @@ impl Dialog {
             Dialog::ShellHistory(d) => d.render(f, area, theme),
             Dialog::CommandPalette(d) => d.render(f, area, theme),
             Dialog::Hotlist(d) => d.render(f, area, theme),
+            Dialog::SendFile(d) => d.render(f, area, theme, gfx),
         }
     }
 
@@ -423,8 +429,8 @@ impl Dialog {
                 let rect = d.box_rect(area);
                 return d.handle_click(rect, col, row);
             }
-            // Any click dismisses a message box.
-            Dialog::Message(_) => return DialogResult::Cancel,
+            // Any click dismisses a message box or the send-file dialog.
+            Dialog::Message(_) | Dialog::SendFile(_) => return DialogResult::Cancel,
             // The progress dialog hit-tests its buttons: a backgroundable transfer
             // has "To background"/"Abort", and an indeterminate scan has "Abort".
             // A plain determinate dialog has no clickable buttons, so a stray click

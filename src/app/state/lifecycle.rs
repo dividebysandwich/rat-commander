@@ -86,6 +86,7 @@ impl AppState {
             edit_only: false,
             kbd_enhanced: false,
             subshell_disabled,
+            send_server: None,
         }
     }
 
@@ -440,6 +441,12 @@ impl AppState {
                     dv.scanning = false;
                     dv.selected = 0;
                 }
+            }
+            AppEvent::SendPrepared { name, result } => {
+                self.on_send_prepared(name, result);
+            }
+            AppEvent::FileSent => {
+                self.on_file_sent();
             }
             AppEvent::FileFetched { id, kind, name, orig_path, temp } => {
                 self.tasks.remove(&id);

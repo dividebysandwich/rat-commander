@@ -44,6 +44,8 @@ pub enum Slot {
     DetailsPreview(u16),
     /// The F3 fullscreen image viewer.
     ViewerImage,
+    /// The QR code in the "Send file over LAN" dialog.
+    SendQr,
 }
 
 struct Cached {

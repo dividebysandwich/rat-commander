@@ -118,6 +118,8 @@ rtl = true
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "چک‌سام… (&K)"
+"Send over &LAN..." = "ارسال از طریق شبکه محلی… (&L)"
+"Send file over LAN" = "ارسال فایل از طریق شبکه محلی"
 "Checksum" = "چک‌سام"
 "Network &connections..." = "اتصالات شبکه… (&C)"
 "Go &local (keep session)" = "رفتن به محلی (حفظ نشست) (&L)"

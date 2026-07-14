@@ -21,6 +21,7 @@ mod ops;
 mod panel;
 mod proc;
 mod rename;
+mod send;
 mod shell;
 mod syntax;
 mod ui;

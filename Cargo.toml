@@ -100,6 +100,10 @@ image = { version = "0.25.10", default-features = false, features = ["png", "jpe
 # Pure-Rust EXIF parser, used to pull a JPEG's embedded thumbnail for the Details
 # preview so we don't decode a full-resolution photo just to shrink it.
 kamadak-exif = "0.6"
+# "Send file over LAN": a pure-Rust QR encoder for the download URL, plus network
+# interface enumeration to pick a LAN IP. Both pure Rust (no C, cross-compile OK).
+qrcode = { version = "0.14", default-features = false }
+if-addrs = "0.13"
 # Anti-aliased text baked into the terminal-graphics images (dialog button
 # labels, disk-explorer treemap labels). `fontdue` is a pure-Rust glyph
 # rasterizer (no C, ARM-cross-compile safe); `epaint_default_fonts` supplies the

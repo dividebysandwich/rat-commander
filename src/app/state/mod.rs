@@ -19,8 +19,8 @@ use crate::ui::dialog::{
     DupCriteria, FileBrowserDialog, FindDialog, FindParams, FlashTargetDialog, FormDialog, GotoDialog,
     HotlistDialog, HotlistOutcome, ImageSaveDialog, InputDialog, InputPurpose, MessageDialog,
     MultiRenameDialog, OverwriteDialog, PaletteAction, PaletteCategory, PaletteEntry, ProgressDialog,
-    SaveAsDialog, SearchReplaceDialog, SearchReplaceParams, SelectDialog, ShellHistoryDialog, Submit,
-    UserMenuDialog,
+    SaveAsDialog, SearchReplaceDialog, SearchReplaceParams, SelectDialog, SendFileDialog,
+    ShellHistoryDialog, Submit, UserMenuDialog,
 };
 use crate::usermenu::{self, UserMenuEntry};
 use crate::ui::layout::SplitDir;
@@ -279,6 +279,9 @@ pub struct AppState {
     /// Set when this instance was launched from inside another Rat Commander's
     /// Ctrl-O subshell: it can't run its own subshell, so Ctrl-O is disabled.
     pub subshell_disabled: bool,
+    /// The running "Send file over LAN" HTTP server, alive while its dialog is
+    /// open; aborted (and its temp zip removed) when the dialog closes.
+    send_server: Option<crate::send::SendServer>,
 }
 
 /// How long a lone Esc is held, waiting for a digit, before it is delivered as
@@ -506,6 +509,7 @@ mod ext;
 mod palette;
 mod navigation;
 mod git;
+mod sendfile;
 
 /// Read a file fully into memory (capped just above the viewer limit).
 async fn load_file(backend: &std::sync::Arc<dyn Vfs>, path: &VfsPath) -> crate::util::Result<Vec<u8>> {

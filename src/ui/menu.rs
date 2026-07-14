@@ -30,6 +30,8 @@ pub enum MenuAction {
     Compress,
     /// Compute a checksum of the file under the cursor.
     Checksum,
+    /// Share the selected file(s) with a nearby device over the LAN (QR code).
+    SendFile,
     /// Stage / unstage the file(s) under the cursor (git).
     GitStage,
     /// Open the side-by-side diff of the file under the cursor against HEAD.
@@ -213,6 +215,7 @@ impl MenuBarState {
                 sep(),
                 item("Com&press...", MenuAction::Compress),
                 item("Chec&ksum...", MenuAction::Checksum),
+                item("Send over &LAN...", MenuAction::SendFile),
                 sep(),
                 item_key("St&age/unstage", "Ctrl-G", MenuAction::GitStage),
                 item_key("Git di&ff vs HEAD", "Alt-G", MenuAction::GitDiff),
@@ -718,18 +721,22 @@ mod tests {
 
     #[test]
     fn top_bar_letter_switches_menu_when_unclaimed() {
-        // From the File menu, 'o' has no item → switches to Options (index 3),
-        // and 'l' switches to the Left panel menu (index 0).
+        // From the File menu, 'o' has no item → switches to Options (index 3).
         let mut m = MenuBarState::new(1, &[], [false, false]);
         assert!(matches!(m.handle_key(key('o')), MenuSignal::Stay));
         assert_eq!(m.active, 3);
-        let mut m = MenuBarState::new(1, &[], [false, false]);
+        // From the Options menu, 'l' has no item → switches to the Left panel menu
+        // (index 0). (In the File menu 'l' is claimed by "Send over LAN", tested
+        // below.)
+        let mut m = MenuBarState::new(3, &[], [false, false]);
         assert!(matches!(m.handle_key(key('l')), MenuSignal::Stay));
         assert_eq!(m.active, 0);
         // An item accelerator still wins over a top letter: 'c' in File is Copy,
-        // not "Command".
+        // not "Command"; 'l' in File is "Send over LAN", not the Left menu.
         let mut m = MenuBarState::new(1, &[], [false, false]);
         assert!(matches!(m.handle_key(key('c')), MenuSignal::Activate(MenuAction::Copy)));
+        let mut m = MenuBarState::new(1, &[], [false, false]);
+        assert!(matches!(m.handle_key(key('l')), MenuSignal::Activate(MenuAction::SendFile)));
     }
 }
 

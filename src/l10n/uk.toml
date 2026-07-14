@@ -114,6 +114,8 @@ code = "uk"
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "Контрольна сума… (&K)"
+"Send over &LAN..." = "Надіслати через LAN… (&L)"
+"Send file over LAN" = "Надіслати файл через LAN"
 "Checksum" = "Контрольна сума"
 "Network &connections..." = "Мережеві з'єднання… (&C)"
 "Go &local (keep session)" = "Перейти до локального (зберегти сеанс) (&L)"

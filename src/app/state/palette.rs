@@ -33,6 +33,7 @@ impl AppState {
             cmd("&Symlink", MenuAction::Symlink),
             cmd("Com&press...", MenuAction::Compress),
             cmd("Chec&ksum...", MenuAction::Checksum),
+            cmd("Send over &LAN...", MenuAction::SendFile),
             cmd("St&age/unstage", MenuAction::GitStage),
             cmd("Git di&ff vs HEAD", MenuAction::GitDiff),
             cmd("&Background operations...", MenuAction::BackgroundOps),
