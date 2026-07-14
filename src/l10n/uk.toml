@@ -290,3 +290,14 @@ code = "uk"
 
 # -- Shell history window --
 "Shell History" = "Історія оболонки"
+
+# -- Theme editor --
+"Theme Editor" = "Редактор тем"
+"Colors" = "Кольори"
+"Preview" = "Перегляд"
+"Save as…" = "Зберегти як…"
+"Unsaved changes" = "Незбережені зміни"
+"Save your changes before continuing?" = "Зберегти зміни перед продовженням?"
+"Discard" = "Відхилити"
+"Save theme as" = "Зберегти тему як"
+"Theme name:" = "Назва теми:"

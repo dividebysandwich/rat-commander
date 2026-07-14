@@ -294,3 +294,14 @@ rtl = true
 
 # -- Shell history window --
 "Shell History" = "تاریخچه پوسته"
+
+# -- Theme editor --
+"Theme Editor" = "ویرایشگر پوسته"
+"Colors" = "رنگ‌ها"
+"Preview" = "پیش‌نمایش"
+"Save as…" = "ذخیره به‌عنوان…"
+"Unsaved changes" = "تغییرات ذخیره‌نشده"
+"Save your changes before continuing?" = "تغییرات پیش از ادامه ذخیره شود؟"
+"Discard" = "نادیده‌گرفتن"
+"Save theme as" = "ذخیره پوسته به‌عنوان"
+"Theme name:" = "نام پوسته:"

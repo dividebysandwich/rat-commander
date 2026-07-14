@@ -290,3 +290,14 @@ code = "nl"
 
 # -- Shell history window --
 "Shell History" = "Shell-geschiedenis"
+
+# -- Theme editor --
+"Theme Editor" = "Thema-editor"
+"Colors" = "Kleuren"
+"Preview" = "Voorbeeld"
+"Save as…" = "Opslaan als…"
+"Unsaved changes" = "Niet-opgeslagen wijzigingen"
+"Save your changes before continuing?" = "Wijzigingen opslaan voordat u doorgaat?"
+"Discard" = "Verwerpen"
+"Save theme as" = "Thema opslaan als"
+"Theme name:" = "Themanaam:"

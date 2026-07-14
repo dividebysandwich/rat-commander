@@ -290,3 +290,14 @@ code = "sk"
 
 # -- Shell history window --
 "Shell History" = "História shellu"
+
+# -- Theme editor --
+"Theme Editor" = "Editor motívov"
+"Colors" = "Farby"
+"Preview" = "Náhľad"
+"Save as…" = "Uložiť ako…"
+"Unsaved changes" = "Neuložené zmeny"
+"Save your changes before continuing?" = "Uložiť zmeny pred pokračovaním?"
+"Discard" = "Zahodiť"
+"Save theme as" = "Uložiť motív ako"
+"Theme name:" = "Názov motívu:"

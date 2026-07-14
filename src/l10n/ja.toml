@@ -290,3 +290,14 @@ code = "ja"
 
 # -- Shell history window --
 "Shell History" = "シェル履歴"
+
+# -- Theme editor --
+"Theme Editor" = "テーマエディター"
+"Colors" = "色"
+"Preview" = "プレビュー"
+"Save as…" = "名前を付けて保存…"
+"Unsaved changes" = "保存されていない変更"
+"Save your changes before continuing?" = "続行する前に変更を保存しますか？"
+"Discard" = "破棄"
+"Save theme as" = "テーマに名前を付けて保存"
+"Theme name:" = "テーマ名:"

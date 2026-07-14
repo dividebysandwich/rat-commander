@@ -290,3 +290,14 @@ code = "cs"
 
 # -- Shell history window --
 "Shell History" = "Historie shellu"
+
+# -- Theme editor --
+"Theme Editor" = "Editor motivů"
+"Colors" = "Barvy"
+"Preview" = "Náhled"
+"Save as…" = "Uložit jako…"
+"Unsaved changes" = "Neuložené změny"
+"Save your changes before continuing?" = "Uložit změny před pokračováním?"
+"Discard" = "Zahodit"
+"Save theme as" = "Uložit motiv jako"
+"Theme name:" = "Název motivu:"

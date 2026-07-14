@@ -220,8 +220,11 @@ impl ThemeEditor {
         self.swatch = nearest_swatch(self.spec.color_at(self.item));
     }
 
+    /// Save the working theme and close the editor (the primary Save action —
+    /// the button, `F2` and `Ctrl-S`). Persisting-and-staying is only used by the
+    /// "save first" choice when switching themes in the picker.
     fn request_save(&self) -> ThemeEditorSignal {
-        ThemeEditorSignal::Save(Box::new(self.spec.clone()))
+        ThemeEditorSignal::SaveAndClose(Box::new(self.spec.clone()))
     }
 
     /// Exit the editor, prompting first if there are unsaved changes.
@@ -312,6 +315,12 @@ impl ThemeEditor {
     }
 
     fn key_list(&mut self, key: KeyEvent) {
+        // Hex digits type a color code for the selected element without leaving
+        // the list; any other key ends an in-progress entry.
+        if self.type_hex(key) {
+            return;
+        }
+        self.hex_input = None;
         let last = THEME_FIELDS.len() - 1;
         match key.code {
             KeyCode::Up => self.item = self.item.saturating_sub(1),
@@ -328,9 +337,11 @@ impl ThemeEditor {
         }
     }
 
-    fn key_color(&mut self, key: KeyEvent) {
-        // Typing hex digits builds a `#rrggbb` code, applied once six are entered
-        // — an alternative to the sliders. Backspace edits; any other key ends it.
+    /// Feed a key into hex-code entry (works from both the element list and the
+    /// color picker, so the user needn't switch panes). Returns `true` when the
+    /// key was a hex digit — extending, and on the sixth applying, the code — or a
+    /// Backspace editing an active entry.
+    fn type_hex(&mut self, key: KeyEvent) -> bool {
         if let KeyCode::Char(c) = key.code
             && c.is_ascii_hexdigit()
         {
@@ -345,15 +356,22 @@ impl ThemeEditor {
                     self.swatch = nearest_swatch(color);
                 }
             }
-            return;
+            return true;
         }
-        if matches!(key.code, KeyCode::Backspace) {
+        if matches!(key.code, KeyCode::Backspace) && self.hex_input.is_some() {
             if let Some(b) = self.hex_input.as_mut() {
                 b.pop();
                 if b.is_empty() {
                     self.hex_input = None;
                 }
             }
+            return true;
+        }
+        false
+    }
+
+    fn key_color(&mut self, key: KeyEvent) {
+        if self.type_hex(key) {
             return;
         }
         // Any other key ends an in-progress hex entry and acts on the sliders.
@@ -717,6 +735,18 @@ mod tests {
     }
 
     #[test]
+    fn hex_typing_works_in_the_element_list() {
+        let mut ed = ThemeEditor::new("Midnight Commander", true);
+        assert_eq!(ed.focus, Focus::List, "list is the default focus");
+        for c in ['0', '0', 'f', 'f', '8', '8'] {
+            ed.handle_key(k(KeyCode::Char(c)));
+        }
+        assert_eq!(rgb_of(ed.spec.color_at(ed.item)), (0x00, 0xff, 0x88));
+        assert_eq!(ed.focus, Focus::List, "typing hex does not leave the list");
+        assert!(ed.dirty());
+    }
+
+    #[test]
     fn hex_typing_edits_with_backspace_and_cancels_with_esc() {
         let mut ed = ThemeEditor::new("Midnight Commander", true);
         ed.focus = Focus::Color;
@@ -742,8 +772,8 @@ mod tests {
         ed.handle_key(k(KeyCode::End));
         assert!(ed.dirty());
         match ed.handle_key(k(KeyCode::F(2))) {
-            ThemeEditorSignal::Save(spec) => assert_eq!(*spec, ed.spec),
-            _ => panic!("F2 should request a save"),
+            ThemeEditorSignal::SaveAndClose(spec) => assert_eq!(*spec, ed.spec),
+            _ => panic!("F2 should save and close"),
         }
         ed.mark_saved();
         assert!(!ed.dirty(), "mark_saved adopts the new baseline");
@@ -790,8 +820,8 @@ mod tests {
         assert!(matches!(ed.overlay, Overlay::SaveAs { .. }));
         ed.handle_key(k(KeyCode::Char('X')));
         match ed.handle_key(k(KeyCode::Enter)) {
-            ThemeEditorSignal::Save(spec) => assert!(spec.name.ends_with('X')),
-            _ => panic!("Save as should emit a Save with the new name"),
+            ThemeEditorSignal::SaveAndClose(spec) => assert!(spec.name.ends_with('X')),
+            _ => panic!("Save as should save (and close) under the new name"),
         }
     }
 
@@ -899,7 +929,7 @@ mod tests {
         ed.handle_key(k(KeyCode::End)); // dirty
         let _t = rendered(&mut ed);
         let b = ed.z_buttons[0]; // Save
-        assert!(matches!(ed.handle_mouse(mouse_down(b.x + 1, b.y)), ThemeEditorSignal::Save(_)));
+        assert!(matches!(ed.handle_mouse(mouse_down(b.x + 1, b.y)), ThemeEditorSignal::SaveAndClose(_)));
     }
 
     #[test]

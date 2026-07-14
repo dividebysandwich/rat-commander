@@ -290,3 +290,14 @@ code = "hu"
 
 # -- Shell history window --
 "Shell History" = "Shell-előzmények"
+
+# -- Theme editor --
+"Theme Editor" = "Témaszerkesztő"
+"Colors" = "Színek"
+"Preview" = "Előnézet"
+"Save as…" = "Mentés másként…"
+"Unsaved changes" = "Nem mentett módosítások"
+"Save your changes before continuing?" = "Menti a módosításokat a folytatás előtt?"
+"Discard" = "Elvetés"
+"Save theme as" = "Téma mentése másként"
+"Theme name:" = "Téma neve:"

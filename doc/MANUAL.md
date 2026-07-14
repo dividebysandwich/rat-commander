@@ -244,14 +244,15 @@ Opened from **Options → Edit themes…**. `Tab` / `Shift-Tab` cycle the four p
   recolor; `Enter` / `→` jump to the color picker.
 - **Color picker** (truecolor) — `↑ ↓` pick the R / G / B channel; `← →` adjust
   it by 1, `Shift-←` / `Shift-→` by 20, `PgUp` / `PgDn` by 16, `Home` / `End`
-  set it to 0 / 255; `Enter` returns to the list. You can also **type a six-digit
-  hex code** (e.g. `1a2b3c`) to set the color directly — `Backspace` edits it and
-  `Esc` cancels the entry. On a 16-color terminal the picker is a swatch grid
-  moved through with the arrows.
+  set it to 0 / 255; `Enter` returns to the list. On a 16-color terminal the
+  picker is a swatch grid moved through with the arrows.
+- **Type a hex code** — from either the color list or the picker, type a
+  six-digit hex code (e.g. `1a2b3c`) to set the selected color directly;
+  `Backspace` edits it and `Esc` cancels the entry.
 - **Buttons** — `← →` move between **Save**, **Save as…** and **Cancel**;
   `Enter` / `Space` activates.
-- `F2` / `Ctrl-S` — Save; `Esc` / `F10` — Close (prompts if there are unsaved
-  changes).
+- `F2` / `Ctrl-S` — Save and close. `Esc` / `F10` — Close (prompts to save,
+  discard, or cancel if there are unsaved changes).
 - **Mouse** — click a row in the color list to select it and the wheel scrolls
   it; click a channel bar to set its value; click a swatch; click **Save** /
   **Save as…** / **Cancel** or the confirmation-dialog buttons.
@@ -1011,9 +1012,13 @@ Themes are stored in **`themes.toml`**, generated with all the presets on first
 run. Each `[[theme]]` holds an explicit `#rrggbb` color for **every UI element** —
 `panel_bg`, `menu_bg`, `dialog_bg`, `dialog_border_fg` / `dialog_border_bg`,
 `input_bg` / `input_fg`, `cursor_bg` / `cursor_fg`, `menu_selection_bg` /
-`menu_selection_fg`, the file-type colors, the gradient endpoints, and so on. You
-can also edit the file directly — open it with **F4** in a panel, and saving
-live-reloads it. Delete the file to regenerate the presets.
+`menu_selection_fg`, the per-type file colors (`dir_fg` for directories, `file_fg`
+for regular files, plus `exec_fg` / `symlink_fg` / `archive_fg` / `doc_fg` /
+`image_fg` / `media_fg` / `marked_fg`), the gradient endpoints, and so on. You can
+also edit the file directly — open it with **F4** in a panel, and saving
+live-reloads it. Delete the file to regenerate the presets. An older `themes.toml`
+is upgraded in place on start: newly-added fields (such as `file_fg`) are filled
+with sensible per-theme values, preserving each theme's appearance.
 
 ### The F2 user-menu format
 

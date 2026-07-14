@@ -290,3 +290,14 @@ code = "zh-Hans"
 
 # -- Shell history window --
 "Shell History" = "Shell 历史记录"
+
+# -- Theme editor --
+"Theme Editor" = "主题编辑器"
+"Colors" = "颜色"
+"Preview" = "预览"
+"Save as…" = "另存为…"
+"Unsaved changes" = "未保存的更改"
+"Save your changes before continuing?" = "继续前保存更改？"
+"Discard" = "放弃"
+"Save theme as" = "主题另存为"
+"Theme name:" = "主题名称："

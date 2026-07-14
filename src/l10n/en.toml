@@ -299,3 +299,14 @@ code = "en"
 
 # -- Shell history window --
 "Shell History" = "Shell History"
+
+# -- Theme editor --
+"Theme Editor" = "Theme Editor"
+"Colors" = "Colors"
+"Preview" = "Preview"
+"Save as…" = "Save as…"
+"Unsaved changes" = "Unsaved changes"
+"Save your changes before continuing?" = "Save your changes before continuing?"
+"Discard" = "Discard"
+"Save theme as" = "Save theme as"
+"Theme name:" = "Theme name:"

@@ -290,3 +290,14 @@ code = "ru"
 
 # -- Shell history window --
 "Shell History" = "История оболочки"
+
+# -- Theme editor --
+"Theme Editor" = "Редактор тем"
+"Colors" = "Цвета"
+"Preview" = "Предпросмотр"
+"Save as…" = "Сохранить как…"
+"Unsaved changes" = "Несохранённые изменения"
+"Save your changes before continuing?" = "Сохранить изменения перед продолжением?"
+"Discard" = "Отклонить"
+"Save theme as" = "Сохранить тему как"
+"Theme name:" = "Имя темы:"

@@ -290,3 +290,14 @@ code = "sr"
 
 # -- Shell history window --
 "Shell History" = "Istorija ljuske"
+
+# -- Theme editor --
+"Theme Editor" = "Uređivač tema"
+"Colors" = "Boje"
+"Preview" = "Pregled"
+"Save as…" = "Sačuvaj kao…"
+"Unsaved changes" = "Nesačuvane izmene"
+"Save your changes before continuing?" = "Sačuvati izmene pre nastavka?"
+"Discard" = "Odbaci"
+"Save theme as" = "Sačuvaj temu kao"
+"Theme name:" = "Naziv teme:"

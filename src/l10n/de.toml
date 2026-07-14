@@ -295,3 +295,14 @@ code = "de"
 
 # -- Shell history window --
 "Shell History" = "Shell-Verlauf"
+
+# -- Theme editor --
+"Theme Editor" = "Design-Editor"
+"Colors" = "Farben"
+"Preview" = "Vorschau"
+"Save as…" = "Speichern unter…"
+"Unsaved changes" = "Ungespeicherte Änderungen"
+"Save your changes before continuing?" = "Änderungen vor dem Fortfahren speichern?"
+"Discard" = "Verwerfen"
+"Save theme as" = "Design speichern unter"
+"Theme name:" = "Designname:"

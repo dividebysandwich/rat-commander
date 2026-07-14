@@ -7,6 +7,7 @@
 //! will look like.
 
 use super::{Focus, Overlay, ThemeEditor, SWATCHES, rgb_of};
+use crate::l10n::trd;
 use crate::ui::dialog::widgets::centered;
 use crate::ui::theme::{PreviewKind, Theme, THEME_FIELDS};
 use ratatui::Frame;
@@ -83,7 +84,7 @@ pub fn render(f: &mut Frame, area: Rect, ed: &mut ThemeEditor, theme: &Theme) {
     };
     match ov {
         Ov::None => {}
-        Ov::Switch(target, button) => render_confirm_switch(f, area, ed, target, button, theme),
+        Ov::Switch(_target, button) => render_confirm_switch(f, area, ed, button, theme),
         Ov::Exit(button) => render_confirm_exit(f, area, ed, button, theme),
         Ov::SaveAs(name, cursor) => render_save_as(f, area, &name, cursor, theme),
     }
@@ -91,7 +92,7 @@ pub fn render(f: &mut Frame, area: Rect, ed: &mut ThemeEditor, theme: &Theme) {
 
 fn render_title(f: &mut Frame, area: Rect, ed: &ThemeEditor, theme: &Theme) {
     let star = if ed.dirty() { " *" } else { "" };
-    let left = format!(" Theme Editor — {}{star} ", ed.spec.name);
+    let left = format!(" {} — {}{star} ", trd("Theme Editor"), ed.spec.name);
     let style = Style::default().bg(theme.dialog_title).fg(theme.dialog_bg).add_modifier(Modifier::BOLD);
     fill(f, area, style);
     put(f, area, area.x, area.y, &left, style);
@@ -121,7 +122,7 @@ fn render_left(f: &mut Frame, area: Rect, ed: &mut ThemeEditor, theme: &Theme) {
     render_color_picker(f, cols[2], ed, theme);
 }
 
-fn boxed<'a>(title: &'a str, focused: bool, theme: &Theme) -> Block<'a> {
+fn boxed(title: &str, focused: bool, theme: &Theme) -> Block<'static> {
     let border = if focused { theme.dialog_title } else { theme.dialog_border_fg };
     Block::default()
         .borders(Borders::ALL)
@@ -135,7 +136,7 @@ fn boxed<'a>(title: &'a str, focused: bool, theme: &Theme) -> Block<'a> {
 }
 
 fn render_picker(f: &mut Frame, area: Rect, ed: &mut ThemeEditor, theme: &Theme) {
-    let block = boxed("Theme", ed.focus == Focus::Picker, theme);
+    let block = boxed(&trd("Theme"), ed.focus == Focus::Picker, theme);
     let inner = block.inner(area);
     ed.z_picker = inner;
     f.render_widget(block, area);
@@ -156,7 +157,7 @@ fn render_picker(f: &mut Frame, area: Rect, ed: &mut ThemeEditor, theme: &Theme)
 }
 
 fn render_item_list(f: &mut Frame, area: Rect, ed: &mut ThemeEditor, theme: &Theme) {
-    let block = boxed("Colors", ed.focus == Focus::List, theme);
+    let block = boxed(&trd("Colors"), ed.focus == Focus::List, theme);
     let inner = block.inner(area);
     ed.z_list = inner;
     f.render_widget(block, area);
@@ -180,6 +181,7 @@ fn render_item_list(f: &mut Frame, area: Rect, ed: &mut ThemeEditor, theme: &The
     for (row, i) in (ed.item_top..THEME_FIELDS.len()).take(h).enumerate() {
         let y = inner.y + row as u16;
         let meta = &THEME_FIELDS[i];
+        let (group, tlabel) = (trd(meta.group), trd(meta.label));
         let selected = i == ed.item;
         let base = if selected {
             theme.dialog_selection
@@ -189,7 +191,7 @@ fn render_item_list(f: &mut Frame, area: Rect, ed: &mut ThemeEditor, theme: &The
         // Row background.
         put(f, inner, inner.x, y, &" ".repeat(iw), base);
         let marker = if selected { "▶ " } else { "  " };
-        let label = format!("{marker}{} · {}", meta.group, meta.label);
+        let label = format!("{marker}{group} · {tlabel}");
         let label: String = label.chars().take(text_w).collect();
         put(f, inner, inner.x, y, &label, base);
         // Swatch + hex, right-aligned.
@@ -201,8 +203,8 @@ fn render_item_list(f: &mut Frame, area: Rect, ed: &mut ThemeEditor, theme: &The
 }
 
 fn render_color_picker(f: &mut Frame, area: Rect, ed: &mut ThemeEditor, theme: &Theme) {
-    let title = THEME_FIELDS[ed.item.min(THEME_FIELDS.len() - 1)].label;
-    let block = boxed(title, ed.focus == Focus::Color, theme);
+    let title = trd(THEME_FIELDS[ed.item.min(THEME_FIELDS.len() - 1)].label);
+    let block = boxed(&title, ed.focus == Focus::Color, theme);
     let inner = block.inner(area);
     ed.z_color = inner;
     f.render_widget(block, area);
@@ -289,7 +291,11 @@ fn contrast(bg: Color) -> Color {
 
 fn render_buttons(f: &mut Frame, area: Rect, ed: &mut ThemeEditor, theme: &Theme) {
     fill(f, area, Style::default().bg(theme.dialog_bg).fg(theme.dialog_fg));
-    let labels = ["[ Save ]", "[ Save as… ]", "[ Cancel ]"];
+    let labels = [
+        format!("[ {} ]", trd("Save")),
+        format!("[ {} ]", trd("Save as…")),
+        format!("[ {} ]", trd("Cancel")),
+    ];
     let gap = 2usize;
     let total: usize = labels.iter().map(|l| l.chars().count()).sum::<usize>() + gap * 2;
     let mut x = area.x + (area.width.saturating_sub(total as u16)) / 2;
@@ -308,7 +314,7 @@ fn render_buttons(f: &mut Frame, area: Rect, ed: &mut ThemeEditor, theme: &Theme
 // ---------------------------------------------------------------------------
 
 fn render_preview(f: &mut Frame, area: Rect, ed: &ThemeEditor, chrome: &Theme) {
-    let block = boxed("Preview", false, chrome);
+    let block = boxed(&trd("Preview"), false, chrome);
     let inner = block.inner(area);
     f.render_widget(block, area);
     if inner.width < 8 || inner.height < 4 {
@@ -347,15 +353,24 @@ fn preview_panels(f: &mut Frame, area: Rect, ed: &ThemeEditor, pt: &Theme) {
             continue;
         }
         put(f, pi, pi.x, pi.y, "Name        Size", Style::default().fg(pt.header_fg).bg(pt.panel_bg).add_modifier(Modifier::BOLD));
-        let files: [(&str, Color); 6] = [
-            ("/..", pt.dir_fg),
-            ("src", pt.dir_fg),
-            ("run.sh", pt.exec_fg),
-            ("link", pt.symlink_fg),
-            ("data.zip", pt.archive_fg),
-            ("photo.jpg", pt.marked_fg),
+        // A representative spread so every file-type color is visible: several
+        // directories, plain files, and each special type. `bold` marks the
+        // entries the real panel draws bold (executables and tagged files).
+        let files: &[(&str, Color, bool)] = &[
+            ("..", pt.dir_fg, false),
+            ("projects", pt.dir_fg, false),
+            ("images", pt.dir_fg, false),
+            ("readme.md", pt.doc_fg, false),
+            ("notes.txt", pt.file_fg, false),
+            ("config", pt.file_fg, false),
+            ("build.sh", pt.exec_fg, true),
+            ("latest", pt.symlink_fg, false),
+            ("backup.zip", pt.archive_fg, false),
+            ("photo.jpg", pt.image_fg, false),
+            ("song.mp3", pt.media_fg, false),
+            ("TODO.txt", pt.marked_fg, true),
         ];
-        for (row, (name, color)) in files.iter().enumerate() {
+        for (row, (name, color, bold)) in files.iter().enumerate() {
             let y = pi.y + 1 + row as u16;
             if y >= pi.bottom() {
                 break;
@@ -366,7 +381,11 @@ fn preview_panels(f: &mut Frame, area: Rect, ed: &ThemeEditor, pt: &Theme) {
                 put(f, pi, pi.x, y, &" ".repeat(pi.width as usize), cur);
                 put(f, pi, pi.x, y, name, cur);
             } else {
-                put(f, pi, pi.x, y, name, Style::default().fg(*color).bg(pt.panel_bg));
+                let mut st = Style::default().fg(*color).bg(pt.panel_bg);
+                if *bold {
+                    st = st.add_modifier(Modifier::BOLD);
+                }
+                put(f, pi, pi.x, y, name, st);
             }
         }
     }
@@ -501,39 +520,43 @@ fn preview_editor(f: &mut Frame, area: Rect, pt: &Theme) {
 // Overlays
 // ---------------------------------------------------------------------------
 
-fn render_confirm_switch(f: &mut Frame, area: Rect, ed: &mut ThemeEditor, target: usize, button: usize, theme: &Theme) {
-    let d = centered(area, 54u16.min(area.width.saturating_sub(4)), 7);
-    let blk = confirm_block(" Unsaved changes ", theme);
-    let di = blk.inner(d);
-    f.render_widget(Clear, d);
-    f.render_widget(blk, d);
-    let to = ed.names.get(target).map(String::as_str).unwrap_or("");
-    let msg = format!("Save changes to \"{}\" before switching to \"{}\"?", ed.spec.name, to);
-    f.render_widget(
-        Paragraph::new(msg)
-            .wrap(ratatui::widgets::Wrap { trim: true })
-            .alignment(Alignment::Center)
-            .style(Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg)),
-        Rect { height: di.height.saturating_sub(1), ..di },
-    );
-    render_button_row(f, di, di.bottom().saturating_sub(1), &["[ Save ]", "[ Discard ]", "[ Cancel ]"], button, theme, &mut ed.z_overlay);
+fn render_confirm_switch(f: &mut Frame, area: Rect, ed: &mut ThemeEditor, button: usize, theme: &Theme) {
+    render_confirm(f, area, &mut ed.z_overlay, button, theme);
 }
 
 fn render_confirm_exit(f: &mut Frame, area: Rect, ed: &mut ThemeEditor, button: usize, theme: &Theme) {
+    render_confirm(f, area, &mut ed.z_overlay, button, theme);
+}
+
+/// The shared "unsaved changes" prompt (Save / Discard / Cancel) used both when
+/// switching themes and when closing the editor.
+fn render_confirm(f: &mut Frame, area: Rect, zones: &mut [Rect; 3], button: usize, theme: &Theme) {
     let d = centered(area, 54u16.min(area.width.saturating_sub(4)), 7);
-    let blk = confirm_block(" Unsaved changes ", theme);
+    let blk = confirm_block(&trd("Unsaved changes"), theme);
     let di = blk.inner(d);
     f.render_widget(Clear, d);
     f.render_widget(blk, d);
-    let msg = format!("Save changes to \"{}\" before closing the theme editor?", ed.spec.name);
     f.render_widget(
-        Paragraph::new(msg)
+        Paragraph::new(trd("Save your changes before continuing?"))
             .wrap(ratatui::widgets::Wrap { trim: true })
             .alignment(Alignment::Center)
             .style(Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg)),
         Rect { height: di.height.saturating_sub(1), ..di },
     );
-    render_button_row(f, di, di.bottom().saturating_sub(1), &["[ Save ]", "[ Discard ]", "[ Cancel ]"], button, theme, &mut ed.z_overlay);
+    let (save, discard, cancel) = (
+        format!("[ {} ]", trd("Save")),
+        format!("[ {} ]", trd("Discard")),
+        format!("[ {} ]", trd("Cancel")),
+    );
+    render_button_row(
+        f,
+        di,
+        di.bottom().saturating_sub(1),
+        &[save.as_str(), discard.as_str(), cancel.as_str()],
+        button,
+        theme,
+        zones,
+    );
 }
 
 fn confirm_block(title: &str, theme: &Theme) -> Block<'static> {
@@ -541,7 +564,7 @@ fn confirm_block(title: &str, theme: &Theme) -> Block<'static> {
         .borders(Borders::ALL)
         .border_type(BorderType::Double)
         .border_style(Style::default().fg(theme.dialog_border_fg).bg(theme.dialog_border_bg))
-        .title(Span::styled(title.to_string(), Style::default().fg(theme.dialog_title).bg(theme.dialog_border_bg).add_modifier(Modifier::BOLD)))
+        .title(Span::styled(format!(" {title} "), Style::default().fg(theme.dialog_title).bg(theme.dialog_border_bg).add_modifier(Modifier::BOLD)))
         .title_alignment(Alignment::Center)
         .style(Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg))
 }
@@ -553,7 +576,7 @@ fn render_save_as(f: &mut Frame, area: Rect, name: &str, cursor: usize, theme: &
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(theme.dialog_border_fg).bg(theme.dialog_border_bg))
-        .title(Span::styled(" Save theme as ", Style::default().fg(theme.dialog_title).bg(theme.dialog_border_bg).add_modifier(Modifier::BOLD)))
+        .title(Span::styled(format!(" {} ", trd("Save theme as")), Style::default().fg(theme.dialog_title).bg(theme.dialog_border_bg).add_modifier(Modifier::BOLD)))
         .title_alignment(Alignment::Center)
         .style(Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg));
     let di = blk.inner(d);
@@ -562,7 +585,7 @@ fn render_save_as(f: &mut Frame, area: Rect, name: &str, cursor: usize, theme: &
     if di.height < 3 {
         return;
     }
-    put(f, di, di.x + 1, di.y, "Theme name:", Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg));
+    put(f, di, di.x + 1, di.y, &trd("Theme name:"), Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg));
     let iy = di.y + 1;
     put(f, di, di.x + 1, iy, &" ".repeat(di.width.saturating_sub(2) as usize), Style::default().bg(theme.input_bg).fg(theme.input_fg));
     put(f, di, di.x + 1, iy, name, Style::default().bg(theme.input_bg).fg(theme.input_fg));

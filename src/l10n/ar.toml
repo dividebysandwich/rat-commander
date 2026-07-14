@@ -294,3 +294,14 @@ rtl = true
 
 # -- Shell history window --
 "Shell History" = "سجل الصدفة"
+
+# -- Theme editor --
+"Theme Editor" = "محرر السمات"
+"Colors" = "الألوان"
+"Preview" = "معاينة"
+"Save as…" = "حفظ باسم…"
+"Unsaved changes" = "تغييرات غير محفوظة"
+"Save your changes before continuing?" = "حفظ التغييرات قبل المتابعة؟"
+"Discard" = "تجاهل"
+"Save theme as" = "حفظ السمة باسم"
+"Theme name:" = "اسم السمة:"

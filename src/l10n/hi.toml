@@ -290,3 +290,14 @@ code = "hi"
 
 # -- Shell history window --
 "Shell History" = "शेल इतिहास"
+
+# -- Theme editor --
+"Theme Editor" = "थीम संपादक"
+"Colors" = "रंग"
+"Preview" = "पूर्वावलोकन"
+"Save as…" = "इस रूप में सहेजें…"
+"Unsaved changes" = "असहेजे गए परिवर्तन"
+"Save your changes before continuing?" = "जारी रखने से पहले परिवर्तन सहेजें?"
+"Discard" = "छोड़ें"
+"Save theme as" = "थीम इस रूप में सहेजें"
+"Theme name:" = "थीम नाम:"

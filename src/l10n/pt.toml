@@ -290,3 +290,14 @@ code = "pt"
 
 # -- Shell history window --
 "Shell History" = "Histórico do shell"
+
+# -- Theme editor --
+"Theme Editor" = "Editor de temas"
+"Colors" = "Cores"
+"Preview" = "Pré-visualização"
+"Save as…" = "Salvar como…"
+"Unsaved changes" = "Alterações não salvas"
+"Save your changes before continuing?" = "Salvar as alterações antes de continuar?"
+"Discard" = "Descartar"
+"Save theme as" = "Salvar tema como"
+"Theme name:" = "Nome do tema:"

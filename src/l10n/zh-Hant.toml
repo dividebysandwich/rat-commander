@@ -290,3 +290,14 @@ code = "zh-Hant"
 
 # -- Shell history window --
 "Shell History" = "Shell 歷史紀錄"
+
+# -- Theme editor --
+"Theme Editor" = "佈景主題編輯器"
+"Colors" = "顏色"
+"Preview" = "預覽"
+"Save as…" = "另存為…"
+"Unsaved changes" = "未儲存的變更"
+"Save your changes before continuing?" = "繼續前儲存變更？"
+"Discard" = "捨棄"
+"Save theme as" = "佈景主題另存為"
+"Theme name:" = "佈景主題名稱："

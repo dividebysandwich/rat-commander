@@ -83,6 +83,9 @@ pub struct ThemeSpec {
     // -- File-type name colors --
     #[serde(with = "hex_color")] pub marked_fg: Color,
     #[serde(with = "hex_color")] pub dir_fg: Color,
+    /// Regular files with no special type. Defaulted for `themes.toml` files
+    /// written before this field existed (so they keep loading).
+    #[serde(default = "default_file_fg", with = "hex_color")] pub file_fg: Color,
     #[serde(with = "hex_color")] pub exec_fg: Color,
     #[serde(with = "hex_color")] pub symlink_fg: Color,
     #[serde(with = "hex_color")] pub archive_fg: Color,
@@ -195,6 +198,7 @@ theme_fields! {
     "Cursor", "Inactive foreground", Panels, cursor_inactive_fg;
     "File types", "Marked", Panels, marked_fg;
     "File types", "Directory", Panels, dir_fg;
+    "File types", "File", Panels, file_fg;
     "File types", "Executable", Panels, exec_fg;
     "File types", "Symlink", Panels, symlink_fg;
     "File types", "Archive", Panels, archive_fg;
@@ -282,6 +286,7 @@ fn theme_to_spec(t: &Theme) -> ThemeSpec {
         cursor_inactive_fg: fg(&t.cursor_inactive),
         marked_fg: t.marked_fg,
         dir_fg: t.dir_fg,
+        file_fg: t.file_fg,
         exec_fg: t.exec_fg,
         symlink_fg: t.symlink_fg,
         archive_fg: t.archive_fg,
@@ -343,6 +348,13 @@ mod hex_color {
     }
 }
 
+/// Default for [`ThemeSpec::file_fg`] (added after the initial release) so older
+/// `themes.toml` files without the field still deserialize; a neutral light gray
+/// like most themes' normal-file text. Regenerated presets set a per-theme value.
+fn default_file_fg() -> Color {
+    rgb(0xc6c6c6)
+}
+
 /// Parse `#rrggbb` / `rrggbb` / `0xrrggbb` into an RGB [`Color`].
 fn parse_hex(s: &str) -> Option<Color> {
     let s = s.trim();
@@ -379,22 +391,56 @@ fn set_palettes(specs: Vec<ThemeSpec>) {
     }
 }
 
+/// Add fields introduced after a user's `themes.toml` was first written, so an
+/// older file keeps working and gains sensible values on upgrade. Currently the
+/// only such field is `file_fg` (the regular-file color): it defaults to each
+/// theme's own `panel_fg` — exactly what normal files rendered as before it
+/// became themable — so both the presets and any user-made themes look unchanged.
+/// Returns the migrated TOML when anything was added, else `None`.
+fn migrate_theme_toml(text: &str) -> Option<String> {
+    let mut doc = toml::from_str::<toml::Table>(text).ok()?;
+    let themes = doc.get_mut("theme")?.as_array_mut()?;
+    let mut changed = false;
+    for entry in themes.iter_mut() {
+        let Some(tbl) = entry.as_table_mut() else { continue };
+        if !tbl.contains_key("file_fg") {
+            let fallback = tbl
+                .get("panel_fg")
+                .cloned()
+                .unwrap_or_else(|| toml::Value::String("#c6c6c6".to_string()));
+            tbl.insert("file_fg".to_string(), fallback);
+            changed = true;
+        }
+    }
+    changed.then(|| toml::to_string(&doc).ok()).flatten()
+}
+
 /// Load `themes.toml` (generating it from the presets if absent) and make those
 /// palettes active. Call once at startup, before deriving the initial theme.
 pub fn load_user_themes() {
     let Some(path) = crate::config::paths::themes_file() else {
         return;
     };
-    if path.exists() {
-        // Keep the built-ins on a read/parse error rather than clobbering the
-        // user's file.
-        match std::fs::read_to_string(&path).ok().and_then(|s| toml::from_str::<ThemesFile>(&s).ok()) {
-            Some(tf) if !tf.theme.is_empty() => set_palettes(tf.theme),
-            _ => {}
-        }
-    } else {
+    if !path.exists() {
         let _ = write_themes(&path, &builtin_specs());
-        // built-ins are already active by default — nothing more to do
+        return; // built-ins are already active by default
+    }
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return; // keep the built-ins on a read error rather than clobbering it
+    };
+    // Upgrade an older file in place: add any newly-introduced color fields with
+    // appearance-preserving values, then parse. Keep the built-ins on a parse
+    // error rather than overwriting the user's file.
+    let migrated = migrate_theme_toml(&text);
+    let src = migrated.as_deref().unwrap_or(&text);
+    if let Ok(tf) = toml::from_str::<ThemesFile>(src)
+        && !tf.theme.is_empty()
+    {
+        set_palettes(tf.theme.clone());
+        // Persist the migration so the file now carries the new fields.
+        if migrated.is_some() {
+            let _ = write_themes(&path, &tf.theme);
+        }
     }
 }
 
@@ -449,6 +495,7 @@ pub struct Theme {
     pub cursor_fg: Color,
     pub marked_fg: Color,
     pub dir_fg: Color,
+    pub file_fg: Color,
     pub exec_fg: Color,
     pub symlink_fg: Color,
     /// File-type accent colors (by extension): archives, documents, images, and
@@ -520,6 +567,7 @@ impl Theme {
             cursor_fg: s.cursor_fg,
             marked_fg: s.marked_fg,
             dir_fg: s.dir_fg,
+            file_fg: s.file_fg,
             exec_fg: s.exec_fg,
             symlink_fg: s.symlink_fg,
             archive_fg: s.archive_fg,
@@ -610,6 +658,9 @@ impl Theme {
             cursor_fg,
             marked_fg: p.bright_yellow,
             dir_fg: p.bright_blue,
+            // Regular files match the normal panel text by default (what they
+            // rendered as before this became its own themable color).
+            file_fg: p.fg,
             exec_fg: p.bright_green,
             symlink_fg: p.bright_cyan,
             // Archives = purple, documents = (dark) yellow, images = cyan,
@@ -1139,6 +1190,28 @@ mod tests {
         assert_eq!(edited.menu_bg, base.menu_bg);
         assert_eq!(edited.cursor.bg, base.cursor.bg);
         assert_eq!(edited.input_bg, base.input_bg);
+    }
+
+    #[test]
+    fn migration_fills_missing_file_fg_from_panel_fg() {
+        // Simulate a pre-upgrade file by stripping the `file_fg` lines.
+        let spec = builtin_specs()[0].clone();
+        let full = toml::to_string_pretty(&ThemesFile { theme: vec![spec.clone()] }).unwrap();
+        let old: String = full
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("file_fg"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(!old.contains("file_fg"), "precondition: field removed");
+
+        let migrated = migrate_theme_toml(&old).expect("an old file should migrate");
+        let back: ThemesFile = toml::from_str(&migrated).unwrap();
+        assert_eq!(
+            back.theme[0].file_fg, spec.panel_fg,
+            "file_fg is migrated to the theme's own panel_fg"
+        );
+        // A file that already has the field is left untouched.
+        assert!(migrate_theme_toml(&full).is_none(), "no-op when nothing is missing");
     }
 
     #[test]

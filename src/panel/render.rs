@@ -231,9 +231,10 @@ fn name_style(e: &VfsEntry, marked: bool, theme: &Theme) -> Style {
         VfsKind::File if e.is_executable() => base.fg(theme.exec_fg).add_modifier(Modifier::BOLD),
         VfsKind::File => match category_color(e.extension(), theme) {
             Some(c) => base.fg(c),
-            None => base.fg(theme.panel_fg),
+            None => base.fg(theme.file_fg),
         },
-        // Directories (and anything else) use the normal foreground.
+        VfsKind::Dir => base.fg(theme.dir_fg),
+        // Anything else uses the normal foreground.
         _ => base.fg(theme.panel_fg),
     }
 }
@@ -798,16 +799,22 @@ mod tests {
     #[test]
     fn name_style_tints_plain_files_by_type() {
         let t = Theme::mc();
-        // An archive file gets the archive color; an unknown one stays normal.
+        // An archive file gets the archive color.
         assert_eq!(
             name_style(&entry("a.zip", VfsKind::File, 0o644, false), false, &t).fg,
             Some(t.archive_fg)
         );
+        // A regular file uses the dedicated normal-file color…
         assert_eq!(
             name_style(&entry("notes.dat", VfsKind::File, 0o644, false), false, &t).fg,
-            Some(t.panel_fg)
+            Some(t.file_fg)
         );
-        // Executables and directories are unaffected by category coloring.
+        // …a directory uses the directory color…
+        assert_eq!(
+            name_style(&entry("subdir", VfsKind::Dir, 0o755, false), false, &t).fg,
+            Some(t.dir_fg)
+        );
+        // …and an executable stays green.
         assert_eq!(
             name_style(&entry("run.sh", VfsKind::File, 0o755, false), false, &t).fg,
             Some(t.exec_fg)
