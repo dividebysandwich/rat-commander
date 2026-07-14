@@ -301,3 +301,11 @@ code = "es"
 "Discard" = "Descartar"
 "Save theme as" = "Guardar tema como"
 "Theme name:" = "Nombre del tema:"
+
+# -- Command palette (Ctrl-P) --
+"C&ommand palette..." = "Paleta de comandos… (&O)"
+"Command palette" = "Paleta de comandos"
+"Bookmark" = "Marcador"
+"Connection" = "Conexión"
+"Add current directory to bookmarks" = "Añadir el directorio actual a marcadores"
+"Remove current directory from bookmarks" = "Quitar el directorio actual de marcadores"

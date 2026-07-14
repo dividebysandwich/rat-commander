@@ -627,6 +627,43 @@ mod feature_tests {
     }
 
     #[test]
+    fn command_palette_renders_and_filters() {
+        use crate::ui::dialog::{
+            CommandPaletteDialog, Dialog, PaletteAction, PaletteCategory, PaletteEntry,
+        };
+        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let entries = vec![
+            PaletteEntry::new("Copy", PaletteCategory::Command, PaletteAction::ToggleBookmarkCurrent),
+            PaletteEntry::new(
+                "Compare files",
+                PaletteCategory::Command,
+                PaletteAction::ToggleBookmarkCurrent,
+            ),
+            PaletteEntry::new(
+                "Theme: Dracula",
+                PaletteCategory::Setting,
+                PaletteAction::ToggleBookmarkCurrent,
+            ),
+        ];
+        let mut dlg = Dialog::CommandPalette(CommandPaletteDialog::new(entries));
+        let mut t = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        let theme = crate::ui::theme::Theme::mc();
+        t.draw(|f| dlg.render(f, f.area(), &theme, None)).unwrap();
+        let text = text_of(&t);
+        assert!(text.contains("Command palette"), "shows the title");
+        assert!(text.contains("Theme: Dracula"), "lists a settings entry");
+        // Typing narrows the list to the matching entries.
+        let mut key = |c| dlg.handle_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+        key('d');
+        key('r');
+        key('a');
+        t.draw(|f| dlg.render(f, f.area(), &theme, None)).unwrap();
+        let text = text_of(&t);
+        assert!(text.contains("Dracula"), "'dra' keeps the Dracula theme entry");
+        assert!(!text.contains("Compare files"), "'dra' filters out non-matches");
+    }
+
+    #[test]
     fn multi_rename_dialog_previews_new_names() {
         use crate::ui::dialog::{Dialog, MultiRenameDialog};
         use crate::vfs::VfsPath;

@@ -301,3 +301,11 @@ code = "hu"
 "Discard" = "Elvetés"
 "Save theme as" = "Téma mentése másként"
 "Theme name:" = "Téma neve:"
+
+# -- Command palette (Ctrl-P) --
+"C&ommand palette..." = "Parancspaletta… (&O)"
+"Command palette" = "Parancspaletta"
+"Bookmark" = "Könyvjelző"
+"Connection" = "Kapcsolat"
+"Add current directory to bookmarks" = "Aktuális könyvtár hozzáadása a könyvjelzőkhöz"
+"Remove current directory from bookmarks" = "Aktuális könyvtár eltávolítása a könyvjelzők közül"

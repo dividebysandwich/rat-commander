@@ -138,6 +138,8 @@ A quick **Alt** + digit does the same.
 - `Ctrl-O` — Step into the persistent shell full-screen and back (press again to
   return). It is the **same session** the command line runs in — see *The
   console* above
+- `Ctrl-P` — Open the **Command palette** (fuzzy search over every action,
+  setting, bookmark and open connection — see *The command palette* below)
 - `Ctrl-R` — Re-read (refresh) the active panel
 - `Ctrl-E` — Toggle reverse sort order (choose the sort key from the panel menu)
 - `Ctrl-W` — Cycle the view format (full → brief → details → tree)
@@ -750,6 +752,39 @@ current file, the current directory or the tagged files via macros. Useful for
 one-key access to your own scripts and recurring tasks.
 
 
+## The command palette (Ctrl-P)
+
+*Command menu → Command palette…*, or **Ctrl-P**.
+
+A single fuzzy-search box over everything the program can do, so you can reach a
+command by name instead of hunting through menus.
+
+**Useful for** running any action, changing a setting, or jumping somewhere in a
+couple of keystrokes — without remembering which menu it lives in.
+
+**Operation.** Type to filter; the list narrows as you go, ranking the tightest
+matches first and highlighting the letters that matched. `↑`/`↓` (or the mouse
+wheel) move the selection, `PgUp`/`PgDn` jump a page, **Enter** (or a click) runs
+the highlighted entry, and **Esc** (or **Ctrl-P** again) closes it. The query is
+a *fuzzy* match — `cf` finds *Compare files*, `dspl` finds *Disk explorer* — and
+typing a family name (`bookmark`, `connection`, …) narrows to that family.
+
+**What it lists**, shown with a colour-coded tag on the right:
+
+- **Command** — every menu action (view, copy, compare, the explorers, the
+  connection forms, the panel view/sort options for the active panel, …), run
+  exactly as if picked from the menu.
+- **Setting** (tagged *Options*) — switch the **theme**, **language** or
+  **graphics** mode directly, or flip a toggle (truecolor, animations, the status
+  widget, RTL reshaping, the internal viewer/editor, and each confirmation) in
+  place. A `✓` marks the active theme/language/mode; toggles show `✓`/`✗`. The
+  change is applied and saved immediately.
+- **Bookmark** — jump the active panel to a saved directory, or **add / remove**
+  the current directory. Bookmarks are local directories, persisted in
+  `config.toml` (the `bookmarks` list).
+- **Connection** — switch the active panel to any open remote session.
+
+
 ## Disk explorer
 
 *Command menu → Disk explorer…*
@@ -930,8 +965,9 @@ Configuration files live in your platform config directory
 
 - **`config.toml`** — written by the Settings dialog. Holds the active theme and
   language, the truecolor / animation / status-widget toggles, the external
-  editor and viewer commands, the confirmation flags, and the remembered remote
-  servers (without passwords). It also holds `command_history_max` (default
+  editor and viewer commands, the confirmation flags, the remembered remote
+  servers (without passwords), and your directory **`bookmarks`** (used by the
+  command palette, Ctrl-P). It also holds `command_history_max` (default
   `100`) — the maximum number of command-line entries kept in the persistent
   history; set it to `0` to disable history.
 - **`history`** — the persistent command-line history, one command per line

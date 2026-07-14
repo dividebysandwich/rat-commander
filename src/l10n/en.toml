@@ -310,3 +310,11 @@ code = "en"
 "Discard" = "Discard"
 "Save theme as" = "Save theme as"
 "Theme name:" = "Theme name:"
+
+# -- Command palette (Ctrl-P) --
+"C&ommand palette..." = "C&ommand palette..."
+"Command palette" = "Command palette"
+"Bookmark" = "Bookmark"
+"Connection" = "Connection"
+"Add current directory to bookmarks" = "Add current directory to bookmarks"
+"Remove current directory from bookmarks" = "Remove current directory from bookmarks"

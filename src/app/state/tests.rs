@@ -2772,3 +2772,40 @@ async fn command_line_readline_conflicts_respect_empty_line() {
     assert!(st.menu.is_none(), "Alt-F edits (word forward) with text, no menu");
     assert_eq!(st.cmd.cursor, 2, "Alt-F moved to end of 'ab'");
 }
+
+#[tokio::test]
+async fn ctrl_p_opens_command_palette_and_runs_a_command() {
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.init().await;
+    // Give the two panels distinct locations so a swap is observable. (Swap does
+    // not reload, so the paths need not exist.)
+    st.panels[0].cwd = VfsPath::local("/marker/left");
+    st.panels[1].cwd = VfsPath::local("/marker/right");
+    let left = st.panels[0].cwd.clone();
+    let right = st.panels[1].cwd.clone();
+
+    // Ctrl-P opens the fuzzy palette.
+    st.handle_key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL)).await;
+    assert!(
+        matches!(st.dialog, Some(Dialog::CommandPalette(_))),
+        "Ctrl-P opens the command palette"
+    );
+
+    // Type to filter to the unique "Swap panels" command, then run it. This
+    // exercises the whole path: query editing → Submit(Palette) → run_menu_action.
+    for c in "swap panels".chars() {
+        st.handle_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)).await;
+    }
+    st.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).await;
+
+    assert!(st.dialog.is_none(), "running an entry closes the palette");
+    assert_eq!(st.panels[0].cwd, right, "Swap panels ran: left shows the old right");
+    assert_eq!(st.panels[1].cwd, left, "Swap panels ran: right shows the old left");
+
+    // Esc closes the palette without acting.
+    st.handle_key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL)).await;
+    assert!(matches!(st.dialog, Some(Dialog::CommandPalette(_))));
+    st.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).await;
+    assert!(st.dialog.is_none(), "Esc closes the palette");
+}

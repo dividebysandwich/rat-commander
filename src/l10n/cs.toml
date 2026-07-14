@@ -301,3 +301,11 @@ code = "cs"
 "Discard" = "Zahodit"
 "Save theme as" = "Uložit motiv jako"
 "Theme name:" = "Název motivu:"
+
+# -- Command palette (Ctrl-P) --
+"C&ommand palette..." = "Paleta příkazů… (&O)"
+"Command palette" = "Paleta příkazů"
+"Bookmark" = "Záložka"
+"Connection" = "Připojení"
+"Add current directory to bookmarks" = "Přidat aktuální adresář do záložek"
+"Remove current directory from bookmarks" = "Odebrat aktuální adresář ze záložek"

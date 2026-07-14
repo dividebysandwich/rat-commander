@@ -301,3 +301,11 @@ code = "nl"
 "Discard" = "Verwerpen"
 "Save theme as" = "Thema opslaan als"
 "Theme name:" = "Themanaam:"
+
+# -- Command palette (Ctrl-P) --
+"C&ommand palette..." = "Opdrachtenpalet… (&O)"
+"Command palette" = "Opdrachtenpalet"
+"Bookmark" = "Bladwijzer"
+"Connection" = "Verbinding"
+"Add current directory to bookmarks" = "Huidige map aan bladwijzers toevoegen"
+"Remove current directory from bookmarks" = "Huidige map uit bladwijzers verwijderen"

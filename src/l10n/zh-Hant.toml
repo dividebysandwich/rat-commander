@@ -301,3 +301,11 @@ code = "zh-Hant"
 "Discard" = "捨棄"
 "Save theme as" = "佈景主題另存為"
 "Theme name:" = "佈景主題名稱："
+
+# -- Command palette (Ctrl-P) --
+"C&ommand palette..." = "命令選擇區…(&O)"
+"Command palette" = "命令選擇區"
+"Bookmark" = "書籤"
+"Connection" = "連線"
+"Add current directory to bookmarks" = "將目前目錄加入書籤"
+"Remove current directory from bookmarks" = "從書籤移除目前目錄"

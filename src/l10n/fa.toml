@@ -305,3 +305,11 @@ rtl = true
 "Discard" = "نادیده‌گرفتن"
 "Save theme as" = "ذخیره پوسته به‌عنوان"
 "Theme name:" = "نام پوسته:"
+
+# -- Command palette (Ctrl-P) --
+"C&ommand palette..." = "پالت فرمان… (&O)"
+"Command palette" = "پالت فرمان"
+"Bookmark" = "نشانک"
+"Connection" = "اتصال"
+"Add current directory to bookmarks" = "افزودن پوشه کنونی به نشانک‌ها"
+"Remove current directory from bookmarks" = "حذف پوشه کنونی از نشانک‌ها"

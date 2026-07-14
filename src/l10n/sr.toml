@@ -301,3 +301,11 @@ code = "sr"
 "Discard" = "Odbaci"
 "Save theme as" = "Sačuvaj temu kao"
 "Theme name:" = "Naziv teme:"
+
+# -- Command palette (Ctrl-P) --
+"C&ommand palette..." = "Paleta komandi… (&O)"
+"Command palette" = "Paleta komandi"
+"Bookmark" = "Obeleživač"
+"Connection" = "Veza"
+"Add current directory to bookmarks" = "Dodaj trenutni direktorijum u obeleživače"
+"Remove current directory from bookmarks" = "Ukloni trenutni direktorijum iz obeleživača"

@@ -301,3 +301,11 @@ code = "sk"
 "Discard" = "Zahodiť"
 "Save theme as" = "Uložiť motív ako"
 "Theme name:" = "Názov motívu:"
+
+# -- Command palette (Ctrl-P) --
+"C&ommand palette..." = "Paleta príkazov… (&O)"
+"Command palette" = "Paleta príkazov"
+"Bookmark" = "Záložka"
+"Connection" = "Pripojenie"
+"Add current directory to bookmarks" = "Pridať aktuálny adresár do záložiek"
+"Remove current directory from bookmarks" = "Odstrániť aktuálny adresár zo záložiek"

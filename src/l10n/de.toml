@@ -306,3 +306,11 @@ code = "de"
 "Discard" = "Verwerfen"
 "Save theme as" = "Design speichern unter"
 "Theme name:" = "Designname:"
+
+# -- Command palette (Ctrl-P) --
+"C&ommand palette..." = "&Befehlspalette..."
+"Command palette" = "Befehlspalette"
+"Bookmark" = "Lesezeichen"
+"Connection" = "Verbindung"
+"Add current directory to bookmarks" = "Aktuelles Verzeichnis zu Lesezeichen hinzufügen"
+"Remove current directory from bookmarks" = "Aktuelles Verzeichnis aus Lesezeichen entfernen"

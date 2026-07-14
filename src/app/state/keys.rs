@@ -238,6 +238,7 @@ impl AppState {
             MenuAction::NetworkConnections => self.open_network_prompt(),
             MenuAction::CompareDirs => self.dialog = Some(Dialog::Compare(CompareDialog::new())),
             MenuAction::CompareFiles => self.open_compare_files().await,
+            MenuAction::CommandPalette => self.open_command_palette(),
             MenuAction::Connect(side, proto) => {
                 if self.other_panel_is_remote(side) {
                     self.show_error(
@@ -422,6 +423,8 @@ impl AppState {
             }
             KeyCode::Char('t') if ctrl => self.active_panel().toggle_mark_and_advance(),
             KeyCode::Char('x') if ctrl => self.split = self.split.toggle(),
+            // Ctrl-P opens the fuzzy command palette (`!alt` so AltGr still types).
+            KeyCode::Char('p') if ctrl && !alt => self.open_command_palette(),
             KeyCode::Char('w') if ctrl => {
                 let side = self.active;
                 let next = self.panels[side].format.toggle();

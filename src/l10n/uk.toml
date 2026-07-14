@@ -301,3 +301,11 @@ code = "uk"
 "Discard" = "Відхилити"
 "Save theme as" = "Зберегти тему як"
 "Theme name:" = "Назва теми:"
+
+# -- Command palette (Ctrl-P) --
+"C&ommand palette..." = "Палітра команд… (&O)"
+"Command palette" = "Палітра команд"
+"Bookmark" = "Закладка"
+"Connection" = "З'єднання"
+"Add current directory to bookmarks" = "Додати поточний каталог до закладок"
+"Remove current directory from bookmarks" = "Вилучити поточний каталог із закладок"

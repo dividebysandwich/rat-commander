@@ -305,3 +305,11 @@ rtl = true
 "Discard" = "تجاهل"
 "Save theme as" = "حفظ السمة باسم"
 "Theme name:" = "اسم السمة:"
+
+# -- Command palette (Ctrl-P) --
+"C&ommand palette..." = "لوحة الأوامر… (&O)"
+"Command palette" = "لوحة الأوامر"
+"Bookmark" = "إشارة مرجعية"
+"Connection" = "اتصال"
+"Add current directory to bookmarks" = "إضافة الدليل الحالي إلى الإشارات المرجعية"
+"Remove current directory from bookmarks" = "إزالة الدليل الحالي من الإشارات المرجعية"

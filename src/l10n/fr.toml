@@ -301,3 +301,11 @@ code = "fr"
 "Discard" = "Abandonner"
 "Save theme as" = "Enregistrer le thème sous"
 "Theme name:" = "Nom du thème :"
+
+# -- Command palette (Ctrl-P) --
+"C&ommand palette..." = "Palette de commandes… (&O)"
+"Command palette" = "Palette de commandes"
+"Bookmark" = "Signet"
+"Connection" = "Connexion"
+"Add current directory to bookmarks" = "Ajouter le répertoire actuel aux signets"
+"Remove current directory from bookmarks" = "Retirer le répertoire actuel des signets"

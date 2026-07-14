@@ -51,6 +51,8 @@ pub enum MenuAction {
     NetworkConnections,
     CompareDirs,
     CompareFiles,
+    /// Open the fuzzy command palette (Ctrl-P).
+    CommandPalette,
     Connect(usize, Protocol),
     Disconnect(usize),
     /// Switch a panel (side) to an already-open remote session by id.
@@ -215,6 +217,8 @@ impl MenuBarState {
         };
 
         let mut command_items = vec![
+            item("C&ommand palette...", MenuAction::CommandPalette),
+            sep(),
             item("&Find file...", MenuAction::FindFile),
             item("Find d&uplicates...", MenuAction::FindDuplicates),
             item("Compare &directories...", MenuAction::CompareDirs),

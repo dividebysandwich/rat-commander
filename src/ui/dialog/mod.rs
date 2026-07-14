@@ -20,6 +20,7 @@ mod input;
 mod message;
 mod multirename;
 mod overwrite;
+mod palette;
 mod progress;
 mod saveas;
 mod search;
@@ -54,6 +55,7 @@ pub use input::{InputDialog, InputPurpose};
 pub use message::MessageDialog;
 pub use multirename::MultiRenameDialog;
 pub use overwrite::OverwriteDialog;
+pub use palette::{BoolSetting, CommandPaletteDialog, PaletteAction, PaletteCategory, PaletteEntry};
 pub use progress::{BusyDialog, ProgressDialog};
 pub use saveas::SaveAsDialog;
 pub use search::{SearchReplaceDialog, SearchReplaceParams};
@@ -105,6 +107,8 @@ pub enum Dialog {
     BackgroundOps(BackgroundOpsDialog),
     /// The Ctrl-H command history window, shown above the command line.
     ShellHistory(ShellHistoryDialog),
+    /// The Ctrl-P command palette (fuzzy search over actions/settings/etc.).
+    CommandPalette(CommandPaletteDialog),
 }
 
 /// What the app should do after a dialog handles a key.
@@ -264,6 +268,8 @@ pub enum Submit {
     /// Bring the background transfer with this id back to the foreground (re-open
     /// its progress dialog).
     ForegroundTask(TaskId),
+    /// Run an entry chosen from the command palette (Ctrl-P).
+    Palette(PaletteAction),
 }
 
 /// How the directory-comparison tool decides which files differ.
@@ -355,6 +361,7 @@ impl Dialog {
             Dialog::ChecksumResult(d) => d.handle_key(key),
             Dialog::BackgroundOps(d) => d.handle_key(key),
             Dialog::ShellHistory(d) => d.handle_key(key),
+            Dialog::CommandPalette(d) => d.handle_key(key),
         }
     }
 
@@ -388,6 +395,7 @@ impl Dialog {
             Dialog::ChecksumResult(d) => d.render(f, area, theme, gfx),
             Dialog::BackgroundOps(d) => d.render(f, area, theme),
             Dialog::ShellHistory(d) => d.render(f, area, theme),
+            Dialog::CommandPalette(d) => d.render(f, area, theme),
         }
     }
 
@@ -426,6 +434,7 @@ impl Dialog {
             Dialog::Select(d) => return d.handle_click(area, col, row),
             Dialog::UserMenu(d) => return d.handle_click(area, col, row),
             Dialog::ShellHistory(d) => return d.handle_click(area, col, row),
+            Dialog::CommandPalette(d) => return d.handle_click(area, col, row),
             Dialog::BackgroundOps(d) => return d.handle_click(area, col, row),
             // The connect form's history chevron/dropdown and the Choice
             // dropdowns take clicks first.
@@ -500,6 +509,9 @@ impl Dialog {
             // Scroll an open Choice dropdown's highlight (settings theme/language).
             Dialog::Form(d) => {
                 d.scroll_choice(delta);
+            }
+            Dialog::CommandPalette(d) => {
+                return d.handle_scroll(delta);
             }
             _ => {}
         }

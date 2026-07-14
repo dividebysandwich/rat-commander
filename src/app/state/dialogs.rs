@@ -61,6 +61,12 @@ impl AppState {
                 self.lang_backup = None; // keep any previewed language
                 self.reshape_backup = None; // keep any previewed reshape toggle
                 self.graphics_backup = None; // keep any previewed graphics mode
+                // The command palette can run any action (including ones that
+                // return their own Flow, like View → external viewer or Quit), so
+                // it is dispatched here rather than through `handle_submit`.
+                if let Submit::Palette(action) = s {
+                    return self.run_palette_action(action).await;
+                }
                 self.handle_submit(s).await;
                 if self.pending_quit {
                     Flow::Quit
@@ -336,6 +342,9 @@ impl AppState {
             Submit::SwitchSession(side, id) => self.switch_to_session(side, id).await,
             Submit::AskDisconnectSession(id) => self.ask_disconnect_session(id),
             Submit::DisconnectSession(id) => self.disconnect_session(id).await,
+            // Palette actions are dispatched in `handle_dialog_result` (which can
+            // return their Flow), so they never reach here.
+            Submit::Palette(_) => {}
         }
     }
 

@@ -35,6 +35,10 @@ The installed executable is named **`rc`** for quick typing.
   first save; closing the editor then exits.
 - **Multi rename** — batch-rename selected files with a masked, live two-column
   preview, counter, case transform and search-and-replace.
+- **Command palette (Ctrl-P)** — one fuzzy-search box over every menu action,
+  every setting (switch theme/language/graphics or flip a toggle in place), your
+  directory **bookmarks**, and the open remote connections; type a few letters
+  and press Enter.
 - **Find file**, **Compare directories**, **Find duplicates**, and a
   side-by-side **Compare files** diff with in-place merging.
 - **Checksum** — compute a CRC32/MD5/SHA-1/SHA-256/SHA-512 digest of a file with
@@ -106,6 +110,7 @@ also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1
 | `Insert` / `Ctrl-T` | Tag file and advance |
 | `+` / `-` / `*` | Select / unselect group (wildcard) / invert selection |
 | `Ctrl-O` | Toggle the persistent subshell |
+| `Ctrl-P` | Command palette (fuzzy-search every action, setting, bookmark, connection) |
 | `Ctrl-R` | Re-read the active panel |
 | `Ctrl-S` / `Ctrl-E` | Cycle sort key / toggle reverse |
 | `Ctrl-W` | Cycle view format (full / brief / details / tree) |

@@ -301,3 +301,11 @@ code = "ja"
 "Discard" = "破棄"
 "Save theme as" = "テーマに名前を付けて保存"
 "Theme name:" = "テーマ名:"
+
+# -- Command palette (Ctrl-P) --
+"C&ommand palette..." = "コマンドパレット…(&O)"
+"Command palette" = "コマンドパレット"
+"Bookmark" = "ブックマーク"
+"Connection" = "接続"
+"Add current directory to bookmarks" = "現在のディレクトリをブックマークに追加"
+"Remove current directory from bookmarks" = "現在のディレクトリをブックマークから削除"

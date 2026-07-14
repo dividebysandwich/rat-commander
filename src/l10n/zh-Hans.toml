@@ -301,3 +301,11 @@ code = "zh-Hans"
 "Discard" = "放弃"
 "Save theme as" = "主题另存为"
 "Theme name:" = "主题名称："
+
+# -- Command palette (Ctrl-P) --
+"C&ommand palette..." = "命令面板…(&O)"
+"Command palette" = "命令面板"
+"Bookmark" = "书签"
+"Connection" = "连接"
+"Add current directory to bookmarks" = "将当前目录添加到书签"
+"Remove current directory from bookmarks" = "从书签中移除当前目录"

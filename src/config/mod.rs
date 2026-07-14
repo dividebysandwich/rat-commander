@@ -120,6 +120,10 @@ pub struct Config {
     /// dialog's history dropdown.
     #[serde(default)]
     pub recent_remotes: Vec<RemoteHistoryEntry>,
+    /// Bookmarked local directories (absolute paths), listed and jumpable from
+    /// the command palette (Ctrl-P). (Missing from an old config → empty.)
+    #[serde(default)]
+    pub bookmarks: Vec<String>,
 }
 
 impl Default for Config {
@@ -145,6 +149,7 @@ impl Default for Config {
             command_history_max: 100,
             panels: [PanelView::default(); 2],
             recent_remotes: Vec::new(),
+            bookmarks: Vec::new(),
         }
     }
 }

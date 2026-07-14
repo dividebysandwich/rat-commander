@@ -301,3 +301,11 @@ code = "hi"
 "Discard" = "छोड़ें"
 "Save theme as" = "थीम इस रूप में सहेजें"
 "Theme name:" = "थीम नाम:"
+
+# -- Command palette (Ctrl-P) --
+"C&ommand palette..." = "कमांड पैलेट… (&O)"
+"Command palette" = "कमांड पैलेट"
+"Bookmark" = "बुकमार्क"
+"Connection" = "कनेक्शन"
+"Add current directory to bookmarks" = "वर्तमान निर्देशिका को बुकमार्क में जोड़ें"
+"Remove current directory from bookmarks" = "वर्तमान निर्देशिका को बुकमार्क से हटाएँ"
