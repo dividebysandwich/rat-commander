@@ -314,3 +314,10 @@ code = "de"
 "Connection" = "Verbindung"
 "Add current directory to bookmarks" = "Aktuelles Verzeichnis zu Lesezeichen hinzufügen"
 "Remove current directory from bookmarks" = "Aktuelles Verzeichnis aus Lesezeichen entfernen"
+
+# -- Directory hotlist / panel filter --
+"Directory &hotlist..." = "Verzeichnis-&Hotlist..."
+"Directory hotlist" = "Verzeichnis-Hotlist"
+"Panel f&ilter..." = "Panel-&Filter..."
+"Panel filter" = "Panel-Filter"
+"Filter pattern (blank clears)" = "Filtermuster (leer = löschen)"

@@ -16,6 +16,7 @@ mod flash;
 mod form;
 mod goto;
 mod history;
+mod hotlist;
 mod input;
 mod message;
 mod multirename;
@@ -51,6 +52,7 @@ pub use flash::{FileBrowserDialog, FlashTargetDialog, ImageSaveDialog};
 pub use form::FormDialog;
 pub use goto::GotoDialog;
 pub use history::ShellHistoryDialog;
+pub use hotlist::{HotlistDialog, HotlistOutcome};
 pub use input::{InputDialog, InputPurpose};
 pub use message::MessageDialog;
 pub use multirename::MultiRenameDialog;
@@ -109,6 +111,8 @@ pub enum Dialog {
     ShellHistory(ShellHistoryDialog),
     /// The Ctrl-P command palette (fuzzy search over actions/settings/etc.).
     CommandPalette(CommandPaletteDialog),
+    /// The Ctrl-\ directory hotlist (bookmarked directories).
+    Hotlist(HotlistDialog),
 }
 
 /// What the app should do after a dialog handles a key.
@@ -270,6 +274,11 @@ pub enum Submit {
     ForegroundTask(TaskId),
     /// Run an entry chosen from the command palette (Ctrl-P).
     Palette(PaletteAction),
+    /// Apply the directory hotlist's result (jump and/or persist edits).
+    Hotlist(HotlistOutcome),
+    /// Set (or clear, when `pattern` is empty) the persistent listing filter on
+    /// panel `side`.
+    PanelFilter { side: usize, pattern: String },
 }
 
 /// How the directory-comparison tool decides which files differ.
@@ -362,6 +371,7 @@ impl Dialog {
             Dialog::BackgroundOps(d) => d.handle_key(key),
             Dialog::ShellHistory(d) => d.handle_key(key),
             Dialog::CommandPalette(d) => d.handle_key(key),
+            Dialog::Hotlist(d) => d.handle_key(key),
         }
     }
 
@@ -396,6 +406,7 @@ impl Dialog {
             Dialog::BackgroundOps(d) => d.render(f, area, theme),
             Dialog::ShellHistory(d) => d.render(f, area, theme),
             Dialog::CommandPalette(d) => d.render(f, area, theme),
+            Dialog::Hotlist(d) => d.render(f, area, theme),
         }
     }
 
@@ -435,6 +446,7 @@ impl Dialog {
             Dialog::UserMenu(d) => return d.handle_click(area, col, row),
             Dialog::ShellHistory(d) => return d.handle_click(area, col, row),
             Dialog::CommandPalette(d) => return d.handle_click(area, col, row),
+            Dialog::Hotlist(d) => return d.handle_click(area, col, row),
             Dialog::BackgroundOps(d) => return d.handle_click(area, col, row),
             // The connect form's history chevron/dropdown and the Choice
             // dropdowns take clicks first.

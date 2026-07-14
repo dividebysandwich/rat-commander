@@ -79,6 +79,9 @@ The mouse works throughout:
 - **Right-click** a file to invert its mark (tag/untag it).
 - **Drag** with the left button to carry the cursor; **right-drag** flips the
   mark of every file it sweeps over (each file once).
+- Click the **`◀`** arrow (a panel's top-left corner) or the **`▶`** arrow (its
+  top-right corner) to step that panel **back / forward** through its directory
+  history.
 - Click a **menu-bar title** to open it and an entry to run it.
 - Click the bottom **F-key bar** to run that function.
 - Click **OK / Cancel** (or **Yes / No**) buttons in dialogs, and the
@@ -140,6 +143,17 @@ A quick **Alt** + digit does the same.
   console* above
 - `Ctrl-P` — Open the **Command palette** (fuzzy search over every action,
   setting, bookmark and open connection — see *The command palette* below)
+- `Alt-←` / `Alt-→` (or Midnight-Commander's `Alt-y` / `Alt-u`) — Go **back** /
+  **forward** through the directories the active panel has visited. The clickable
+  `◀` (top-left) and `▶` (top-right) arrows on each panel's border do the same
+  (and are dimmed when there is nowhere to go that way) — see *Directory history*
+  below
+- `Ctrl-\` — Open the **directory hotlist** (your bookmarked directories): jump
+  to one, add the current directory, or remove one — see *The directory hotlist*
+  below
+- `Alt-I` — Set or clear the active panel's **persistent listing filter** (a
+  shell glob like `*.rs`, or plain text; a blank entry clears it) — distinct from
+  the quick-search cursor jump; see *The listing filter* below
 - `Ctrl-R` — Re-read (refresh) the active panel
 - `Ctrl-E` — Toggle reverse sort order (choose the sort key from the panel menu)
 - `Ctrl-W` — Cycle the view format (full → brief → details → tree)
@@ -781,8 +795,63 @@ typing a family name (`bookmark`, `connection`, …) narrows to that family.
   change is applied and saved immediately.
 - **Bookmark** — jump the active panel to a saved directory, or **add / remove**
   the current directory. Bookmarks are local directories, persisted in
-  `config.toml` (the `bookmarks` list).
-- **Connection** — switch the active panel to any open remote session.
+  `config.toml` (the `bookmarks` list); the **directory hotlist** (Ctrl-\, below)
+  manages the same list.
+- **Connection** — switch the active panel to any **open** remote session, or
+  **reconnect** to a **saved** server (opens the connection form prefilled from
+  history, ready for the password).
+
+
+## Directory history (back / forward)
+
+Each panel remembers the directories it has visited, like a web browser's history.
+
+- **Go back** with `Alt-←` (or Midnight-Commander's `Alt-y`) to return to the
+  directory you were in before the current one; **go forward** with `Alt-→` (or
+  `Alt-u`) to retrace a step you went back from.
+- Two small arrows sit on each panel's top border: **`◀`** (back) at the
+  **top-left** corner and **`▶`** (forward) at the **top-right** corner.
+  **Click** them with the mouse to navigate. Each is drawn brightly when there is
+  somewhere to go that way and **dimmed** when there is not.
+- Any move that changes a panel's directory — pressing Enter on a folder, `..`,
+  `cd`, a bookmark jump, a tree selection, switching drives or servers — is
+  recorded. Making a new move after going back discards the forward trail (again,
+  like a browser). Each panel keeps its own independent history.
+
+
+## The directory hotlist (Ctrl-\)
+
+*Command menu → Directory hotlist…*, or **Ctrl-\**.
+
+A list of **bookmarked directories** you can jump to instantly — the same
+bookmarks the command palette shows and stores in `config.toml`.
+
+- **Enter** (or a click) jumps the active panel to the highlighted directory.
+- **`a`** or **Insert** adds the active panel's current directory to the list.
+- **`d`** or **Delete** removes the highlighted entry.
+- `↑`/`↓`, `PgUp`/`PgDn`, `Home`/`End` move the selection; **Esc** closes.
+
+Edits (adds/removes) are saved to `config.toml` when the hotlist closes. Only
+local directories can be bookmarked.
+
+
+## The listing filter (Alt-I)
+
+*Command menu → Panel filter…*, or **Alt-I**.
+
+A **persistent** filter that hides files whose names don't match, until you clear
+it — distinct from *quick search* (Alt-S / Ctrl-S), which only jumps the cursor
+and never hides anything.
+
+- Type a **shell glob** (`*.rs`, `img_??.png`) or **plain text** (matched
+  anywhere in the name, case-insensitively — e.g. `report` shows every name
+  containing "report"). Matching is case-insensitive.
+- The active filter is shown in the panel's **title** as `[pattern]`, so it is
+  obvious when entries are hidden. `..` is always kept so you can still navigate.
+- The prompt is pre-filled with the current filter; submit an **empty** value to
+  clear it. The filter is per panel and stays in effect as you browse and refresh
+  (it is re-applied on each directory load). Marks on files the filter hides are
+  preserved and reappear when the filter is cleared.
 
 
 ## Disk explorer

@@ -309,3 +309,10 @@ code = "zh-Hans"
 "Connection" = "连接"
 "Add current directory to bookmarks" = "将当前目录添加到书签"
 "Remove current directory from bookmarks" = "从书签中移除当前目录"
+
+# -- Directory hotlist / panel filter --
+"Directory &hotlist..." = "目录书签列表…(&H)"
+"Directory hotlist" = "目录书签列表"
+"Panel f&ilter..." = "面板过滤…(&I)"
+"Panel filter" = "面板过滤"
+"Filter pattern (blank clears)" = "过滤模式（留空清除）"

@@ -178,6 +178,14 @@ impl AppState {
                 // A click on the menu bar (top row) opens that menu.
                 if let Some(i) = MenuBarState::title_index_at(area, col, row) {
                     self.menu = Some(MenuBarState::new(i, &self.session_list(), self.side_remote()));
+                } else if let Some((side, back)) = self.history_arrow_at(col, row) {
+                    // A click on a panel's ◀/▶ history arrow steps it back/forward.
+                    self.active = side;
+                    if back {
+                        self.go_back(side).await;
+                    } else {
+                        self.go_forward(side).await;
+                    }
                 } else if let Some((pi, idx)) = self.panel_point(col, row, PointAction::Cursor) {
                     // A second click on the same entry within the window opens it,
                     // exactly like pressing Enter (descend a dir, open a file).

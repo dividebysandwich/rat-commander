@@ -23,6 +23,8 @@ pub enum InputPurpose {
     ImagePassword,
     /// Enter a root password for the network explorer (blank ⇒ user mode).
     NetworkPassword,
+    /// Set the persistent listing filter on panel `side` (blank clears it).
+    PanelFilter(usize),
 }
 
 pub struct InputDialog {
@@ -93,6 +95,13 @@ impl InputDialog {
                 if let InputPurpose::NetworkPassword = self.purpose {
                     return DialogResult::Submit(Submit::NetworkPassword(self.buffer.clone()));
                 }
+                // A blank filter is valid too — it clears the panel filter.
+                if let InputPurpose::PanelFilter(side) = self.purpose {
+                    return DialogResult::Submit(Submit::PanelFilter {
+                        side,
+                        pattern: self.buffer.trim().to_string(),
+                    });
+                }
                 let text = self.buffer.trim().to_string();
                 if text.is_empty() {
                     return DialogResult::Cancel;
@@ -109,7 +118,8 @@ impl InputDialog {
                     InputPurpose::SudoPassword
                     | InputPurpose::FlashPassword
                     | InputPurpose::ImagePassword
-                    | InputPurpose::NetworkPassword => unreachable!(),
+                    | InputPurpose::NetworkPassword
+                    | InputPurpose::PanelFilter(_) => unreachable!(),
                 };
                 DialogResult::Submit(submit)
             }

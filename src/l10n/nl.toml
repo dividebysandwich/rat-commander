@@ -309,3 +309,10 @@ code = "nl"
 "Connection" = "Verbinding"
 "Add current directory to bookmarks" = "Huidige map aan bladwijzers toevoegen"
 "Remove current directory from bookmarks" = "Huidige map uit bladwijzers verwijderen"
+
+# -- Directory hotlist / panel filter --
+"Directory &hotlist..." = "Favoriete mappen… (&H)"
+"Directory hotlist" = "Favoriete mappen"
+"Panel f&ilter..." = "Paneelfilter… (&I)"
+"Panel filter" = "Paneelfilter"
+"Filter pattern (blank clears)" = "Filterpatroon (leeg = wissen)"

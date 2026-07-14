@@ -313,3 +313,10 @@ rtl = true
 "Connection" = "اتصال"
 "Add current directory to bookmarks" = "افزودن پوشه کنونی به نشانک‌ها"
 "Remove current directory from bookmarks" = "حذف پوشه کنونی از نشانک‌ها"
+
+# -- Directory hotlist / panel filter --
+"Directory &hotlist..." = "فهرست پوشه‌های برگزیده… (&H)"
+"Directory hotlist" = "پوشه‌های برگزیده"
+"Panel f&ilter..." = "صافی پنجره… (&I)"
+"Panel filter" = "صافی پنجره"
+"Filter pattern (blank clears)" = "الگوی صافی (خالی = پاک‌سازی)"

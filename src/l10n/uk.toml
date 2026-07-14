@@ -309,3 +309,10 @@ code = "uk"
 "Connection" = "З'єднання"
 "Add current directory to bookmarks" = "Додати поточний каталог до закладок"
 "Remove current directory from bookmarks" = "Вилучити поточний каталог із закладок"
+
+# -- Directory hotlist / panel filter --
+"Directory &hotlist..." = "Обрані каталоги… (&H)"
+"Directory hotlist" = "Обрані каталоги"
+"Panel f&ilter..." = "Фільтр панелі… (&I)"
+"Panel filter" = "Фільтр панелі"
+"Filter pattern (blank clears)" = "Шаблон фільтра (порожнє = очистити)"

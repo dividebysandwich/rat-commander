@@ -239,6 +239,8 @@ impl AppState {
             MenuAction::CompareDirs => self.dialog = Some(Dialog::Compare(CompareDialog::new())),
             MenuAction::CompareFiles => self.open_compare_files().await,
             MenuAction::CommandPalette => self.open_command_palette(),
+            MenuAction::Hotlist => self.open_hotlist(),
+            MenuAction::PanelFilter => self.open_panel_filter(),
             MenuAction::Connect(side, proto) => {
                 if self.other_panel_is_remote(side) {
                     self.show_error(
@@ -352,6 +354,11 @@ impl AppState {
                 }
             }
 
+            // Directory history: Alt-←/Alt-→ (and MC's Alt-y/Alt-u) step the
+            // active panel back / forward through the directories it has visited.
+            KeyCode::Left if alt && !ctrl => self.go_back(self.active).await,
+            KeyCode::Right if alt && !ctrl => self.go_forward(self.active).await,
+
             // Alt-Enter copies the name under the cursor onto the command line.
             KeyCode::Enter if alt => self.insert_name_under_cursor(),
 
@@ -436,6 +443,13 @@ impl AppState {
             KeyCode::Char('p') if alt && !ctrl => self.cmd.history_prev(),
             KeyCode::Char('n') if alt && !ctrl => self.cmd.history_next(),
             KeyCode::Char('h') if alt && !ctrl => self.open_shell_history(),
+            // Directory history (Midnight Commander keys): Alt-y back, Alt-u fwd.
+            KeyCode::Char('y') if alt && !ctrl => self.go_back(self.active).await,
+            KeyCode::Char('u') if alt && !ctrl => self.go_forward(self.active).await,
+            // Directory hotlist (bookmarks), MC's Ctrl-\.
+            KeyCode::Char('\\') if ctrl => self.open_hotlist(),
+            // Persistent listing filter for the active panel.
+            KeyCode::Char('i') if alt && !ctrl => self.open_panel_filter(),
             KeyCode::Char('e') if ctrl => {
                 let p = self.active_panel();
                 p.sort.reverse = !p.sort.reverse;

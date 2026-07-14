@@ -318,3 +318,10 @@ code = "en"
 "Connection" = "Connection"
 "Add current directory to bookmarks" = "Add current directory to bookmarks"
 "Remove current directory from bookmarks" = "Remove current directory from bookmarks"
+
+# -- Directory hotlist / panel filter --
+"Directory &hotlist..." = "Directory &hotlist..."
+"Directory hotlist" = "Directory hotlist"
+"Panel f&ilter..." = "Panel f&ilter..."
+"Panel filter" = "Panel filter"
+"Filter pattern (blank clears)" = "Filter pattern (blank clears)"

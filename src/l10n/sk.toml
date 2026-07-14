@@ -309,3 +309,10 @@ code = "sk"
 "Connection" = "Pripojenie"
 "Add current directory to bookmarks" = "Pridať aktuálny adresár do záložiek"
 "Remove current directory from bookmarks" = "Odstrániť aktuálny adresár zo záložiek"
+
+# -- Directory hotlist / panel filter --
+"Directory &hotlist..." = "Obľúbené adresáre… (&H)"
+"Directory hotlist" = "Obľúbené adresáre"
+"Panel f&ilter..." = "Filter panela… (&I)"
+"Panel filter" = "Filter panela"
+"Filter pattern (blank clears)" = "Vzor filtra (prázdne = zrušiť)"

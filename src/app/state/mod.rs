@@ -17,9 +17,10 @@ use crate::ui::dialog::{
     BackgroundOpsDialog, BgRow, BoolSetting, BusyDialog, ChecksumResultDialog, CommandPaletteDialog,
     CompareDialog, CompareMode, ConfirmDialog, Dialog, DialogResult, DriveDialog,
     DupCriteria, FileBrowserDialog, FindDialog, FindParams, FlashTargetDialog, FormDialog, GotoDialog,
-    ImageSaveDialog, InputDialog, InputPurpose, MessageDialog, MultiRenameDialog, OverwriteDialog,
-    PaletteAction, PaletteCategory, PaletteEntry, ProgressDialog, SaveAsDialog, SearchReplaceDialog,
-    SearchReplaceParams, SelectDialog, ShellHistoryDialog, Submit, UserMenuDialog,
+    HotlistDialog, HotlistOutcome, ImageSaveDialog, InputDialog, InputPurpose, MessageDialog,
+    MultiRenameDialog, OverwriteDialog, PaletteAction, PaletteCategory, PaletteEntry, ProgressDialog,
+    SaveAsDialog, SearchReplaceDialog, SearchReplaceParams, SelectDialog, ShellHistoryDialog, Submit,
+    UserMenuDialog,
 };
 use crate::usermenu::{self, UserMenuEntry};
 use crate::ui::layout::SplitDir;
@@ -497,6 +498,7 @@ mod details;
 mod viewer_editor;
 mod ext;
 mod palette;
+mod navigation;
 
 /// Read a file fully into memory (capped just above the viewer limit).
 async fn load_file(backend: &std::sync::Arc<dyn Vfs>, path: &VfsPath) -> crate::util::Result<Vec<u8>> {

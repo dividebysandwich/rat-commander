@@ -120,7 +120,25 @@ pub struct Panel {
     /// rendering an active quick search (set by the renderer, read by the root
     /// draw to place the terminal cursor). `None` otherwise.
     pub quick_caret: Option<ratatui::layout::Position>,
+    /// Visited directories behind the current one (most-recent last) and ahead of
+    /// it, for back/forward navigation. `cwd` itself is never on either stack.
+    pub back: Vec<VfsPath>,
+    pub forward: Vec<VfsPath>,
+    /// Set by the back/forward navigation while it drives [`Panel::try_enter`], so
+    /// that move does not itself get recorded onto the history stacks.
+    pub in_history_nav: bool,
+    /// A persistent listing filter (a shell glob like `*.rs`, or plain text
+    /// matched as a substring). When set, only matching entries (plus `..`) are
+    /// listed. Distinct from the quick-search cursor jump. `None` = show all.
+    pub filter: Option<String>,
+    /// Screen rects of the clickable `◀` / `▶` history arrows on the top border,
+    /// recorded at render time for mouse hit-testing (`None` when not drawn).
+    pub back_arrow: Option<Rect>,
+    pub fwd_arrow: Option<Rect>,
 }
+
+/// Largest number of directories kept on a panel's back/forward history stacks.
+const HISTORY_MAX: usize = 128;
 
 impl Panel {
     pub fn new(backend: Arc<dyn Vfs>, cwd: VfsPath) -> Self {
@@ -142,7 +160,21 @@ impl Panel {
             brief_rows: 1,
             tree: None,
             quick_caret: None,
+            back: Vec::new(),
+            forward: Vec::new(),
+            in_history_nav: false,
+            filter: None,
+            back_arrow: None,
+            fwd_arrow: None,
         }
+    }
+
+    /// Whether there is anywhere to go back / forward (drives the arrow styling).
+    pub fn can_back(&self) -> bool {
+        !self.back.is_empty()
+    }
+    pub fn can_forward(&self) -> bool {
+        !self.forward.is_empty()
     }
 
     /// (Re)build the directory tree for the current directory. Called when the
@@ -206,7 +238,14 @@ impl Panel {
                     entries.push(parent_entry());
                 }
                 self.sort.apply(&mut entries);
+                // Prune the selection against the full (unfiltered) listing so a
+                // mark on a file the filter currently hides survives toggling it.
                 self.selection.retain_existing(&entries);
+                // Apply the persistent listing filter (keeping `..` always).
+                if let Some(pattern) = &self.filter {
+                    let m = FilterMatch::new(pattern);
+                    entries.retain(|e| e.name == ".." || m.matches(&e.name));
+                }
                 self.entries = entries;
                 self.error = None;
             }
@@ -238,6 +277,7 @@ impl Panel {
         backend: Arc<dyn Vfs>,
         focus_name: Option<&str>,
     ) -> bool {
+        let came_from = self.cwd.clone();
         let prev_cwd = std::mem::replace(&mut self.cwd, newcwd);
         let prev_backend = std::mem::replace(&mut self.backend, backend);
         let prev_selection = std::mem::replace(&mut self.selection, Selection::new());
@@ -254,6 +294,16 @@ impl Panel {
         } else {
             true
         };
+        // Record the directory we left onto the back stack (unless this move is
+        // itself a back/forward step, which manages the stacks directly). A new
+        // forward move invalidates the forward stack, browser-style.
+        if ok && !self.in_history_nav && came_from != self.cwd {
+            self.back.push(came_from);
+            if self.back.len() > HISTORY_MAX {
+                self.back.remove(0);
+            }
+            self.forward.clear();
+        }
         // A Tree-view panel that changed directory (e.g. via `cd`) re-roots its
         // tree so it keeps reflecting where the panel is.
         if self.format == ViewFormat::Tree {
@@ -401,6 +451,42 @@ impl Panel {
             Some((self.cwd.join(&e.name), None))
         } else {
             None
+        }
+    }
+}
+
+/// A compiled panel-filter matcher: a case-insensitive shell glob when the
+/// pattern uses glob metacharacters (`*?[`), otherwise a case-insensitive
+/// substring match (so typing `test` shows every name containing `test`).
+enum FilterMatch {
+    Glob(globset::GlobMatcher),
+    Substr(String),
+}
+
+impl FilterMatch {
+    fn new(pattern: &str) -> Self {
+        let has_meta = pattern.contains(['*', '?', '[']);
+        // A plain word is matched anywhere in the name (`*word*`); a pattern with
+        // metacharacters is used as written.
+        let candidate = if has_meta {
+            pattern.to_string()
+        } else {
+            format!("*{pattern}*")
+        };
+        match globset::GlobBuilder::new(&candidate)
+            .case_insensitive(true)
+            .build()
+        {
+            Ok(g) => FilterMatch::Glob(g.compile_matcher()),
+            // A malformed glob (e.g. an unclosed `[`) falls back to substring.
+            Err(_) => FilterMatch::Substr(pattern.to_lowercase()),
+        }
+    }
+
+    fn matches(&self, name: &str) -> bool {
+        match self {
+            FilterMatch::Glob(g) => g.is_match(name),
+            FilterMatch::Substr(s) => name.to_lowercase().contains(s.as_str()),
         }
     }
 }

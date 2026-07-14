@@ -53,6 +53,10 @@ pub enum MenuAction {
     CompareFiles,
     /// Open the fuzzy command palette (Ctrl-P).
     CommandPalette,
+    /// Open the directory hotlist / bookmarks (Ctrl-\).
+    Hotlist,
+    /// Set the active panel's persistent listing filter.
+    PanelFilter,
     Connect(usize, Protocol),
     Disconnect(usize),
     /// Switch a panel (side) to an already-open remote session by id.
@@ -218,6 +222,8 @@ impl MenuBarState {
 
         let mut command_items = vec![
             item("C&ommand palette...", MenuAction::CommandPalette),
+            item_key("Directory &hotlist...", "Ctrl-\\", MenuAction::Hotlist),
+            item_key("Panel f&ilter...", "Alt-I", MenuAction::PanelFilter),
             sep(),
             item("&Find file...", MenuAction::FindFile),
             item("Find d&uplicates...", MenuAction::FindDuplicates),

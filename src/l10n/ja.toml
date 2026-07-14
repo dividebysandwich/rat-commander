@@ -309,3 +309,10 @@ code = "ja"
 "Connection" = "接続"
 "Add current directory to bookmarks" = "現在のディレクトリをブックマークに追加"
 "Remove current directory from bookmarks" = "現在のディレクトリをブックマークから削除"
+
+# -- Directory hotlist / panel filter --
+"Directory &hotlist..." = "ディレクトリブックマーク…(&H)"
+"Directory hotlist" = "ディレクトリブックマーク"
+"Panel f&ilter..." = "パネルフィルター…(&I)"
+"Panel filter" = "パネルフィルター"
+"Filter pattern (blank clears)" = "フィルターパターン（空欄で解除）"

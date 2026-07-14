@@ -309,3 +309,10 @@ code = "zh-Hant"
 "Connection" = "連線"
 "Add current directory to bookmarks" = "將目前目錄加入書籤"
 "Remove current directory from bookmarks" = "從書籤移除目前目錄"
+
+# -- Directory hotlist / panel filter --
+"Directory &hotlist..." = "目錄書籤清單…(&H)"
+"Directory hotlist" = "目錄書籤清單"
+"Panel f&ilter..." = "面板篩選…(&I)"
+"Panel filter" = "面板篩選"
+"Filter pattern (blank clears)" = "篩選樣式（空白清除）"

@@ -77,6 +77,8 @@ pub enum PaletteAction {
     JumpBookmark(String),
     /// Add or remove the active panel's directory from the bookmarks.
     ToggleBookmarkCurrent,
+    /// Open the connect form for `side`, prefilled from a stored remote server.
+    ConnectRemote(usize, crate::config::RemoteHistoryEntry),
 }
 
 /// One row in the palette: a label, its family, the action it runs, and an

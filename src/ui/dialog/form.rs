@@ -493,6 +493,22 @@ impl FormDialog {
         }
     }
 
+    /// Build a connect form already filled in from a stored remote (its protocol,
+    /// host, port, user and path), focused on the password field — for the command
+    /// palette's "reconnect to a saved server" entries. `None` if the stored
+    /// protocol string is unrecognized.
+    pub fn connect_from(entry: &crate::config::RemoteHistoryEntry, side: usize) -> Option<Self> {
+        let protocol = match entry.protocol.as_str() {
+            "sftp" => Protocol::Sftp,
+            "ftp" => Protocol::Ftp,
+            "scp" => Protocol::Scp,
+            _ => return None,
+        };
+        let mut dlg = FormDialog::connect(protocol, side, vec![entry.clone()]);
+        dlg.apply_history(0);
+        Some(dlg)
+    }
+
     /// Fill the host/port/user/path fields from history entry `idx` and move the
     /// focus to the password field.
     fn apply_history(&mut self, idx: usize) {

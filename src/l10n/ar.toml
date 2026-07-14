@@ -313,3 +313,10 @@ rtl = true
 "Connection" = "اتصال"
 "Add current directory to bookmarks" = "إضافة الدليل الحالي إلى الإشارات المرجعية"
 "Remove current directory from bookmarks" = "إزالة الدليل الحالي من الإشارات المرجعية"
+
+# -- Directory hotlist / panel filter --
+"Directory &hotlist..." = "قائمة الأدلة المفضّلة… (&H)"
+"Directory hotlist" = "الأدلة المفضّلة"
+"Panel f&ilter..." = "مرشّح اللوحة… (&I)"
+"Panel filter" = "مرشّح اللوحة"
+"Filter pattern (blank clears)" = "نمط المرشّح (فارغ = مسح)"

@@ -54,11 +54,23 @@ pub fn render_panel(
     };
     // In Tree view the title tracks the directory last committed with Enter
     // (which also drives the other panel), not the fixed tree-root path.
-    let title_path = match (panel.format, panel.tree.as_ref()) {
+    let mut title_path = match (panel.format, panel.tree.as_ref()) {
         (ViewFormat::Tree, Some(t)) => t.current.display(),
         _ => panel.cwd.display(),
     };
-    let title = format!(" {} ", ellipsize(&title_path, area.width.saturating_sub(4) as usize));
+    // Surface an active listing filter in the title so hidden entries are obvious.
+    if let Some(filter) = &panel.filter {
+        title_path = format!("{title_path}  [{filter}]");
+    }
+    // Reserve a cell at the left of the title for the ◀ arrow, and a cell at the
+    // right border for the ▶ arrow, drawn over the border below (only when the
+    // panel is wide enough for them).
+    let arrows = area.width >= 12;
+    let (lpad, reserve) = if arrows { ("  ", 6usize) } else { (" ", 4usize) };
+    let title = format!(
+        "{lpad}{} ",
+        ellipsize(&title_path, (area.width as usize).saturating_sub(reserve))
+    );
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Plain)
@@ -81,6 +93,9 @@ pub fn render_panel(
 
     // Volume capacity on the bottom border (used / total), MC-style.
     render_disk_usage(f, area, panel, border_color, theme);
+
+    // Clickable back/forward arrows on the top border (over the reserved pad).
+    render_history_arrows(f, area, panel, arrows, theme);
 
     // Reset hit geometry; set below once the listing is drawn.
     panel.hit = None;
@@ -192,6 +207,30 @@ fn render_panel_separator(f: &mut Frame, area: Rect, y: u16, border_color: Color
     buf.set_string(inner_x, y, COL_SEP_H.repeat(inner_w), style);
     buf.set_string(area.x, y, "├", style);
     buf.set_string(area.x + area.width - 1, y, "┤", style);
+}
+
+/// Draw the `◀` back arrow at the top-left and the `▶` forward arrow at the
+/// top-right of the border, and record their screen rects on the panel for mouse
+/// hit-testing. A dim arrow means there is nowhere to go in that direction.
+fn render_history_arrows(f: &mut Frame, area: Rect, panel: &mut Panel, enabled: bool, theme: &Theme) {
+    panel.back_arrow = None;
+    panel.fwd_arrow = None;
+    if !enabled || area.width < 12 {
+        return;
+    }
+    let y = area.y;
+    let bx = area.x + 1; // ◀ top-left
+    let fx = area.x + area.width - 2; // ▶ top-right (just before the corner)
+    let live = Style::default()
+        .fg(theme.panel_border_active)
+        .bg(theme.panel_bg)
+        .add_modifier(Modifier::BOLD);
+    let dim = Style::default().fg(theme.panel_border).bg(theme.panel_bg);
+    let buf = f.buffer_mut();
+    buf.set_string(bx, y, "◀", if panel.can_back() { live } else { dim });
+    buf.set_string(fx, y, "▶", if panel.can_forward() { live } else { dim });
+    panel.back_arrow = Some(Rect { x: bx, y, width: 1, height: 1 });
+    panel.fwd_arrow = Some(Rect { x: fx, y, width: 1, height: 1 });
 }
 
 /// Write the volume's "used / total (NN%)" onto the bottom border, right-aligned.
@@ -710,6 +749,36 @@ mod tests {
             assert!(text.contains("9.4M"), "{fmt:?}: size shown in the mini-status");
             assert!(text.contains("1970"), "{fmt:?}: modify date shown in the mini-status");
         }
+    }
+
+    #[test]
+    fn history_arrows_and_filter_badge_render() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let theme = Theme::mc();
+        let backend = crate::vfs::registry::Registry::default().local();
+        let mut panel = Panel::new(backend, crate::vfs::VfsPath::local("/tmp/here"));
+        panel.entries = vec![entry("a.txt", VfsKind::File, 0o644, false)];
+        // Something to go back to, and an active listing filter.
+        panel.back.push(crate::vfs::VfsPath::local("/tmp"));
+        panel.filter = Some("*.rs".to_string());
+
+        let mut t = Terminal::new(TestBackend::new(40, 8)).unwrap();
+        t.draw(|f| render_panel(f, f.area(), &mut panel, true, &Default::default(), &theme, 2, None))
+            .unwrap();
+        let b = t.backend().buffer();
+        let top: String = (0..b.area.width).map(|x| b[(x, 0)].symbol()).collect();
+        assert!(top.contains('◀') && top.contains('▶'), "history arrows drawn: {top:?}");
+        // ◀ sits at the top-left, ▶ at the top-right (before the corner).
+        assert_eq!(panel.back_arrow.unwrap().x, 1, "back arrow at the top-left");
+        assert_eq!(
+            panel.fwd_arrow.unwrap().x,
+            b.area.width - 2,
+            "forward arrow at the top-right"
+        );
+        assert_eq!(b[(1, 0)].symbol(), "◀");
+        assert_eq!(b[(b.area.width - 2, 0)].symbol(), "▶");
+        assert!(top.contains("[*.rs]"), "active filter surfaced in the title: {top:?}");
     }
 
     #[test]

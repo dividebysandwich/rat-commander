@@ -309,3 +309,10 @@ code = "sr"
 "Connection" = "Veza"
 "Add current directory to bookmarks" = "Dodaj trenutni direktorijum u obeleživače"
 "Remove current directory from bookmarks" = "Ukloni trenutni direktorijum iz obeleživača"
+
+# -- Directory hotlist / panel filter --
+"Directory &hotlist..." = "Omiljeni direktorijumi… (&H)"
+"Directory hotlist" = "Omiljeni direktorijumi"
+"Panel f&ilter..." = "Filter panela… (&I)"
+"Panel filter" = "Filter panela"
+"Filter pattern (blank clears)" = "Šablon filtera (prazno = brisanje)"

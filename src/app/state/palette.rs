@@ -53,6 +53,8 @@ impl AppState {
             cmd("S&wap panels", MenuAction::SwapPanels),
             cmd("&Re-read directories", MenuAction::Refresh),
             cmd("&Toggle split V/H", MenuAction::ToggleSplit),
+            cmd("Directory &hotlist...", MenuAction::Hotlist),
+            cmd("Panel f&ilter...", MenuAction::PanelFilter),
             cmd("&Settings...", MenuAction::Settings),
             cmd("&Confirmations...", MenuAction::Confirmations),
             cmd("&Edit themes...", MenuAction::EditThemes),
@@ -176,6 +178,15 @@ impl AppState {
             ));
         }
 
+        // -- Stored remote servers: reconnect (opens the prefilled connect form) --
+        for entry in &self.config.recent_remotes {
+            entries.push(PaletteEntry::new(
+                format!("{} {}", entry.protocol.to_uppercase(), entry.label()),
+                PaletteCategory::Connection,
+                PaletteAction::ConnectRemote(side, entry.clone()),
+            ));
+        }
+
         self.dialog = Some(Dialog::CommandPalette(CommandPaletteDialog::new(entries)));
     }
 
@@ -210,6 +221,16 @@ impl AppState {
             PaletteAction::ToggleBookmarkCurrent => {
                 self.toggle_bookmark_current();
                 self.save_config_reporting();
+            }
+            PaletteAction::ConnectRemote(side, entry) => {
+                // One panel must stay local — mirror the Connect menu guard.
+                if self.other_panel_is_remote(side) {
+                    self.show_error(
+                        "The other panel is already remote — one panel must stay local.".to_string(),
+                    );
+                } else if let Some(dlg) = FormDialog::connect_from(&entry, side) {
+                    self.dialog = Some(Dialog::Form(dlg));
+                }
             }
         }
         Flow::Continue
@@ -268,7 +289,7 @@ impl AppState {
 
     /// Point the active panel at a local directory (a bookmark jump), switching
     /// it off any remote/archive location it was on.
-    async fn jump_to_local_dir(&mut self, path: String) {
+    pub(in crate::app::state) async fn jump_to_local_dir(&mut self, path: String) {
         let target = VfsPath::local(normalize_path(Path::new(&path)));
         match self.registry.resolve(&target) {
             Ok(backend) => {
@@ -280,7 +301,7 @@ impl AppState {
 
     /// Persist the config after a palette-driven settings change, surfacing any
     /// write error the same way the Settings dialog does.
-    fn save_config_reporting(&mut self) {
+    pub(in crate::app::state) fn save_config_reporting(&mut self) {
         if let Err(e) = self.config.save() {
             self.show_error(format!("could not save settings: {e}"));
         }

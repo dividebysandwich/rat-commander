@@ -37,8 +37,13 @@ The installed executable is named **`rc`** for quick typing.
   preview, counter, case transform and search-and-replace.
 - **Command palette (Ctrl-P)** — one fuzzy-search box over every menu action,
   every setting (switch theme/language/graphics or flip a toggle in place), your
-  directory **bookmarks**, and the open remote connections; type a few letters
-  and press Enter.
+  directory **bookmarks**, the open remote connections, and your saved remote
+  servers (reconnect); type a few letters and press Enter.
+- **Directory navigation** — a per-panel **back/forward history** (`Alt-←`/`Alt-→`
+  or MC's `Alt-y`/`Alt-u`, plus a clickable `◀` at each panel's top-left corner
+  and `▶` at its top-right), a **directory hotlist** of bookmarks (`Ctrl-\`), and
+  a **persistent listing filter** (`Alt-I`, a glob like `*.rs` or plain text) that
+  hides non-matching files until you clear it.
 - **Find file**, **Compare directories**, **Find duplicates**, and a
   side-by-side **Compare files** diff with in-place merging.
 - **Checksum** — compute a CRC32/MD5/SHA-1/SHA-256/SHA-512 digest of a file with
@@ -111,6 +116,9 @@ also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1
 | `+` / `-` / `*` | Select / unselect group (wildcard) / invert selection |
 | `Ctrl-O` | Toggle the persistent subshell |
 | `Ctrl-P` | Command palette (fuzzy-search every action, setting, bookmark, connection) |
+| `Ctrl-\` | Directory hotlist (bookmarks): jump / add / remove |
+| `Alt-←` / `Alt-→` (or `Alt-y` / `Alt-u`) | Go back / forward through the panel's visited directories |
+| `Alt-I` | Set / clear the panel's persistent listing filter |
 | `Ctrl-R` | Re-read the active panel |
 | `Ctrl-S` / `Ctrl-E` | Cycle sort key / toggle reverse |
 | `Ctrl-W` | Cycle view format (full / brief / details / tree) |

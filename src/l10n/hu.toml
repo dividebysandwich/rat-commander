@@ -309,3 +309,10 @@ code = "hu"
 "Connection" = "Kapcsolat"
 "Add current directory to bookmarks" = "Aktuális könyvtár hozzáadása a könyvjelzőkhöz"
 "Remove current directory from bookmarks" = "Aktuális könyvtár eltávolítása a könyvjelzők közül"
+
+# -- Directory hotlist / panel filter --
+"Directory &hotlist..." = "Könyvtár gyorslista… (&H)"
+"Directory hotlist" = "Könyvtár gyorslista"
+"Panel f&ilter..." = "Panelszűrő… (&I)"
+"Panel filter" = "Panelszűrő"
+"Filter pattern (blank clears)" = "Szűrőminta (üres = törlés)"

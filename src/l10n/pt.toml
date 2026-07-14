@@ -309,3 +309,10 @@ code = "pt"
 "Connection" = "Conexão"
 "Add current directory to bookmarks" = "Adicionar o diretório atual aos favoritos"
 "Remove current directory from bookmarks" = "Remover o diretório atual dos favoritos"
+
+# -- Directory hotlist / panel filter --
+"Directory &hotlist..." = "Diretórios favoritos… (&H)"
+"Directory hotlist" = "Diretórios favoritos"
+"Panel f&ilter..." = "Filtro do painel… (&I)"
+"Panel filter" = "Filtro do painel"
+"Filter pattern (blank clears)" = "Padrão de filtro (vazio = limpar)"

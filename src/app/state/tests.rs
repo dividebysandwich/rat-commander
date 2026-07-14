@@ -2809,3 +2809,83 @@ async fn ctrl_p_opens_command_palette_and_runs_a_command() {
     st.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).await;
     assert!(st.dialog.is_none(), "Esc closes the palette");
 }
+
+#[tokio::test]
+async fn directory_history_filter_and_hotlist() {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("rc_hist_{}_{nanos}", std::process::id()));
+    std::fs::create_dir_all(root.join("sub")).unwrap();
+    std::fs::write(root.join("a.txt"), b"a").unwrap();
+    std::fs::write(root.join("b.rs"), b"b").unwrap();
+    std::fs::write(root.join("c.rs"), b"c").unwrap();
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+
+    let alt = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT);
+
+    // -- Back / forward history --
+    let sub_idx = st.panels[0].entries.iter().position(|e| e.name == "sub").unwrap();
+    st.panels[0].cursor = sub_idx;
+    st.enter_dir().await;
+    assert!(st.panels[0].cwd.path.ends_with("sub"), "entered sub");
+    assert!(st.panels[0].can_back(), "entering records history");
+    assert!(!st.panels[0].can_forward());
+
+    st.handle_key(alt('y')).await; // Alt-y = back
+    assert_eq!(st.panels[0].cwd.path, root, "Alt-y returns to root");
+    assert!(st.panels[0].can_forward(), "back enables forward");
+
+    st.handle_key(alt('u')).await; // Alt-u = forward
+    assert!(st.panels[0].cwd.path.ends_with("sub"), "Alt-u goes forward to sub");
+
+    st.handle_key(alt('y')).await; // back to root; forward now holds sub
+    assert_eq!(st.panels[0].cwd.path, root);
+    assert!(st.panels[0].can_forward());
+
+    // -- Clicking a panel's ▶ arrow steps forward (as the renderer places it) --
+    st.panels[0].fwd_arrow = Some(Rect::new(2, 1, 1, 1));
+    st.last_area = Rect::new(0, 0, 80, 24);
+    st.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: 2,
+        row: 1,
+        modifiers: KeyModifiers::NONE,
+    })
+    .await;
+    assert!(st.panels[0].cwd.path.ends_with("sub"), "clicking ▶ steps forward");
+    st.handle_key(alt('y')).await; // back to root for the filter test
+    assert_eq!(st.panels[0].cwd.path, root);
+
+    // -- Persistent listing filter --
+    st.apply_panel_filter(0, "*.rs".to_string()).await;
+    let names: Vec<String> = st.panels[0].entries.iter().map(|e| e.name.clone()).collect();
+    assert!(names.contains(&"b.rs".to_string()) && names.contains(&"c.rs".to_string()));
+    assert!(!names.contains(&"a.txt".to_string()), "filter hides a.txt");
+    assert!(!names.contains(&"sub".to_string()), "filter hides the sub dir");
+    // Clearing the filter restores everything.
+    st.apply_panel_filter(0, String::new()).await;
+    assert!(st.panels[0].entries.iter().any(|e| e.name == "a.txt"), "cleared filter shows a.txt");
+
+    // -- Hotlist opens on Ctrl-\ --
+    st.handle_key(KeyEvent::new(KeyCode::Char('\\'), KeyModifiers::CONTROL)).await;
+    assert!(matches!(st.dialog, Some(Dialog::Hotlist(_))), "Ctrl-\\ opens the hotlist");
+    st.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).await;
+    assert!(st.dialog.is_none());
+
+    // -- Alt-I opens the filter prompt --
+    st.handle_key(alt('i')).await;
+    assert!(
+        matches!(st.dialog, Some(Dialog::Input(_))),
+        "Alt-I opens the filter input"
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
+}

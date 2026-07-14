@@ -309,3 +309,10 @@ code = "hi"
 "Connection" = "कनेक्शन"
 "Add current directory to bookmarks" = "वर्तमान निर्देशिका को बुकमार्क में जोड़ें"
 "Remove current directory from bookmarks" = "वर्तमान निर्देशिका को बुकमार्क से हटाएँ"
+
+# -- Directory hotlist / panel filter --
+"Directory &hotlist..." = "निर्देशिका हॉटलिस्ट… (&H)"
+"Directory hotlist" = "निर्देशिका हॉटलिस्ट"
+"Panel f&ilter..." = "पैनल फ़िल्टर… (&I)"
+"Panel filter" = "पैनल फ़िल्टर"
+"Filter pattern (blank clears)" = "फ़िल्टर पैटर्न (खाली = हटाएँ)"
