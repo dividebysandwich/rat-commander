@@ -120,7 +120,9 @@ async fn run_loop(
                         if matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
                             match state.handle_key(key).await {
                                 Flow::Quit => break,
-                                Flow::RunCommand(cmd) => run_command(term, state, &cmd).await?,
+                                Flow::RunCommand(cmd) => {
+                                    run_command(term, state, &mut subshell, &cmd).await?
+                                }
                                 Flow::RunExternal { program, path } => {
                                     run_external(term, state, &program, &path).await?
                                 }
@@ -141,7 +143,9 @@ async fn run_loop(
                     Some(Ok(Event::Mouse(me))) => {
                         match state.handle_mouse(me).await {
                             Flow::Quit => break,
-                            Flow::RunCommand(cmd) => run_command(term, state, &cmd).await?,
+                            Flow::RunCommand(cmd) => {
+                                run_command(term, state, &mut subshell, &cmd).await?
+                            }
                             Flow::RunExternal { program, path } => {
                                 run_external(term, state, &program, &path).await?
                             }
@@ -153,7 +157,15 @@ async fn run_loop(
                             Flow::Continue => {}
                         }
                     }
-                    Some(Ok(_)) => {} // resize / other: redraw next iteration
+                    Some(Ok(Event::Resize(cols, rows))) => {
+                        // Keep the console emulator and the live subshell PTY the
+                        // same size as the terminal, then redraw next iteration.
+                        state.console.resize(rows, cols);
+                        if let Some(sh) = subshell.as_ref() {
+                            sh.resize(rows, cols);
+                        }
+                    }
+                    Some(Ok(_)) => {} // other events: redraw next iteration
                     Some(Err(e)) => return Err(e.into()),
                     None => break, // stdin closed
                 }
@@ -292,32 +304,87 @@ fn interactive_shell() -> tokio::process::Command {
     }
 }
 
-/// Suspend the TUI, run a shell command in the active panel's directory, wait
-/// for the user, then restore the TUI and refresh the panels.
-async fn run_command(term: &mut Term, state: &mut AppState, cmd: &str) -> Result<()> {
-    restore_terminal(term, state.kbd_enhanced)?;
+/// Run a command from the command line in the **persistent console shell** — the
+/// same session `Ctrl-O` drops into. The command is written to that shell (so its
+/// output lands on the console backdrop and its cwd/env/history carry across
+/// commands), running in the active panel's directory. The TUI is *not*
+/// suspended: hide a panel, go half-height, or press `Ctrl-O` to watch the
+/// output. Falls back to a one-shot suspended run only when no PTY can be made.
+async fn run_command(
+    term: &mut Term,
+    state: &mut AppState,
+    subshell: &mut Option<crate::shell::Subshell>,
+    cmd: &str,
+) -> Result<()> {
+    let size = term.size()?;
+    // The active panel's directory when it's a real local path (the shell is
+    // local, so a remote/archive panel can't drive its cwd — see the prompt,
+    // which follows the highlighted directory in Tree view).
+    let target = {
+        let c = state.console_cwd();
+        (c.scheme == "file").then_some(c.path)
+    };
+    let spawn_cwd = target
+        .clone()
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/")));
 
-    // Use the console directory only when it's a real local path; otherwise
-    // (remote/archive panel) fall back to the process cwd. In Tree view this
-    // follows the highlighted directory, matching the command-line prompt.
+    if !ensure_subshell(state, subshell, &spawn_cwd, size.height, size.width) {
+        // No PTY available — run this one command the old, suspended way.
+        return run_command_fallback(term, state, cmd).await;
+    }
+    let Some(sh) = subshell.as_mut() else { return Ok(()) };
+
+    // Run in the active panel's directory: cd there first, but only when the
+    // shell isn't already sitting in it (its live cwd is read from /proc on
+    // Linux; elsewhere we always cd, which is correct if noisier).
+    if let Some(dir) = target
+        && sh.child_cwd().as_deref() != Some(dir.as_path())
+    {
+        sh.send_line(&format!("cd {}", crate::vfs::remote::shell_quote(&dir.to_string_lossy())));
+    }
+    sh.send_line(cmd);
+    Ok(())
+}
+
+/// Ensure the persistent console shell is alive, (re)spawning it in `cwd` when
+/// absent or dead. Returns whether a live shell is available afterward; on first
+/// spawn the console emulator is sized to the terminal so its screen matches the
+/// PTY. The shell is shared with `Ctrl-O` (one session).
+fn ensure_subshell(
+    state: &AppState,
+    subshell: &mut Option<crate::shell::Subshell>,
+    cwd: &std::path::Path,
+    rows: u16,
+    cols: u16,
+) -> bool {
+    if subshell.as_mut().is_some_and(|s| s.is_alive()) {
+        return true;
+    }
+    let (parser, used) = state.console.shared();
+    match crate::shell::Subshell::spawn(cwd, rows, cols, parser, used, state.event_sender()) {
+        Ok(s) => {
+            state.console.resize(rows, cols);
+            *subshell = Some(s);
+            true
+        }
+        Err(_) => false,
+    }
+}
+
+/// Fallback when no PTY can be created: suspend the TUI, run one command in the
+/// active panel's directory, wait for Enter, then restore the TUI.
+async fn run_command_fallback(term: &mut Term, state: &mut AppState, cmd: &str) -> Result<()> {
+    restore_terminal(term, state.kbd_enhanced)?;
     let console_cwd = state.console_cwd();
     let cwd = if console_cwd.scheme == "file" {
         console_cwd.path.clone()
     } else {
         std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"))
     };
-    let cwd_label = cwd.display().to_string();
     println!("$ {cmd}");
     let mut child = command_line_shell(cmd);
     child.current_dir(&cwd);
-
-    // Echo the command onto the console backdrop, then capture its output there
-    // (see `run_command_forwarded`) so it can be shown behind the panels.
-    state.console.banner(&cwd_label, cmd);
-    let size = term.size()?;
-    let (status, captured) = run_command_forwarded(child, size.height, size.width).await;
-    state.console.feed(&captured);
-
+    let status = run_foreground(child).await;
     match status {
         Ok(s) if !s.success() => println!("\n[exit status: {s}]"),
         Err(e) => println!("\n[failed to run: {e}]"),
@@ -327,168 +394,7 @@ async fn run_command(term: &mut Term, state: &mut AppState, cmd: &str) -> Result
     io::stdout().flush().ok();
     let mut line = String::new();
     let _ = io::stdin().read_line(&mut line);
-
     resume_tui(term, state).await
-}
-
-/// Run a command-line command through a pseudo-terminal, forwarding the real
-/// terminal to it while capturing its output for the console backdrop.
-///
-/// The child runs on a PTY that is its controlling terminal (`setsid` +
-/// `TIOCSCTTY`), so an interactive `$SHELL -i` initialises job control cleanly
-/// — no "cannot set terminal process group" warning — and keeps expanding the
-/// user's aliases. A pump thread forwards the (raw) real terminal to the PTY and
-/// mirrors the PTY's output back to the screen *and* into a capture buffer, so
-/// the user sees output live, Ctrl-C reaches the child (the raw byte is
-/// delivered by the PTY's line discipline), and the same bytes populate the
-/// backdrop. Returns the exit status and the raw captured bytes.
-#[cfg(unix)]
-async fn run_command_forwarded(
-    mut cmd: tokio::process::Command,
-    rows: u16,
-    cols: u16,
-) -> (std::io::Result<std::process::ExitStatus>, Vec<u8>) {
-    use nix::pty::{Winsize, openpty};
-    use std::io::{Read, Write};
-    use std::os::fd::{FromRawFd, IntoRawFd, RawFd};
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, Ordering};
-
-    let ws = Winsize { ws_row: rows.max(1), ws_col: cols.max(1), ws_xpixel: 0, ws_ypixel: 0 };
-    let pty = match openpty(&ws, None) {
-        Ok(p) => p,
-        // No PTY available: fall back to a plain interactive run (no capture).
-        Err(_) => return (run_foreground(cmd).await, Vec::new()),
-    };
-    let (slave_out, slave_err) = match (pty.slave.try_clone(), pty.slave.try_clone()) {
-        (Ok(o), Ok(e)) => (o, e),
-        _ => return (run_foreground(cmd).await, Vec::new()),
-    };
-    // Child: a new session with the PTY as its controlling terminal (fd 0 is the
-    // slave after stdio dup), and default SIGINT/SIGQUIT so a forwarded Ctrl-C
-    // interrupts it.
-    unsafe {
-        cmd.pre_exec(|| {
-            nix::libc::setsid();
-            nix::libc::ioctl(0, nix::libc::TIOCSCTTY, 0);
-            nix::libc::signal(nix::libc::SIGINT, nix::libc::SIG_DFL);
-            nix::libc::signal(nix::libc::SIGQUIT, nix::libc::SIG_DFL);
-            Ok(())
-        });
-    }
-    cmd.stdin(std::process::Stdio::from(pty.slave));
-    cmd.stdout(std::process::Stdio::from(slave_out));
-    cmd.stderr(std::process::Stdio::from(slave_err));
-
-    // The real terminal goes raw so keystrokes forward byte-for-byte (the PTY
-    // does its own line discipline); the caller left the alternate screen but
-    // reset raw mode, so re-enable it here and drop it again before returning.
-    let raw = enable_raw_mode().is_ok();
-
-    let mut child = match cmd.spawn() {
-        Ok(c) => c,
-        Err(e) => {
-            if raw {
-                let _ = disable_raw_mode();
-            }
-            return (Err(e), Vec::new());
-        }
-    };
-
-    // Pump thread: real stdin -> PTY, and PTY -> real stdout + capture. `poll`
-    // with a short timeout lets it observe the `stop` flag, so it ends promptly
-    // even for a command that daemonizes a child holding the slave open (no
-    // natural EOF) — it must never paint over the resumed TUI.
-    let master_fd: RawFd = pty.master.into_raw_fd();
-    let capture = Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
-    let stop = Arc::new(AtomicBool::new(false));
-    let pump = {
-        let capture = Arc::clone(&capture);
-        let stop = Arc::clone(&stop);
-        std::thread::spawn(move || {
-            let mut master = unsafe { std::fs::File::from_raw_fd(master_fd) };
-            let mut buf = [0u8; 8192];
-            let mut out = io::stdout();
-            let mut sink = |bytes: &[u8]| {
-                let _ = out.write_all(bytes);
-                let _ = out.flush();
-                if let Ok(mut c) = capture.lock() {
-                    c.extend_from_slice(bytes);
-                }
-            };
-            loop {
-                let mut fds = [
-                    nix::libc::pollfd { fd: 0, events: nix::libc::POLLIN, revents: 0 },
-                    nix::libc::pollfd { fd: master_fd, events: nix::libc::POLLIN, revents: 0 },
-                ];
-                let n = unsafe { nix::libc::poll(fds.as_mut_ptr(), 2, 50) };
-                if stop.load(Ordering::Relaxed) {
-                    break;
-                }
-                if n < 0 {
-                    if io::Error::last_os_error().kind() == io::ErrorKind::Interrupted {
-                        continue;
-                    }
-                    break;
-                }
-                if n == 0 {
-                    continue; // timeout — re-check the stop flag
-                }
-                // Forward typed input to the PTY.
-                if fds[0].revents & nix::libc::POLLIN != 0 {
-                    let k = unsafe {
-                        nix::libc::read(0, buf.as_mut_ptr() as *mut nix::libc::c_void, buf.len())
-                    };
-                    if k > 0 {
-                        let _ = master.write_all(&buf[..k as usize]);
-                        let _ = master.flush();
-                    }
-                }
-                // Mirror + capture PTY output.
-                if fds[1].revents & nix::libc::POLLIN != 0 {
-                    match master.read(&mut buf) {
-                        Ok(0) => break,
-                        Ok(m) => sink(&buf[..m]),
-                        Err(_) => break,
-                    }
-                }
-                // Slave closed: drain the tail, then stop.
-                if fds[1].revents & (nix::libc::POLLHUP | nix::libc::POLLERR) != 0 {
-                    while let Ok(m) = master.read(&mut buf) {
-                        if m == 0 {
-                            break;
-                        }
-                        sink(&buf[..m]);
-                    }
-                    break;
-                }
-            }
-        })
-    };
-
-    let status = child.wait().await;
-    // A clean command already closed the slave (the pump hit EOF); the stop flag
-    // covers the daemonize case. Either way the pump ends before we resume.
-    stop.store(true, Ordering::Relaxed);
-    let _ = pump.join();
-    if raw {
-        let _ = disable_raw_mode();
-    }
-
-    let captured =
-        Arc::try_unwrap(capture).ok().and_then(|m| m.into_inner().ok()).unwrap_or_default();
-    (status, captured)
-}
-
-/// Non-Unix: no PTY capture — run the command interactively as before, with an
-/// empty capture so the console backdrop simply stays blank.
-#[cfg(not(unix))]
-async fn run_command_forwarded(
-    cmd: tokio::process::Command,
-    _rows: u16,
-    _cols: u16,
-) -> (std::io::Result<std::process::ExitStatus>, Vec<u8>) {
-    (run_foreground(cmd).await, Vec::new())
 }
 
 /// Suspend the TUI and run an external program (editor/viewer) against a file.
@@ -531,16 +437,10 @@ async fn toggle_subshell(
     };
     let size = term.size()?;
 
-    // (Re)create the shell if needed.
-    let needs_spawn = subshell.as_mut().map(|s| !s.is_alive()).unwrap_or(true);
-    if needs_spawn {
-        match crate::shell::Subshell::spawn(&cwd, size.height, size.width) {
-            Ok(s) => *subshell = Some(s),
-            Err(_) => {
-                // Fall back to a one-shot shell if a PTY can't be created.
-                return run_oneshot_shell(term, state, &cwd).await;
-            }
-        }
+    // (Re)create the shared console shell if needed (same session as the command
+    // line). Fall back to a one-shot shell if no PTY can be made.
+    if !ensure_subshell(state, subshell, &cwd, size.height, size.width) {
+        return run_oneshot_shell(term, state, &cwd).await;
     }
     let Some(sh) = subshell.as_mut() else {
         return Ok(());
@@ -560,6 +460,16 @@ async fn toggle_subshell(
     }
     term.show_cursor()?;
     sh.resize(size.height, size.width);
+
+    // Repaint the shell's current screen (from the console emulator) so entering
+    // Ctrl-O shows the live session — including anything run from the command
+    // line — instead of a blank primary screen until the next keystroke.
+    if let Some(parser) = state.console.lock() {
+        let mut out = io::stdout();
+        let _ = out.write_all(b"\x1b[2J\x1b[H");
+        let _ = out.write_all(&parser.screen().contents_formatted());
+        let _ = out.flush();
+    }
 
     sh.run_until_toggle();
 

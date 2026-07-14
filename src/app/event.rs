@@ -18,6 +18,10 @@ pub enum FetchKind {
 
 #[derive(Debug, Clone)]
 pub enum AppEvent {
+    /// The persistent console subshell produced output; a coalesced signal to
+    /// wake the render loop so the backdrop repaints. Carries no data — the
+    /// output is already in the shared emulator.
+    ConsoleOutput,
     /// A throttled progress snapshot from the ops engine.
     Progress(ProgressUpdate),
     /// A copy/move hit an existing destination; the engine is paused awaiting the

@@ -6,12 +6,14 @@
 //! its working directory, environment, history and jobs are preserved between
 //! visits.
 
+use crate::app::event::AppEvent;
+use crate::util::async_bridge::AppSender;
 use crate::util::{Error, Result};
 use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use std::io::{Read, Write};
 use std::path::Path;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 /// Environment variable set in the Ctrl-O subshell so a Rat Commander launched
 /// from within it can tell it is nested (and disable its own subshell). Mirrors
@@ -150,7 +152,19 @@ pub struct Subshell {
 
 impl Subshell {
     /// Spawn the shell in `cwd` attached to a fresh PTY of the given size.
-    pub fn spawn(cwd: &Path, rows: u16, cols: u16) -> Result<Subshell> {
+    ///
+    /// The reader thread mirrors output to the real stdout only while toggled in
+    /// (`Ctrl-O`), but *always* feeds the shared console emulator (`parser`) so
+    /// the backdrop stays live, raises `used` on the first byte, and — while not
+    /// toggled in — nudges the render loop (`tx`) to repaint.
+    pub fn spawn(
+        cwd: &Path,
+        rows: u16,
+        cols: u16,
+        parser: Arc<Mutex<vt100::Parser>>,
+        used: Arc<AtomicBool>,
+        tx: AppSender,
+    ) -> Result<Subshell> {
         let pty = native_pty_system();
         let pair = pty
             .openpty(PtySize {
@@ -185,8 +199,10 @@ impl Subshell {
             .map_err(|e| Error::other(format!("pty writer: {e}")))?;
 
         let active = Arc::new(AtomicBool::new(false));
-        // Reader thread: drain the PTY for the shell's lifetime, mirroring to
-        // stdout only while we're toggled into the subshell.
+        // Reader thread: drain the PTY for the shell's lifetime. Every chunk feeds
+        // the shared console emulator (the backdrop); it is additionally mirrored
+        // to the real stdout while toggled in (Ctrl-O), or — while not toggled in
+        // — signals the render loop to repaint the backdrop.
         {
             let active = active.clone();
             let mut reader = reader;
@@ -197,9 +213,17 @@ impl Subshell {
                     match reader.read(&mut buf) {
                         Ok(0) | Err(_) => break,
                         Ok(n) => {
+                            if let Ok(mut p) = parser.lock() {
+                                p.process(&buf[..n]);
+                            }
+                            used.store(true, Ordering::Relaxed);
                             if active.load(Ordering::Relaxed) {
                                 let _ = out.write_all(&buf[..n]);
                                 let _ = out.flush();
+                            } else {
+                                // Coalesced nudge; a full channel just means a
+                                // repaint is already pending.
+                                let _ = tx.try_send(AppEvent::ConsoleOutput);
                             }
                         }
                     }
@@ -223,6 +247,15 @@ impl Subshell {
             pixel_width: 0,
             pixel_height: 0,
         });
+    }
+
+    /// Write a command line to the shell (as if typed), followed by Enter, so it
+    /// runs in this persistent session. Used by the command line so its commands
+    /// and the `Ctrl-O` shell are one and the same session.
+    pub fn send_line(&mut self, line: &str) {
+        let _ = self.writer.write_all(line.as_bytes());
+        let _ = self.writer.write_all(b"\n");
+        let _ = self.writer.flush();
     }
 
     pub fn is_alive(&mut self) -> bool {

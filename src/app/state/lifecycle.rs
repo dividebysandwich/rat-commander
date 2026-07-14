@@ -269,8 +269,17 @@ impl AppState {
 
     // -- Event handling ----------------------------------------------------
 
+    /// A clone of the app-event sender, handed to the console subshell's reader
+    /// thread so it can nudge the loop to repaint the backdrop.
+    pub(crate) fn event_sender(&self) -> AppSender {
+        self.tx.clone()
+    }
+
     pub async fn apply_event(&mut self, ev: AppEvent) {
         match ev {
+            // Console output already landed in the shared emulator; receiving the
+            // event is enough to trigger the next repaint (loop top redraws).
+            AppEvent::ConsoleOutput => {}
             AppEvent::Progress(u) => {
                 if let Some(Dialog::Progress(p)) = &mut self.dialog
                     && p.id == u.id

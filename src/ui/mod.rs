@@ -147,9 +147,10 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
 
     // Paint the command-line console across the whole body first; the panels are
     // drawn over it, so it only shows through where a panel is hidden or the
-    // half-height mode exposes it (Norton-Commander style). Skipped until a
-    // command has produced output, so the backdrop stays blank until then.
-    state.console.resize(rows[1].height, rows[1].width);
+    // half-height mode exposes it (Norton-Commander style). Skipped until the
+    // shell has produced output, so the backdrop stays blank until then. The
+    // console is sized to the whole terminal (matching the PTY), so its recent
+    // lines are anchored to the bottom of the body (see `render_console`).
     if state.console.is_used() {
         render_console(f, rows[1], &state.console);
     }
@@ -212,26 +213,28 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
 }
 
 /// Paint the console emulator's screen into `area`, cell for cell, as the
-/// backdrop behind the panels. The console is sized to `area` (see the caller),
-/// so columns map 1:1. Rows are anchored to the *bottom*: the cursor line (the
-/// live prompt) lands on the last row of `area`, so the most recent output sits
-/// just above the command line and stays visible even when only the lower part
-/// of the backdrop is exposed (half-height mode). Default colours map to
-/// `Color::Reset`, so the backdrop matches the real terminal's default look.
+/// backdrop behind the panels. The console is sized to the whole terminal, so
+/// its rows are anchored to the *bottom*: the cursor line (the live prompt)
+/// lands on the last row of `area` and the rows above it fill upward, so the
+/// most recent output sits just above the command line and stays visible even
+/// when only the lower part of the backdrop is exposed (half-height mode).
+/// Default colours map to `Color::Reset`, so it matches the real terminal.
 fn render_console(f: &mut Frame, area: Rect, console: &crate::console::Console) {
     use ratatui::style::{Modifier, Style};
-    let screen = console.screen();
+    let Some(parser) = console.lock() else { return };
+    let screen = parser.screen();
     let (rows, cols) = screen.size();
-    // Shift the emulated screen down so its cursor row aligns with the bottom of
-    // `area`; content above simply scrolls up out of view as it fills.
-    let cursor_row = screen.cursor_position().0;
-    let shift = area.height.saturating_sub(1).saturating_sub(cursor_row);
+    // Map emulator row -> body row so the cursor line lands on the bottom of the
+    // body; rows above fill upward, rows off either end are clipped. Signed,
+    // since the emulator (full terminal) is usually taller than the body.
+    let offset = area.height as i32 - 1 - screen.cursor_position().0 as i32;
     let buf = f.buffer_mut();
     for r in 0..rows {
-        let ty = r + shift;
-        if ty >= area.height {
+        let ty = r as i32 + offset;
+        if ty < 0 || ty >= area.height as i32 {
             continue;
         }
+        let ty = ty as u16;
         for c in 0..area.width.min(cols) {
             let Some(cell) = screen.cell(r, c) else { continue };
             let mut style = Style::default()
