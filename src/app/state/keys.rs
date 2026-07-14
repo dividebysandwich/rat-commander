@@ -298,6 +298,13 @@ impl AppState {
         }
 
         match key.code {
+            // -- Panel visibility (Norton-Commander style) --
+            // Ctrl-F1 / Ctrl-F2 hide the left / right panel; Ctrl-F3 toggles the
+            // half-height mode. The menu and F-key bars stay on screen throughout.
+            KeyCode::F(1) if ctrl => self.toggle_panel_hidden(0),
+            KeyCode::F(2) if ctrl => self.toggle_panel_hidden(1),
+            KeyCode::F(3) if ctrl => self.half_height = !self.half_height,
+
             // -- Quit / function keys --
             KeyCode::F(10) => return self.request_quit(),
             KeyCode::Char('q') if ctrl => return Flow::Quit, // immediate fallback if F10 is intercepted
@@ -334,7 +341,13 @@ impl AppState {
             KeyCode::Home => self.active_panel().move_home(),
             KeyCode::End => self.active_panel().move_end(),
             KeyCode::Insert => self.active_panel().toggle_mark_and_advance(),
-            KeyCode::Tab => self.active = self.other_index(),
+            // Tab flips focus, but never onto a hidden panel.
+            KeyCode::Tab => {
+                let other = self.other_index();
+                if !self.panel_hidden[other] {
+                    self.active = other;
+                }
+            }
 
             // Alt-Enter copies the name under the cursor onto the command line.
             KeyCode::Enter if alt => self.insert_name_under_cursor(),
@@ -461,6 +474,18 @@ impl AppState {
         let dlg = ShellHistoryDialog::new(&self.cmd.history);
         if !dlg.is_empty() {
             self.dialog = Some(Dialog::ShellHistory(dlg));
+        }
+    }
+
+    /// Toggle the visibility of panel `side` (Ctrl-F1 / Ctrl-F2). When the panel
+    /// being hidden currently has focus and the other panel is still visible,
+    /// focus moves to that visible panel so the active panel is always one the
+    /// user can see. Hiding both is allowed (the command line stays usable).
+    fn toggle_panel_hidden(&mut self, side: usize) {
+        self.panel_hidden[side] = !self.panel_hidden[side];
+        let other = self.other_index();
+        if self.panel_hidden[self.active] && !self.panel_hidden[other] {
+            self.active = other;
         }
     }
 

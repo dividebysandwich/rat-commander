@@ -29,6 +29,8 @@ impl AppState {
             panels: [left, right],
             active: 0,
             split: SplitDir::Vertical,
+            panel_hidden: [false, false],
+            half_height: false,
             cmd,
             dialog: None,
             viewer: None,

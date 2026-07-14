@@ -123,6 +123,11 @@ A quick **Alt** + digit does the same.
 - `Ctrl-W` — Cycle the view format (full → brief → details → tree)
 - `Ctrl-X` — Toggle vertical / horizontal split
 - `Ctrl-U` — Swap the two panels
+- `Ctrl-F1` / `Ctrl-F2` — Hide (and show again) the left / right panel,
+  Norton-Commander style: the remaining panel fills the width, and both may be
+  hidden at once. The menu bar and F-key bar always stay on screen
+- `Ctrl-F3` — Toggle **half-height** panels: both panels shrink to the top half
+  of the screen, exposing the area beneath them
 - `Alt-F1` / `Alt-F2` — Drive / connection picker for the left / right panel
 - `Alt` + a menu letter (`F`/`O`/`C`/`L`/`R`) — Open that top menu (Midnight-
   Commander style); `F9` opens the menu bar too

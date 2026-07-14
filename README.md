@@ -111,6 +111,8 @@ also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1
 | `Ctrl-W` | Cycle view format (full / brief / details / tree) |
 | `Ctrl-X` | Toggle vertical / horizontal split |
 | `Ctrl-U` | Swap the two panels |
+| `Ctrl-F1` / `Ctrl-F2` | Hide / show the left / right panel (both may be hidden) |
+| `Ctrl-F3` | Toggle half-height panels (expose the area beneath) |
 | `Alt-F1` / `Alt-F2` | Drive / connection picker (left / right panel) |
 
 ### Viewer (F3)

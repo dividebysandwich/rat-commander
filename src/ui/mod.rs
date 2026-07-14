@@ -129,7 +129,25 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
         menubar::render_mini_progress(f, rect, done, total, count, &theme);
     }
 
-    let (left_area, right_area) = split_body(rows[1], state.split);
+    // Half-height mode confines the panels to the top half of the body; the
+    // bottom half is left unpainted, exposing the backdrop (Norton-Commander
+    // style). Ctrl-F1 / Ctrl-F2 hide the left / right panel entirely; a hidden
+    // side yields its space so the visible panel fills the width (and both may
+    // be hidden, leaving only the menu and F-key bars).
+    let panels_area = if state.half_height {
+        Rect { height: rows[1].height.div_ceil(2), ..rows[1] }
+    } else {
+        rows[1]
+    };
+    let (left_area, right_area) = match (!state.panel_hidden[0], !state.panel_hidden[1]) {
+        (true, true) => {
+            let (l, r) = split_body(panels_area, state.split);
+            (Some(l), Some(r))
+        }
+        (true, false) => (Some(panels_area), None),
+        (false, true) => (None, Some(panels_area)),
+        (false, false) => (None, None),
+    };
     let active = state.active;
     let brief_cols = state.config.brief_columns;
     // The quick search renders as an inline input on the active panel's
@@ -144,14 +162,18 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
     } else {
         None
     };
-    render_panel(
-        f, left_area, &mut state.panels[0], active == 0, &state.details[0], &theme, brief_cols,
-        left_qs,
-    );
-    render_panel(
-        f, right_area, &mut state.panels[1], active == 1, &state.details[1], &theme, brief_cols,
-        right_qs,
-    );
+    for (i, area_opt, qs) in [(0, left_area, left_qs), (1, right_area, right_qs)] {
+        if let Some(pa) = area_opt {
+            render_panel(
+                f, pa, &mut state.panels[i], active == i, &state.details[i], &theme, brief_cols, qs,
+            );
+        } else {
+            // A hidden panel keeps no live geometry, so stray clicks in the
+            // freed area can't move an unseen cursor or show a stray caret.
+            state.panels[i].hit = None;
+            state.panels[i].quick_caret = None;
+        }
+    }
 
     let cwd = state.console_cwd().display();
     let caret = cmdline::render(f, rows[2], &state.cmd, &cwd, &theme);
@@ -164,11 +186,11 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
     }
 
     if let Some(d) = &mut state.dialog {
-        // The drive/connection picker anchors over its target panel; everything
-        // else centers on the whole screen.
+        // A drive/connection picker anchors over its target panel; if that panel
+        // is hidden, fall back to centering on the whole screen.
         let darea = match d.anchor_panel() {
-            Some(0) => left_area,
-            Some(1) => right_area,
+            Some(0) => left_area.unwrap_or(area),
+            Some(1) => right_area.unwrap_or(area),
             _ => area,
         };
         d.render(f, darea, &theme, state.gfx.as_mut());
@@ -312,12 +334,91 @@ mod feature_tests {
     use crate::util::async_bridge;
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    /// A key press with the Control modifier held (e.g. Ctrl-F1).
+    fn key_ctrl(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::CONTROL)
+    }
 
     fn text_of(t: &Terminal<TestBackend>) -> String {
         let b = t.backend().buffer();
         let mut s = String::new();
         for y in 0..b.area.height { for x in 0..b.area.width { s.push_str(b[(x,y)].symbol()); } s.push('\n'); }
         s
+    }
+
+    /// A rendered `AppState` at 120x30, driven through one `draw`.
+    async fn drawn(state: &mut AppState) -> Terminal<TestBackend> {
+        let mut t = Terminal::new(TestBackend::new(120, 30)).unwrap();
+        t.draw(|f| draw(f, state)).unwrap();
+        t
+    }
+
+    /// Each rendered panel contributes exactly one top-left border corner, so
+    /// counting them tells how many panels are on screen.
+    fn panel_count(t: &Terminal<TestBackend>) -> usize {
+        text_of(t).matches('┌').count()
+    }
+
+    #[tokio::test]
+    async fn ctrl_f1_f2_hide_panels_but_keep_chrome() {
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
+        st.init().await;
+
+        // Both panels visible by default.
+        assert_eq!(panel_count(&drawn(&mut st).await), 2);
+
+        // Ctrl-F1 hides the left panel: one panel remains, filling the width.
+        st.handle_key(key_ctrl(KeyCode::F(1))).await;
+        assert!(st.panel_hidden[0] && !st.panel_hidden[1]);
+        assert_eq!(panel_count(&drawn(&mut st).await), 1);
+
+        // Ctrl-F2 hides the right one too: no panels, but the menu bar and the
+        // F-key bar stay on screen.
+        st.handle_key(key_ctrl(KeyCode::F(2))).await;
+        let t = drawn(&mut st).await;
+        assert_eq!(panel_count(&t), 0);
+        let text = text_of(&t);
+        assert!(text.contains("File") && text.contains("Options"), "menu bar remains");
+        assert!(text.contains("Help") && text.contains("Quit"), "F-key bar remains");
+
+        // Ctrl-F1 again brings the left panel back.
+        st.handle_key(key_ctrl(KeyCode::F(1))).await;
+        assert_eq!(panel_count(&drawn(&mut st).await), 1);
+    }
+
+    #[tokio::test]
+    async fn hiding_active_panel_moves_focus_to_the_visible_one() {
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
+        st.init().await;
+        // Focus the left panel, then hide it — focus must move to the right.
+        st.active = 0;
+        st.handle_key(key_ctrl(KeyCode::F(1))).await;
+        assert_eq!(st.active, 1, "focus follows to the still-visible panel");
+        // With the left panel hidden, Tab must not move focus onto it.
+        st.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)).await;
+        assert_eq!(st.active, 1, "Tab skips the hidden panel");
+    }
+
+    #[tokio::test]
+    async fn half_height_exposes_the_lower_backdrop() {
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
+        st.init().await;
+
+        st.handle_key(key_ctrl(KeyCode::F(3))).await;
+        assert!(st.half_height);
+        let t = drawn(&mut st).await;
+        // Both panels are still present, only shorter.
+        assert_eq!(panel_count(&t), 2);
+        // The last body row (just above the command line) is blank backdrop.
+        let b = t.backend().buffer();
+        let body_bottom = b.area.height - 3; // menu(0) … cmd(h-2) … fkeys(h-1)
+        let blank = (0..b.area.width).all(|x| b[(x, body_bottom)].symbol() == " ");
+        assert!(blank, "half-height leaves the lower body exposed");
     }
 
     #[tokio::test]

@@ -144,6 +144,14 @@ pub struct AppState {
     /// Index of the active panel (0 = left/top, 1 = right/bottom).
     pub active: usize,
     pub split: SplitDir,
+    /// Per-side panel visibility. Ctrl-F1 / Ctrl-F2 hide the left / right panel,
+    /// Norton-Commander style: a hidden panel isn't drawn and the freed area
+    /// exposes the backdrop. Both may be hidden at once; the menu bar and F-key
+    /// bar always remain on screen. Transient — not persisted across sessions.
+    pub panel_hidden: [bool; 2],
+    /// Half-height mode (Ctrl-F3): both panels shrink to the top half of the
+    /// body, exposing the backdrop beneath them. Transient — not persisted.
+    pub half_height: bool,
     pub cmd: CommandLine,
     pub dialog: Option<Dialog>,
     pub viewer: Option<ViewerState>,
