@@ -10,7 +10,7 @@ in.
 
 The installed executable is named **`rc`** for quick typing.
 
-<img width="1004" height="659" alt="image" src="https://github.com/user-attachments/assets/467309a5-e43b-4096-b58b-95199a980eda" />
+<img alt="image" src="https://img.playspoon.com/phlqc4.gif" />
 
 <img width="1004" height="659" alt="image" src="https://github.com/user-attachments/assets/5b13c3c9-e770-4ce6-ac2b-560e7b5c3bad" />
 
