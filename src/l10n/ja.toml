@@ -316,3 +316,7 @@ code = "ja"
 "Panel f&ilter..." = "パネルフィルター…(&I)"
 "Panel filter" = "パネルフィルター"
 "Filter pattern (blank clears)" = "フィルターパターン（空欄で解除）"
+
+# -- Git integration --
+"St&age/unstage" = "ステージ/アンステージ(&A)"
+"Git di&ff vs HEAD" = "Git 差分（HEAD と）(&F)"

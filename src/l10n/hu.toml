@@ -316,3 +316,7 @@ code = "hu"
 "Panel f&ilter..." = "Panelszűrő… (&I)"
 "Panel filter" = "Panelszűrő"
 "Filter pattern (blank clears)" = "Szűrőminta (üres = törlés)"
+
+# -- Git integration --
+"St&age/unstage" = "Előkészítés/visszavonás (&A)"
+"Git di&ff vs HEAD" = "Git diff a HEAD-hez (&F)"

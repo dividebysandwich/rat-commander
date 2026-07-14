@@ -320,3 +320,7 @@ rtl = true
 "Panel f&ilter..." = "مرشّح اللوحة… (&I)"
 "Panel filter" = "مرشّح اللوحة"
 "Filter pattern (blank clears)" = "نمط المرشّح (فارغ = مسح)"
+
+# -- Git integration --
+"St&age/unstage" = "تحضير/إلغاء التحضير (&A)"
+"Git di&ff vs HEAD" = "فرق Git مع HEAD (&F)"

@@ -35,6 +35,11 @@ The installed executable is named **`rc`** for quick typing.
   first save; closing the editor then exits.
 - **Multi rename** — batch-rename selected files with a masked, live two-column
   preview, counter, case transform and search-and-replace.
+- **Git-aware panels** — inside a git work tree each file is tagged with its VCS
+  state (`>` modified, `+` staged, `?` untracked, `!` conflict) in colour, the
+  current **branch + ahead/behind** shows on the panel border, and one-key actions
+  **stage/unstage** (`Ctrl-G`) or open a side-by-side **diff against HEAD**
+  (`Alt-G`). Status is gathered in the background, so large repos stay responsive.
 - **Command palette (Ctrl-P)** — one fuzzy-search box over every menu action,
   every setting (switch theme/language/graphics or flip a toggle in place), your
   directory **bookmarks**, the open remote connections, and your saved remote
@@ -119,6 +124,7 @@ also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1
 | `Ctrl-\` | Directory hotlist (bookmarks): jump / add / remove |
 | `Alt-←` / `Alt-→` (or `Alt-y` / `Alt-u`) | Go back / forward through the panel's visited directories |
 | `Alt-I` | Set / clear the panel's persistent listing filter |
+| `Ctrl-G` / `Alt-G` | Git: stage/unstage the selection · diff the file against HEAD |
 | `Ctrl-R` | Re-read the active panel |
 | `Ctrl-S` / `Ctrl-E` | Cycle sort key / toggle reverse |
 | `Ctrl-W` | Cycle view format (full / brief / details / tree) |

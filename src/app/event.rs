@@ -102,6 +102,14 @@ pub enum AppEvent {
         ip: String,
         host: Option<String>,
     },
+    /// A background Git-status scan for panel `side` finished; a stale
+    /// `generation` is ignored. `status` is `None` when the directory is not a
+    /// git work tree (or git is unavailable).
+    GitStatusScanned {
+        side: usize,
+        generation: u64,
+        status: Option<Box<crate::git::GitStatus>>,
+    },
     /// A view/edit fetch streamed a (remote/archive) file to a local temp file;
     /// the handler opens it (paged viewer, or editor targeting `orig_path`).
     FileFetched {

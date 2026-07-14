@@ -30,6 +30,10 @@ pub enum MenuAction {
     Compress,
     /// Compute a checksum of the file under the cursor.
     Checksum,
+    /// Stage / unstage the file(s) under the cursor (git).
+    GitStage,
+    /// Open the side-by-side diff of the file under the cursor against HEAD.
+    GitDiff,
     /// Open the list of running background transfers.
     BackgroundOps,
     SelectGroup,
@@ -209,6 +213,9 @@ impl MenuBarState {
                 sep(),
                 item("Com&press...", MenuAction::Compress),
                 item("Chec&ksum...", MenuAction::Checksum),
+                sep(),
+                item_key("St&age/unstage", "Ctrl-G", MenuAction::GitStage),
+                item_key("Git di&ff vs HEAD", "Alt-G", MenuAction::GitDiff),
                 sep(),
                 item("&Background operations...", MenuAction::BackgroundOps),
                 sep(),

@@ -316,3 +316,7 @@ code = "uk"
 "Panel f&ilter..." = "Фільтр панелі… (&I)"
 "Panel filter" = "Фільтр панелі"
 "Filter pattern (blank clears)" = "Шаблон фільтра (порожнє = очистити)"
+
+# -- Git integration --
+"St&age/unstage" = "Індексувати/прибрати (&A)"
+"Git di&ff vs HEAD" = "Git diff з HEAD (&F)"

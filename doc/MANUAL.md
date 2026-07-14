@@ -154,6 +154,10 @@ A quick **Alt** + digit does the same.
 - `Alt-I` — Set or clear the active panel's **persistent listing filter** (a
   shell glob like `*.rs`, or plain text; a blank entry clears it) — distinct from
   the quick-search cursor jump; see *The listing filter* below
+- `Ctrl-G` — **Stage / unstage** the file(s) under the cursor (git) — see
+  *Git-aware panels* below
+- `Alt-G` — Open a side-by-side **diff of the file against its committed (`HEAD`)
+  version** (git) — see *Git-aware panels* below
 - `Ctrl-R` — Re-read (refresh) the active panel
 - `Ctrl-E` — Toggle reverse sort order (choose the sort key from the panel menu)
 - `Ctrl-W` — Cycle the view format (full → brief → details → tree)
@@ -800,6 +804,46 @@ typing a family name (`bookmark`, `connection`, …) narrows to that family.
 - **Connection** — switch the active panel to any **open** remote session, or
   **reconnect** to a **saved** server (opens the connection form prefilled from
   history, ready for the password).
+
+
+## Git-aware panels
+
+When a panel is showing a directory inside a **Git working tree**, Rat Commander
+reads its VCS status in the background (so even a large repository stays
+responsive) and surfaces it in the listing and on the border.
+
+**Per-file status.** Each entry's leading marker is replaced by a coloured status
+glyph when git has something to say about it:
+
+- **`>`** — **modified** in the working tree (unstaged changes).
+- **`+`** — **staged** in the index (ready to commit).
+- **`?`** — **untracked** (not yet added to git).
+- **`!`** — **conflict** (an unmerged path).
+
+A subdirectory that *contains* changes is flagged with the strongest state found
+beneath it, so you can see where changes live without descending. The file name
+is tinted the same colour as its glyph.
+
+**Branch on the border.** The bottom-left of the panel border shows the current
+branch, e.g. `⎇ main ↑2 ↓1` — the `↑`/`↓` counts are how many commits the branch
+is **ahead** / **behind** its upstream (shown only when non-zero).
+
+**One-key actions** (they act on the active panel's cursor file, or the tagged
+files if any):
+
+- **`Ctrl-G`** — **stage / unstage**. A staged file is unstaged; anything else is
+  staged (`git add` / `git restore --staged`). The glyphs refresh immediately.
+- **`Alt-G`** — open a **side-by-side diff against `HEAD`** — the committed
+  version on the left, your working copy on the right — in the same
+  [Compare files](#compare-files-side-by-side-diff) view. Use `Ctrl-←` to bring a
+  hunk over from `HEAD` (discarding a change) and **F2** to write the working file
+  back. An untracked file diffs against an empty left side. (The `HEAD` side is
+  read-only, so it can't be written back over anything.)
+
+Both actions are also on the **File menu** and the command palette. Git
+integration shells out to the `git` command; if `git` isn't installed, or the
+directory isn't a repository, panels simply show no VCS info. Remote and archive
+panels never show git status.
 
 
 ## Directory history (back / forward)

@@ -316,3 +316,7 @@ code = "zh-Hans"
 "Panel f&ilter..." = "面板过滤…(&I)"
 "Panel filter" = "面板过滤"
 "Filter pattern (blank clears)" = "过滤模式（留空清除）"
+
+# -- Git integration --
+"St&age/unstage" = "暂存/取消暂存(&A)"
+"Git di&ff vs HEAD" = "Git 差异（对 HEAD）(&F)"

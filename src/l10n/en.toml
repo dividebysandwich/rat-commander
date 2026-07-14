@@ -325,3 +325,7 @@ code = "en"
 "Panel f&ilter..." = "Panel f&ilter..."
 "Panel filter" = "Panel filter"
 "Filter pattern (blank clears)" = "Filter pattern (blank clears)"
+
+# -- Git integration --
+"St&age/unstage" = "St&age/unstage"
+"Git di&ff vs HEAD" = "Git di&ff vs HEAD"

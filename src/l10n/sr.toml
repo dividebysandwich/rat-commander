@@ -316,3 +316,7 @@ code = "sr"
 "Panel f&ilter..." = "Filter panela… (&I)"
 "Panel filter" = "Filter panela"
 "Filter pattern (blank clears)" = "Šablon filtera (prazno = brisanje)"
+
+# -- Git integration --
+"St&age/unstage" = "Dodaj/ukloni iz indeksa (&A)"
+"Git di&ff vs HEAD" = "Git diff u odnosu na HEAD (&F)"

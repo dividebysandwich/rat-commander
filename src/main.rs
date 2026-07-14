@@ -13,6 +13,7 @@ mod drive;
 mod editor;
 mod ext;
 mod flash;
+mod git;
 mod l10n;
 mod mount;
 mod net;

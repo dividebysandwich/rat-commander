@@ -316,3 +316,7 @@ code = "hi"
 "Panel f&ilter..." = "पैनल फ़िल्टर… (&I)"
 "Panel filter" = "पैनल फ़िल्टर"
 "Filter pattern (blank clears)" = "फ़िल्टर पैटर्न (खाली = हटाएँ)"
+
+# -- Git integration --
+"St&age/unstage" = "स्टेज/अनस्टेज (&A)"
+"Git di&ff vs HEAD" = "HEAD से Git अंतर (&F)"

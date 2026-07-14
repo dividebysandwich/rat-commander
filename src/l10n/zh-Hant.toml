@@ -316,3 +316,7 @@ code = "zh-Hant"
 "Panel f&ilter..." = "面板篩選…(&I)"
 "Panel filter" = "面板篩選"
 "Filter pattern (blank clears)" = "篩選樣式（空白清除）"
+
+# -- Git integration --
+"St&age/unstage" = "暫存/取消暫存(&A)"
+"Git di&ff vs HEAD" = "Git 差異（對 HEAD）(&F)"

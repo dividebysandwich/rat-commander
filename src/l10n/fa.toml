@@ -320,3 +320,7 @@ rtl = true
 "Panel f&ilter..." = "صافی پنجره… (&I)"
 "Panel filter" = "صافی پنجره"
 "Filter pattern (blank clears)" = "الگوی صافی (خالی = پاک‌سازی)"
+
+# -- Git integration --
+"St&age/unstage" = "افزودن/برداشتن از نمایه (&A)"
+"Git di&ff vs HEAD" = "تفاوت گیت با HEAD (&F)"

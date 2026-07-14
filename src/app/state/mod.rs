@@ -256,6 +256,12 @@ pub struct AppState {
     /// Details format): what to show about the *other* panel's cursor/selection,
     /// plus the background size-scan bookkeeping. Index = the panel displaying it.
     pub details: [crate::details::DetailsData; 2],
+    /// Per-panel Git-status background-scan bookkeeping: the last-scanned key (the
+    /// panel's local cwd, or empty for a non-local panel) and a generation counter
+    /// so a stale scan result is dropped. The scanned `GitStatus` lives on the
+    /// panel itself (for the renderer).
+    pub(in crate::app::state) git_key: [String; 2],
+    pub(in crate::app::state) git_gen: [u64; 2],
     /// After an operation completes, place a panel's cursor on a named entry: the
     /// surviving file above a delete, or the newly renamed/moved item. Stored as
     /// `(panel index, entry name)`.
@@ -499,6 +505,7 @@ mod viewer_editor;
 mod ext;
 mod palette;
 mod navigation;
+mod git;
 
 /// Read a file fully into memory (capped just above the viewer limit).
 async fn load_file(backend: &std::sync::Arc<dyn Vfs>, path: &VfsPath) -> crate::util::Result<Vec<u8>> {

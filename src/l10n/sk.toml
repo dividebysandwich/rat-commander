@@ -316,3 +316,7 @@ code = "sk"
 "Panel f&ilter..." = "Filter panela… (&I)"
 "Panel filter" = "Filter panela"
 "Filter pattern (blank clears)" = "Vzor filtra (prázdne = zrušiť)"
+
+# -- Git integration --
+"St&age/unstage" = "Pridať/odobrať z indexu (&A)"
+"Git di&ff vs HEAD" = "Git diff proti HEAD (&F)"

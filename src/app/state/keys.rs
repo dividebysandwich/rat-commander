@@ -212,6 +212,8 @@ impl AppState {
             MenuAction::Symlink => self.open_symlink(),
             MenuAction::Compress => self.open_compress(),
             MenuAction::Checksum => self.open_checksum(),
+            MenuAction::GitStage => self.git_stage_toggle().await,
+            MenuAction::GitDiff => self.open_git_diff().await,
             MenuAction::BackgroundOps => self.open_background_ops(),
             MenuAction::SelectGroup => self.open_select_group(true),
             MenuAction::UnselectGroup => self.open_select_group(false),
@@ -450,6 +452,9 @@ impl AppState {
             KeyCode::Char('\\') if ctrl => self.open_hotlist(),
             // Persistent listing filter for the active panel.
             KeyCode::Char('i') if alt && !ctrl => self.open_panel_filter(),
+            // Git: Ctrl-G stages/unstages, Alt-G diffs the file against HEAD.
+            KeyCode::Char('g') if ctrl && !alt => self.git_stage_toggle().await,
+            KeyCode::Char('g') if alt && !ctrl => self.open_git_diff().await,
             KeyCode::Char('e') if ctrl => {
                 let p = self.active_panel();
                 p.sort.reverse = !p.sort.reverse;

@@ -68,6 +68,7 @@ fn menu_accelerators_are_unique_per_menu_in_every_language() {
         &[
             "&View", "&Edit", "&Copy", "&Rename/Move", "M&ulti rename", "&Make directory",
             "&Delete", "C&hmod", "Cho&wn", "&Symlink", "Com&press...", "Chec&ksum...",
+            "St&age/unstage", "Git di&ff vs HEAD",
             "&Background operations...", "Select &group", "U&nselect group",
             "&Invert selection", "&Quit",
         ],

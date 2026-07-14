@@ -97,6 +97,9 @@ pub fn render_panel(
     // Clickable back/forward arrows on the top border (over the reserved pad).
     render_history_arrows(f, area, panel, arrows, theme);
 
+    // Git branch + ahead/behind on the bottom-left border (when in a repo).
+    render_git_branch(f, area, panel, theme);
+
     // Reset hit geometry; set below once the listing is drawn.
     panel.hit = None;
     // The quick-search caret (set below when a search is rendering).
@@ -231,6 +234,27 @@ fn render_history_arrows(f: &mut Frame, area: Rect, panel: &mut Panel, enabled: 
     buf.set_string(fx, y, "▶", if panel.can_forward() { live } else { dim });
     panel.back_arrow = Some(Rect { x: bx, y, width: 1, height: 1 });
     panel.fwd_arrow = Some(Rect { x: fx, y, width: 1, height: 1 });
+}
+
+/// Write the current Git branch (and ahead/behind) onto the bottom-left border.
+/// Capped to about half the width so it never collides with the disk readout on
+/// the bottom-right.
+fn render_git_branch(f: &mut Frame, area: Rect, panel: &Panel, theme: &Theme) {
+    let Some(git) = panel.git.as_ref() else {
+        return;
+    };
+    if area.height < 2 || area.width < 16 || git.branch.is_empty() {
+        return;
+    }
+    let label = format!(" ⎇ {} ", git.branch_label());
+    let maxw = (area.width as usize / 2).max(8);
+    let label = ellipsize(&label, maxw);
+    let y = area.y + area.height - 1;
+    let style = Style::default()
+        .fg(theme.exec_fg)
+        .bg(theme.panel_bg)
+        .add_modifier(Modifier::BOLD);
+    f.buffer_mut().set_string(area.x + 1, y, label, style);
 }
 
 /// Write the volume's "used / total (NN%)" onto the bottom border, right-aligned.
@@ -430,6 +454,7 @@ fn render_full(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, theme
         };
         let is_cursor = idx == panel.cursor;
         let marked = panel.selection.is_marked(&e.name);
+        let gstate = panel.git.as_ref().and_then(|g| g.state_of(&e.name));
 
         let size_str = size_field(e);
         let time_str = e.mtime.map(format_time).unwrap_or_default();
@@ -440,7 +465,7 @@ fn render_full(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, theme
             // active panel shows a cursor.
             let text = format!(
                 "{}{COL_SEP}{}{COL_SEP}{}",
-                pad_right(&display_name(e), name_w),
+                pad_right(&display_name_git(e, gstate), name_w),
                 pad_left(&size_str, size_w),
                 pad_left(&time_str, time_w)
             );
@@ -464,7 +489,10 @@ fn render_full(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, theme
                 normal
             };
             let spans = vec![
-                Span::styled(pad_right(&display_name(e), name_w), name_style(e, marked, theme)),
+                Span::styled(
+                    pad_right(&display_name_git(e, gstate), name_w),
+                    entry_name_style(e, marked, gstate, theme),
+                ),
                 Span::styled(COL_SEP, sep_style),
                 Span::styled(pad_left(&size_str, size_w), data_style),
                 Span::styled(COL_SEP, sep_style),
@@ -524,12 +552,13 @@ fn render_brief(
                 Some(e) => {
                     let is_cursor = idx == panel.cursor;
                     let marked = panel.selection.is_marked(&e.name);
-                    let text = pad_right(&display_name(e), name_w);
+                    let gstate = panel.git.as_ref().and_then(|g| g.state_of(&e.name));
+                    let text = pad_right(&display_name_git(e, gstate), name_w);
                     // Only the active panel shows a cursor highlight.
                     let style = if is_cursor && active {
                         cursor_style(true, marked, theme)
                     } else {
-                        name_style(e, marked, theme)
+                        entry_name_style(e, marked, gstate, theme)
                     };
                     spans.push(Span::styled(text, style));
                 }
@@ -594,6 +623,43 @@ fn render_tree(f: &mut Frame, area: Rect, panel: &mut Panel, active: bool, theme
 /// [`classify_prefix`]) followed by the entry name.
 fn display_name(e: &VfsEntry) -> String {
     format!("{}{}", classify_prefix(e), e.name)
+}
+
+/// Like [`display_name`], but the leading `ls -F` marker is replaced by the git
+/// status glyph (`M` / `+` / `?` / `!`) when the entry has a VCS state.
+fn display_name_git(e: &VfsEntry, gstate: Option<crate::git::GitState>) -> String {
+    let marker = gstate.map(|s| s.glyph()).unwrap_or_else(|| classify_prefix(e));
+    format!("{marker}{}", e.name)
+}
+
+/// The foreground colour for a git state, reusing semantic theme colours so it
+/// tracks the active theme: modified → accent, staged → exec/green, untracked →
+/// dim border, conflict → error/red.
+fn git_color(state: crate::git::GitState, theme: &Theme) -> Color {
+    use crate::git::GitState;
+    match state {
+        GitState::Modified => theme.hotkey_fg,
+        GitState::Staged => theme.exec_fg,
+        GitState::Untracked => theme.panel_border,
+        GitState::Conflict => theme.error_fg,
+    }
+}
+
+/// The name style for a listing entry: a user mark wins, then a git state tints
+/// the name by its status colour, otherwise the normal by-type colour.
+fn entry_name_style(
+    e: &VfsEntry,
+    marked: bool,
+    gstate: Option<crate::git::GitState>,
+    theme: &Theme,
+) -> Style {
+    if marked {
+        return name_style(e, true, theme);
+    }
+    match gstate {
+        Some(s) => Style::default().bg(theme.panel_bg).fg(git_color(s, theme)),
+        None => name_style(e, false, theme),
+    }
 }
 
 fn render_mini_status(f: &mut Frame, area: Rect, panel: &Panel, theme: &Theme) {
@@ -749,6 +815,46 @@ mod tests {
             assert!(text.contains("9.4M"), "{fmt:?}: size shown in the mini-status");
             assert!(text.contains("1970"), "{fmt:?}: modify date shown in the mini-status");
         }
+    }
+
+    #[test]
+    fn git_glyphs_and_branch_render() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let theme = Theme::mc();
+        let backend = crate::vfs::registry::Registry::default().local();
+        let mut panel = Panel::new(backend, crate::vfs::VfsPath::local("/repo"));
+        panel.entries = vec![
+            entry("mod.rs", VfsKind::File, 0o644, false),
+            entry("new.rs", VfsKind::File, 0o644, false),
+            entry("clean.rs", VfsKind::File, 0o644, false),
+        ];
+        let mut files = std::collections::HashMap::new();
+        files.insert("mod.rs".to_string(), crate::git::GitState::Modified);
+        files.insert("new.rs".to_string(), crate::git::GitState::Untracked);
+        panel.git = Some(crate::git::GitStatus {
+            branch: "main".into(),
+            ahead: 2,
+            behind: 0,
+            files,
+            root: "/repo".into(),
+        });
+
+        let mut t = Terminal::new(TestBackend::new(44, 8)).unwrap();
+        t.draw(|f| render_panel(f, f.area(), &mut panel, true, &Default::default(), &theme, 2, None))
+            .unwrap();
+        let b = t.backend().buffer();
+        let all: String = (0..b.area.height)
+            .flat_map(|y| (0..b.area.width).map(move |x| (x, y)))
+            .map(|(x, y)| b[(x, y)].symbol().to_string())
+            .collect();
+        assert!(all.contains(">mod.rs"), "modified file shows the > glyph: {all:?}");
+        assert!(all.contains("?new.rs"), "untracked file shows the ? glyph");
+        assert!(all.contains(" clean.rs"), "a clean file keeps its plain marker");
+        // The branch + ahead count is on the bottom border.
+        let bottom: String = (0..b.area.width).map(|x| b[(x, b.area.height - 1)].symbol()).collect();
+        assert!(bottom.contains("main"), "branch on the border: {bottom:?}");
+        assert!(bottom.contains("↑2"), "ahead count on the border: {bottom:?}");
     }
 
     #[test]

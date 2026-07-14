@@ -316,3 +316,7 @@ code = "cs"
 "Panel f&ilter..." = "Filtr panelu… (&I)"
 "Panel filter" = "Filtr panelu"
 "Filter pattern (blank clears)" = "Vzor filtru (prázdné = zrušit)"
+
+# -- Git integration --
+"St&age/unstage" = "Přidat/odebrat z indexu (&A)"
+"Git di&ff vs HEAD" = "Git diff proti HEAD (&F)"

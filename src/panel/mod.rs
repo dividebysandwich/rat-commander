@@ -135,6 +135,11 @@ pub struct Panel {
     /// recorded at render time for mouse hit-testing (`None` when not drawn).
     pub back_arrow: Option<Rect>,
     pub fwd_arrow: Option<Rect>,
+    /// The directory's Git status (branch + per-file states), gathered in the
+    /// background. `None` when the directory is not in a git work tree (or is
+    /// remote/archive). Read by the renderer to glyph/colour entries and label
+    /// the border.
+    pub git: Option<crate::git::GitStatus>,
 }
 
 /// Largest number of directories kept on a panel's back/forward history stacks.
@@ -166,6 +171,7 @@ impl Panel {
             filter: None,
             back_arrow: None,
             fwd_arrow: None,
+            git: None,
         }
     }
 

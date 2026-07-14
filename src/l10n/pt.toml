@@ -316,3 +316,7 @@ code = "pt"
 "Panel f&ilter..." = "Filtro do painel… (&I)"
 "Panel filter" = "Filtro do painel"
 "Filter pattern (blank clears)" = "Padrão de filtro (vazio = limpar)"
+
+# -- Git integration --
+"St&age/unstage" = "Preparar/remover do índice (&A)"
+"Git di&ff vs HEAD" = "Diff do Git com HEAD (&F)"

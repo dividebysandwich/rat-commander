@@ -316,3 +316,7 @@ code = "nl"
 "Panel f&ilter..." = "Paneelfilter… (&I)"
 "Panel filter" = "Paneelfilter"
 "Filter pattern (blank clears)" = "Filterpatroon (leeg = wissen)"
+
+# -- Git integration --
+"St&age/unstage" = "Indexeren/de-indexeren (&A)"
+"Git di&ff vs HEAD" = "Git-diff met HEAD (&F)"

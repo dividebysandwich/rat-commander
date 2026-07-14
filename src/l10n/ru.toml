@@ -316,3 +316,7 @@ code = "ru"
 "Panel f&ilter..." = "Фильтр панели… (&I)"
 "Panel filter" = "Фильтр панели"
 "Filter pattern (blank clears)" = "Шаблон фильтра (пусто = очистить)"
+
+# -- Git integration --
+"St&age/unstage" = "Индексировать/убрать (&A)"
+"Git di&ff vs HEAD" = "Git diff с HEAD (&F)"

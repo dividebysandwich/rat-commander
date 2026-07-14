@@ -79,6 +79,8 @@ impl AppState {
             paint_last: None,
             last_click: None,
             details: Default::default(),
+            git_key: [String::new(), String::new()],
+            git_gen: [0, 0],
             pending_focus: None,
             search_memory: Default::default(),
             edit_only: false,
@@ -226,6 +228,8 @@ impl AppState {
         for p in self.panels.iter_mut() {
             let _ = p.reload().await;
         }
+        // The working tree may have changed (delete/copy/move/save): re-scan git.
+        self.invalidate_git();
     }
 
     /// Aggregate progress of the **background** transfers (those not currently
@@ -406,6 +410,9 @@ impl AppState {
             }
             AppEvent::DetailsTally { viewer, generation, total, files, dirs, done } => {
                 self.apply_details_tally(viewer, generation, total, files, dirs, done);
+            }
+            AppEvent::GitStatusScanned { side, generation, status } => {
+                self.apply_git_status(side, generation, status.map(|b| *b));
             }
             AppEvent::DiskScanProgress { generation, done, total } => {
                 if let Some(dv) = self.diskview.as_mut()
