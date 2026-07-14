@@ -250,6 +250,21 @@ pub fn is_fence(line: &str) -> bool {
     body.starts_with(&['`', '`', '`']) || body.starts_with(&['~', '~', '~'])
 }
 
+/// If `line` is a code fence, the trimmed info string (the language after the
+/// ` ``` `/`~~~` markers) — empty when there is none. `None` if `line` is not a
+/// fence. Used to label the opening border of the rendered code box.
+pub fn fence_info(line: &str) -> Option<String> {
+    let chars: Vec<char> = line.chars().collect();
+    let indent = chars.iter().take_while(|c| **c == ' ' || **c == '\t').count();
+    let body = &chars[indent..];
+    let marker = *body.first()?;
+    if !(body.starts_with(&['`', '`', '`']) || body.starts_with(&['~', '~', '~'])) {
+        return None;
+    }
+    let fence = body.iter().take_while(|c| **c == marker).count();
+    Some(body[fence..].iter().collect::<String>().trim().to_string())
+}
+
 /// Strip inline markup (`` `code` ``, `**bold**`/`*italic*`, `[text](url)`) from
 /// `chars`, returning the plain display text — the same transform
 /// [`emit_inline`] applies, but without styling (used for outline labels).
@@ -368,5 +383,15 @@ mod tests {
         assert!(is_fence("  ~~~"));
         assert!(!is_fence("`inline`"));
         assert!(!is_fence("text"));
+    }
+
+    #[test]
+    fn fence_info_extracts_the_language() {
+        assert_eq!(fence_info("```rust"), Some("rust".to_string()));
+        assert_eq!(fence_info("~~~  python  "), Some("python".to_string()));
+        assert_eq!(fence_info("```"), Some(String::new())); // no language
+        assert_eq!(fence_info("  ```toml"), Some("toml".to_string())); // indented
+        assert_eq!(fence_info("text"), None);
+        assert_eq!(fence_info("`inline`"), None);
     }
 }

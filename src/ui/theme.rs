@@ -992,6 +992,28 @@ fn luma(c: Color) -> f64 {
     0.299 * r as f64 + 0.587 * g as f64 + 0.114 * b as f64
 }
 
+/// Ensure `fg` is legible on `bg`. When their luma already differs enough the
+/// color is returned unchanged (so accent hues survive on dark surfaces); only
+/// when contrast is too low is `fg` blended toward black or white — whichever
+/// the background is farther from — until it stands out. Used to keep the
+/// per-level heading colors readable on bright dialog backgrounds.
+pub(crate) fn readable_on(fg: Color, bg: Color) -> Color {
+    const MIN_DIFF: f64 = 96.0;
+    let bg_luma = luma(bg);
+    let target = if bg_luma < 128.0 {
+        Color::Rgb(255, 255, 255)
+    } else {
+        Color::Rgb(0, 0, 0)
+    };
+    let mut out = fg;
+    let mut t = 0.0;
+    while (luma(out) - bg_luma).abs() < MIN_DIFF && t < 1.0 {
+        t += 0.2;
+        out = mix(fg, target, t);
+    }
+    out
+}
+
 /// A higher-contrast version of `fg` for dense text: nudge it away from the
 /// background — brighter on dark backgrounds, darker on light ones — so body
 /// text in the editor/viewer reads crisply (it's softer by default for chrome).
@@ -1273,6 +1295,23 @@ pub static PALETTES: &[Palette] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn readable_on_only_adjusts_low_contrast_colors() {
+        // A bright accent on a dark background already contrasts — left as-is.
+        let accent = rgb(0xffd75f); // light yellow
+        assert_eq!(readable_on(accent, rgb(0x101010)), accent, "kept on a dark bg");
+
+        // The same bright accent on a bright dialog background is illegible, so it
+        // is darkened until it stands out.
+        let bright_bg = rgb(0xf5f5f5);
+        let fixed = readable_on(accent, bright_bg);
+        assert_ne!(fixed, accent, "adjusted on a bright bg");
+        assert!(
+            (luma(fixed) - luma(bright_bg)).abs() >= 96.0,
+            "the result has adequate contrast with the background"
+        );
+    }
 
     #[test]
     fn editing_one_component_changes_only_that_element() {

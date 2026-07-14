@@ -782,6 +782,21 @@ impl ViewerState {
         }
     }
 
+    /// Whether logical line `line` begins *inside* a fenced code block — i.e. an
+    /// odd number of code-fence lines (` ``` ` / `~~~`) precede it. Lets the
+    /// Markdown renderer tell whether the top of the viewport is already within a
+    /// code box when the block's opening fence has scrolled off the top. Scans
+    /// only the already-indexed prefix `0..line`, so it triggers no extra I/O.
+    fn in_code_fence_at(&self, line: usize) -> bool {
+        let mut inside = false;
+        for li in 0..line.min(self.line_count()) {
+            if markdown::is_fence(&self.line_str(li)) {
+                inside = !inside;
+            }
+        }
+        inside
+    }
+
     /// Text of logical line `i`, with tabs expanded and CR stripped.
     fn line_str(&self, i: usize) -> String {
         let start = self.line_starts[i];
@@ -1008,6 +1023,108 @@ mod tests {
             r.contains("One") && (0..b.area.width).any(|x| b[(x, y as u16)].bg == sel_bg)
         });
         assert!(highlighted, "the selected heading row is highlighted");
+    }
+
+    #[test]
+    fn markdown_fenced_code_is_boxed_and_literal() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let md = concat!(
+            "# Title\n",           // 0
+            "```rust\n",           // 1  fence opens (language: rust)
+            "fn main() {}\n",      // 2  code content, shown literally
+            "# not a heading\n",   // 3  '#' inside the fence stays literal
+            "```\n",               // 4  fence closes
+            "done\n",              // 5
+        );
+        let mut v = ViewerState::new("doc.md".into(), md.as_bytes().to_vec());
+        assert!(v.markdown_active());
+        let theme = crate::ui::theme::Theme::mc();
+        let mut t = Terminal::new(TestBackend::new(40, 12)).unwrap();
+        t.draw(|f| crate::viewer::render::render(f, f.area(), &mut v, &theme)).unwrap();
+        let b = t.backend().buffer();
+        let rows: Vec<String> = (0..b.area.height)
+            .map(|y| (0..b.area.width).map(|x| b[(x, y)].symbol().to_string()).collect())
+            .collect();
+        let all = rows.join("\n");
+
+        // The block is framed with box-drawing corners and side borders.
+        assert!(all.contains('┌') && all.contains('┐'), "top border drawn");
+        assert!(all.contains('└') && all.contains('┘'), "bottom border drawn");
+        assert!(all.contains('│'), "side borders drawn");
+        // The language labels the opening border.
+        assert!(rows.iter().any(|r| r.contains("rust")), "language shown on the box");
+        // Code content is literal: the '#' line is NOT turned into a heading
+        // (which would strip the marker), it is kept verbatim inside the box.
+        assert!(rows.iter().any(|r| r.contains("# not a heading")), "'#' kept literally in code");
+        assert!(rows.iter().any(|r| r.contains("fn main() {}")), "code body rendered");
+    }
+
+    #[test]
+    fn markdown_box_still_frames_when_scrolled_into_the_block() {
+        // Starting the viewport in the middle of a code block (the opening fence
+        // scrolled off the top) still draws the side borders around the content.
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let md = concat!(
+            "```\n",    // 0  fence opens
+            "aaaa\n",   // 1
+            "bbbb\n",   // 2
+            "cccc\n",   // 3
+            "```\n",    // 4  fence closes
+        );
+        let mut v = ViewerState::new("d.md".into(), md.as_bytes().to_vec());
+        v.top = 2; // start on the "bbbb" content line, inside the fence
+        assert!(v.in_code_fence_at(v.top), "top of the viewport is inside a fence");
+        let theme = crate::ui::theme::Theme::mc();
+        let mut t = Terminal::new(TestBackend::new(30, 8)).unwrap();
+        t.draw(|f| crate::viewer::render::render(f, f.area(), &mut v, &theme)).unwrap();
+        let b = t.backend().buffer();
+        let rows: Vec<String> = (0..b.area.height)
+            .map(|y| (0..b.area.width).map(|x| b[(x, y)].symbol().to_string()).collect())
+            .collect();
+        // No opening corner is visible (it is above the viewport) but the content
+        // is still framed by side borders and closed at the bottom.
+        assert!(rows.iter().any(|r| r.contains("bbbb") && r.contains('│')), "content framed");
+        assert!(rows.join("\n").contains('└'), "bottom border still drawn");
+    }
+
+    #[test]
+    fn outline_headings_stay_legible_on_a_bright_dialog() {
+        // On a theme with a bright dialog background, the per-level heading colors
+        // are contrast-adjusted so every drawn entry remains readable.
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let md = concat!("# One\n", "a\n", "## Two\n", "b\n", "### Three\n");
+        let mut v = ViewerState::new("d.md".into(), md.as_bytes().to_vec());
+        v.open_outline();
+        let theme = crate::ui::theme::Theme::by_name("GitHub Light", true);
+        let mut t = Terminal::new(TestBackend::new(50, 16)).unwrap();
+        t.draw(|f| crate::viewer::render::render(f, f.area(), &mut v, &theme)).unwrap();
+        let b = t.backend().buffer();
+
+        // Every non-selected outline entry cell (drawn on the dialog background)
+        // must contrast with that background — no illegible headings.
+        let dialog_bg = theme.dialog_bg;
+        let luma = |c: ratatui::style::Color| match c {
+            ratatui::style::Color::Rgb(r, g, b) => {
+                0.299 * r as f64 + 0.587 * g as f64 + 0.114 * b as f64
+            }
+            _ => 128.0,
+        };
+        let bg_luma = luma(dialog_bg);
+        for y in 0..b.area.height {
+            for x in 0..b.area.width {
+                let cell = &b[(x, y)];
+                if cell.bg == dialog_bg && cell.symbol().trim() != "" {
+                    assert!(
+                        (luma(cell.fg) - bg_luma).abs() >= 96.0,
+                        "outline text {:?} must contrast with the dialog bg",
+                        cell.symbol()
+                    );
+                }
+            }
+        }
     }
 
     #[test]

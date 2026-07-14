@@ -112,7 +112,13 @@ fn render_outline(f: &mut Frame, area: Rect, v: &mut ViewerState, theme: &Theme)
             let style = if i == v.outline_sel {
                 theme.dialog_selection
             } else {
-                Style::default().fg(super::markdown::heading_color(it.level, theme)).bg(theme.dialog_bg)
+                // The per-level heading colors are tuned for the panel background;
+                // keep them legible on themes whose dialog background is bright.
+                let fg = crate::ui::theme::readable_on(
+                    super::markdown::heading_color(it.level, theme),
+                    theme.dialog_bg,
+                );
+                Style::default().fg(fg).bg(theme.dialog_bg)
             };
             lines.push(Line::from(Span::styled(text, style)));
         }
@@ -271,20 +277,46 @@ fn render_text(f: &mut Frame, area: Rect, v: &mut ViewerState, theme: &Theme) {
 }
 
 /// Render text as an *approximation* of rendered Markdown: per-line styling from
-/// [`markdown::line_styles`](super::markdown::line_styles) (headings colored by
-/// level, emphasis/code/links styled, markers dimmed). Mirrors `render_text`'s
-/// wrap / horizontal-scroll handling.
+/// [`render_line`](super::markdown::render_line) (headings colored by level,
+/// emphasis/code/links styled, markers dimmed). Fenced code blocks are tracked
+/// across lines and framed in a box, their content shown literally (so `#` or
+/// `*` inside code isn't mistaken for markup). Mirrors `render_text`'s wrap /
+/// horizontal-scroll handling.
 fn render_markdown(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
     let bg = theme.panel_bg;
     let default = Style::default().fg(theme.text_fg).bg(bg);
+    let border = Style::default().fg(theme.panel_border).bg(bg);
+    let code = Style::default().fg(theme.doc_fg).bg(bg);
     let width = area.width as usize;
     let rows = area.height as usize;
     let mut lines: Vec<Line> = Vec::with_capacity(rows);
     let mut line_idx = v.top;
+    // Whether the top of the viewport is already inside a code block whose
+    // opening fence scrolled off the top.
+    let mut in_code = v.in_code_fence_at(v.top);
 
     while lines.len() < rows && line_idx < v.line_count() {
-        let raw: Vec<char> = v.line_str(line_idx).chars().collect();
-        // Render the line: markup is stripped, leaving display text + styles.
+        let line = v.line_str(line_idx);
+        let raw: Vec<char> = line.chars().collect();
+
+        // A fence line becomes the top (opening) or bottom (closing) of the box.
+        if super::markdown::is_fence(&line) {
+            let opening = !in_code;
+            in_code = !in_code;
+            let lang = if opening { super::markdown::fence_info(&line).unwrap_or_default() } else { String::new() };
+            lines.push(code_border_line(width, opening, &lang, border, code));
+            line_idx += 1;
+            continue;
+        }
+
+        // Code content: draw literally between the vertical box borders.
+        if in_code {
+            push_code_line(&mut lines, &raw, width, rows, v.h_offset, v.wrap, border, code);
+            line_idx += 1;
+            continue;
+        }
+
+        // Ordinary Markdown line: markup is stripped, leaving display text + styles.
         let (chars, mut styles) = super::markdown::render_line(&raw, theme);
         // Tint the `#` of any hex-color token, regardless of the Markdown styling.
         for (i, color) in crate::ui::hexcolor::hex_color_hashes(&chars) {
@@ -311,6 +343,77 @@ fn render_markdown(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
         line_idx += 1;
     }
     f.render_widget(Paragraph::new(lines).style(Style::default().bg(bg)), area);
+}
+
+/// A code-box border row spanning the full content width: `┌──…──┐` when
+/// `opening` (labeled with the language, if any) or `└──…──┘` when closing.
+fn code_border_line(width: usize, opening: bool, lang: &str, border: Style, label: Style) -> Line<'static> {
+    let (corner_l, corner_r) = if opening { ('┌', '┐') } else { ('└', '┘') };
+    if width < 2 {
+        return Line::from(Span::styled("─".repeat(width), border));
+    }
+    let inner = width - 2; // dashes between the two corners
+    let mut spans = vec![Span::styled(corner_l.to_string(), border)];
+    let label_w = lang.chars().count();
+    // Embed "─ lang " in the opening border when it comfortably fits.
+    if opening && label_w > 0 && inner >= label_w + 4 {
+        let after = inner - 3 - label_w; // "─ " (2) + label + " " (1) + dashes
+        spans.push(Span::styled("─ ".to_string(), border));
+        spans.push(Span::styled(lang.to_string(), label));
+        spans.push(Span::styled(format!(" {}", "─".repeat(after)), border));
+    } else {
+        spans.push(Span::styled("─".repeat(inner), border));
+    }
+    spans.push(Span::styled(corner_r.to_string(), border));
+    Line::from(spans)
+}
+
+/// Push the boxed code content for one source line — `│ …code… │` — honoring
+/// wrap / horizontal-scroll the same way ordinary lines are handled. Falls back
+/// to plain text when the area is too narrow for a box.
+#[allow(clippy::too_many_arguments)]
+fn push_code_line(
+    lines: &mut Vec<Line<'static>>,
+    raw: &[char],
+    width: usize,
+    rows: usize,
+    h_offset: usize,
+    wrap: bool,
+    border: Style,
+    code: Style,
+) {
+    // Interior text width: the two `│` borders plus a space of padding each side.
+    let code_w = width.saturating_sub(4);
+    if width < 4 || code_w == 0 {
+        let from = h_offset.min(raw.len());
+        lines.push(Line::from(Span::styled(raw[from..].iter().collect::<String>(), code)));
+        return;
+    }
+    let push_seg = |lines: &mut Vec<Line<'static>>, seg: &[char]| {
+        let pad = code_w - seg.len();
+        lines.push(Line::from(vec![
+            Span::styled("│ ".to_string(), border),
+            Span::styled(seg.iter().collect::<String>(), code),
+            Span::styled(" ".repeat(pad + 1), code),
+            Span::styled("│".to_string(), border),
+        ]));
+    };
+    if wrap {
+        if raw.is_empty() {
+            push_seg(lines, &[]);
+        } else {
+            let mut start = 0;
+            while start < raw.len() && lines.len() < rows {
+                let end = (start + code_w).min(raw.len());
+                push_seg(lines, &raw[start..end]);
+                start = end;
+            }
+        }
+    } else {
+        let from = h_offset.min(raw.len());
+        let end = (from + code_w).min(raw.len());
+        push_seg(lines, &raw[from..end]);
+    }
 }
 
 fn render_hex(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
