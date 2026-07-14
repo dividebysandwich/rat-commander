@@ -32,14 +32,21 @@ mini status line under the listing shows the full name of the highlighted file.
 
 ### The console (behind the panels)
 
-The output of commands you run from the command line is kept on a **console**
-that sits *behind* the panels, exactly like Norton Commander. You normally can't
-see it because the panels cover it — but hide a panel with `Ctrl-F1` / `Ctrl-F2`,
-or shrink both with `Ctrl-F4` (half-height), and the recent shell output shows
-through in the exposed area. Colours are preserved, and each command is prefixed
-with a `directory$ command` prompt line so it reads like a real terminal
-session. (The console captures output on Unix; on other platforms the exposed
-area is simply blank.)
+Commands you run from the command line go to a **single persistent shell** —
+the very same session `Ctrl-O` drops into — whose screen sits *behind* the
+panels, exactly like Norton Commander. Because it's one lasting session, state
+carries across commands and between the command line and `Ctrl-O`: a variable
+you set, a directory you `cd` into, your shell history and aliases are all
+shared. Commands run in the active panel's directory (the shell follows the
+panel automatically).
+
+Running a command does **not** interrupt the file manager — there's no "press a
+key to continue". The output lands on the console behind the panels; to watch
+it, hide a panel with `Ctrl-F1` / `Ctrl-F2`, shrink both with `Ctrl-F4`
+(half-height), or press `Ctrl-O` to step into the shell full-screen (and again
+to step back). Colours and cursor motion render faithfully, so it reads like the
+real terminal it is. (Interactive programs and Ctrl-C act on the shell while
+you're in it via `Ctrl-O`.)
 
 
 ## Getting started — two-panel basics
@@ -128,7 +135,9 @@ A quick **Alt** + digit does the same.
   name starts with it (case-insensitive; `Shift` for uppercase works). The box
   stays open even when empty — `Backspace` trims it, and only `Esc` or an arrow
   key dismisses it. `Enter` opens the match
-- `Ctrl-O` — Toggle the persistent subshell (press again to return)
+- `Ctrl-O` — Step into the persistent shell full-screen and back (press again to
+  return). It is the **same session** the command line runs in — see *The
+  console* above
 - `Ctrl-R` — Re-read (refresh) the active panel
 - `Ctrl-E` — Toggle reverse sort order (choose the sort key from the panel menu)
 - `Ctrl-W` — Cycle the view format (full → brief → details → tree)

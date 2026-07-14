@@ -9,7 +9,7 @@ use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
+use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph};
 
 /// The vertical line drawn between columns.
 const COL_SEP: &str = "│";
@@ -72,6 +72,11 @@ pub fn render_panel(
         ))
         .style(theme.panel_base());
     let inner = block.inner(area);
+    // Clear the whole panel area first so the panel is fully opaque: the console
+    // backdrop is painted behind the panels, and `Block` only recolours cells
+    // (it doesn't overwrite their symbols), so without this the backdrop text
+    // would bleed through cells the listing doesn't fill.
+    f.render_widget(Clear, area);
     f.render_widget(block, area);
 
     // Volume capacity on the bottom border (used / total), MC-style.
