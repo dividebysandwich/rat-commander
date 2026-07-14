@@ -222,6 +222,26 @@ fn shell_command(cmd: &str) -> tokio::process::Command {
     }
 }
 
+/// Build a `Command` for a line typed at Rat Commander's own command line.
+///
+/// Unlike [`shell_command`], this runs the user's login shell **interactively**
+/// (`$SHELL -i -c …`), so the command sees the same aliases, shell functions and
+/// rc-file environment as the user's normal prompt. A non-interactive `sh -c`
+/// never sources `~/.bashrc`/`~/.zshrc`, and bash disables alias expansion
+/// outright when non-interactive — so an alias typed here would silently expand
+/// to nothing ("command not found"). This mirrors the Ctrl-O subshell, which is
+/// already the interactive `$SHELL`. Windows has no rc-file aliases, so it keeps
+/// the plain `cmd /C` form.
+fn command_line_shell(cmd: &str) -> tokio::process::Command {
+    if cfg!(windows) {
+        return shell_command(cmd);
+    }
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+    let mut c = tokio::process::Command::new(shell);
+    c.arg("-i").arg("-c").arg(cmd);
+    c
+}
+
 /// Run a foreground child to completion with `system(3)`-style signal handling
 /// so **Ctrl-C** (and Ctrl-\) interrupt the program, not Rat Commander.
 ///
@@ -287,7 +307,7 @@ async fn run_command(term: &mut Term, state: &mut AppState, cmd: &str) -> Result
         std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"))
     };
     println!("$ {cmd}");
-    let mut child = shell_command(cmd);
+    let mut child = command_line_shell(cmd);
     child.current_dir(&cwd);
     let status = run_foreground(child).await;
     match status {
@@ -509,5 +529,21 @@ mod tests {
         );
 
         unsafe { nix::libc::signal(nix::libc::SIGINT, prev) };
+    }
+
+    /// The command line must invoke the shell interactively (`-i -c <cmd>`): the
+    /// `-i` is what sources the rc files and enables alias expansion, so aliases
+    /// typed at the command line actually run. Program is `$SHELL`, so it is not
+    /// asserted here (it varies by environment).
+    #[test]
+    fn command_line_runs_shell_interactively() {
+        let c = command_line_shell("ll");
+        let args: Vec<std::ffi::OsString> =
+            c.as_std().get_args().map(|a| a.to_owned()).collect();
+        let expected: Vec<std::ffi::OsString> = ["-i", "-c", "ll"]
+            .iter()
+            .map(std::ffi::OsString::from)
+            .collect();
+        assert_eq!(args, expected);
     }
 }
