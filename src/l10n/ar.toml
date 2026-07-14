@@ -324,3 +324,10 @@ rtl = true
 # -- Git integration --
 "St&age/unstage" = "تحضير/إلغاء التحضير (&A)"
 "Git di&ff vs HEAD" = "فرق Git مع HEAD (&F)"
+"loading preview…" = "جارٍ تحميل المعاينة…"
+
+# -- Image EXIF preview labels --
+"Camera" = "الكاميرا"
+"Lens" = "العدسة"
+"Taken" = "التقطت"
+"Exposure" = "التعريض"

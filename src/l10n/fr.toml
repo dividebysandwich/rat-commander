@@ -320,3 +320,10 @@ code = "fr"
 # -- Git integration --
 "St&age/unstage" = "Indexer/désindexer (&A)"
 "Git di&ff vs HEAD" = "Diff Git avec HEAD (&F)"
+"loading preview…" = "chargement de l'aperçu…"
+
+# -- Image EXIF preview labels --
+"Camera" = "Appareil"
+"Lens" = "Objectif"
+"Taken" = "Prise"
+"Exposure" = "Exposition"

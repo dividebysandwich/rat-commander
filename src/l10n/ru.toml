@@ -320,3 +320,10 @@ code = "ru"
 # -- Git integration --
 "St&age/unstage" = "Индексировать/убрать (&A)"
 "Git di&ff vs HEAD" = "Git diff с HEAD (&F)"
+"loading preview…" = "загрузка предпросмотра…"
+
+# -- Image EXIF preview labels --
+"Camera" = "Камера"
+"Lens" = "Объектив"
+"Taken" = "Снято"
+"Exposure" = "Экспозиция"

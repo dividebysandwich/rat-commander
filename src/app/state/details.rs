@@ -3,8 +3,27 @@
 //! (so remote/large trees stay responsive) to tally its recursive size.
 
 use super::*;
-use crate::details::{DetailsData, DetailsKind, FileInfo, Tally};
+use crate::details::{
+    DetailsData, DetailsKind, FileInfo, Preview, PreviewImage, PreviewLine, PreviewTreeLine, Tally,
+};
 use std::sync::Arc;
+use tokio::io::AsyncReadExt;
+
+/// Bytes read from the head of a text file for the preview.
+const HEAD_BYTES: usize = 16 * 1024;
+/// Maximum lines highlighted for a text preview.
+const HEAD_LINES: usize = 200;
+/// Largest image (bytes) decoded for a thumbnail preview.
+const MAX_IMAGE_BYTES: u64 = 30 * 1024 * 1024;
+/// Largest archive (bytes) listed for a preview (avoids decompressing huge
+/// tarballs just to hover over them).
+const MAX_ARCHIVE_BYTES: u64 = 50 * 1024 * 1024;
+/// Longest edge of a decoded thumbnail (the graphics layer fits it to the cell
+/// area; the ASCII fallback downsamples further).
+const THUMB_MAX: u32 = 480;
+/// Directory-tree preview limits.
+const MAX_TREE_DEPTH: u16 = 2;
+const MAX_TREE_LINES: usize = 200;
 
 /// What a Details panel should display, derived from the source panel.
 enum Plan {
@@ -126,6 +145,58 @@ impl AppState {
                 }
             }
         }
+        // Kick off the preview load for whatever the source panel points at,
+        // sharing this recompute's generation so a stale result is dropped.
+        self.start_preview(viewer);
+    }
+
+    /// Start (or clear) the background preview for the item under the source
+    /// panel's cursor. Uses the current `details[viewer].generation`.
+    fn start_preview(&mut self, viewer: usize) {
+        let source = 1 - viewer;
+        let generation = self.details[viewer].generation;
+        let dark = self.dark_ui();
+        let (backend, spec) = {
+            let p = &self.panels[source];
+            // No preview for a Details source, a multi-item selection, or `..`.
+            let spec = if p.format == ViewFormat::Details || !p.selection.is_empty() {
+                None
+            } else {
+                p.current_entry()
+                    .filter(|e| e.name != "..")
+                    .map(|e| (p.cwd.join(&e.name), e.kind, e.name.clone(), e.size))
+            };
+            (p.backend.clone(), spec)
+        };
+        match spec {
+            None => self.details[viewer].preview = Preview::None,
+            Some((path, kind, name, size)) => {
+                self.details[viewer].preview = Preview::Loading;
+                let tx = self.tx.clone();
+                tokio::spawn(async move {
+                    let preview = build_preview(backend, path, kind, name, size, dark).await;
+                    let _ = tx
+                        .send(AppEvent::DetailsPreview { viewer, generation, preview: Box::new(preview) })
+                        .await;
+                });
+            }
+        }
+    }
+
+    /// Apply a completed preview load (ignored when a newer recompute superseded it).
+    pub(in crate::app::state) fn apply_details_preview(
+        &mut self,
+        viewer: usize,
+        generation: u64,
+        preview: Preview,
+    ) {
+        let Some(d) = self.details.get_mut(viewer) else {
+            return;
+        };
+        if d.generation != generation {
+            return;
+        }
+        d.preview = preview;
     }
 
     /// Build the render-ready file overview, resolving owner/group names here
@@ -237,4 +308,268 @@ async fn scan_tally(
     let _ = tx
         .send(AppEvent::DetailsTally { viewer, generation, total, files, dirs, done: true })
         .await;
+}
+
+/// Build a preview for the item at `path`: a directory → a shallow tree; an image
+/// file → a decoded thumbnail; an archive → its top-level listing; anything else
+/// text-like → a syntax-highlighted head. Never panics; unsupported/binary/failed
+/// items yield [`Preview::None`].
+async fn build_preview(
+    backend: Arc<dyn Vfs>,
+    path: VfsPath,
+    kind: VfsKind,
+    name: String,
+    size: u64,
+    dark: bool,
+) -> Preview {
+    if kind == VfsKind::Dir {
+        return build_tree_preview(&backend, &path).await;
+    }
+    if kind != VfsKind::File {
+        return Preview::None;
+    }
+    if is_image_name(&name)
+        && size <= MAX_IMAGE_BYTES
+        && let Some(pi) = load_image_preview(&backend, &path).await
+    {
+        return Preview::Image(pi);
+    }
+    // Native archives on local disk: list the root without mounting a panel.
+    if ArchiveFormat::from_name(&name).is_some()
+        && path.scheme == "file"
+        && let Some(list) = list_archive_preview(&path.path).await
+    {
+        return Preview::Archive(list);
+    }
+    build_text_preview(&backend, &path, &name, dark).await
+}
+
+/// Whether `name`'s extension is a decodable image format.
+fn is_image_name(name: &str) -> bool {
+    let ext = name.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
+    matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "gif" | "bmp" | "webp")
+}
+
+/// Read up to `n` bytes from the head of `path`.
+async fn read_head(backend: &Arc<dyn Vfs>, path: &VfsPath, n: usize) -> Option<Vec<u8>> {
+    let reader = backend.open_read(path).await.ok()?;
+    let mut buf = Vec::new();
+    reader.take(n as u64).read_to_end(&mut buf).await.ok()?;
+    Some(buf)
+}
+
+/// Decode an image and shrink it to a thumbnail (aspect preserved), plus a short
+/// EXIF summary. Prefers a small embedded EXIF thumbnail when present (cheap),
+/// falling back to decoding the full-resolution image. The EXIF is parsed once
+/// and the decode (CPU-heavy) runs on the blocking pool.
+async fn load_image_preview(backend: &Arc<dyn Vfs>, path: &VfsPath) -> Option<PreviewImage> {
+    let bytes = read_head(backend, path, MAX_IMAGE_BYTES as usize).await?;
+    let (thumb, exif) = tokio::task::spawn_blocking(move || {
+        let parsed = exif::Reader::new()
+            .read_from_container(&mut std::io::Cursor::new(&bytes))
+            .ok();
+        let summary = parsed.as_ref().map(summarize_exif).unwrap_or_default();
+        let decoded = parsed
+            .as_ref()
+            .and_then(embedded_thumbnail)
+            .and_then(|t| image::load_from_memory(&t).ok())
+            .or_else(|| image::load_from_memory(&bytes).ok())?;
+        Some((decoded.thumbnail(THUMB_MAX, THUMB_MAX).to_rgba8(), summary))
+    })
+    .await
+    .ok()??;
+    let sig = image_sig(&thumb);
+    Some(PreviewImage { img: thumb, sig, exif })
+}
+
+/// The JPEG thumbnail embedded in EXIF metadata, if any (JPEG/TIFF photos carry
+/// these). Using it avoids decoding the full-resolution image.
+fn embedded_thumbnail(exif: &exif::Exif) -> Option<Vec<u8>> {
+    let off = exif
+        .get_field(exif::Tag::JPEGInterchangeFormat, exif::In::THUMBNAIL)?
+        .value
+        .get_uint(0)? as usize;
+    let len = exif
+        .get_field(exif::Tag::JPEGInterchangeFormatLength, exif::In::THUMBNAIL)?
+        .value
+        .get_uint(0)? as usize;
+    exif.buf().get(off..off.checked_add(len)?).map(<[u8]>::to_vec)
+}
+
+/// A compact human-readable summary of the most useful EXIF fields.
+fn summarize_exif(exif: &exif::Exif) -> Vec<(String, String)> {
+    let field = |tag| -> Option<String> {
+        let f = exif.get_field(tag, exif::In::PRIMARY)?;
+        let s = f.display_value().with_unit(exif).to_string();
+        let s = s.trim().trim_matches('"').trim().to_string();
+        (!s.is_empty()).then_some(s)
+    };
+    let mut out: Vec<(String, String)> = Vec::new();
+    // Camera = Make + Model (avoid repeating the make inside the model).
+    let camera = match (field(exif::Tag::Make), field(exif::Tag::Model)) {
+        (Some(mk), Some(md)) => Some(if md.starts_with(&mk) { md } else { format!("{mk} {md}") }),
+        (Some(s), None) | (None, Some(s)) => Some(s),
+        (None, None) => None,
+    };
+    if let Some(c) = camera {
+        out.push(("Camera".into(), c));
+    }
+    if let Some(l) = field(exif::Tag::LensModel) {
+        out.push(("Lens".into(), l));
+    }
+    if let Some(d) = field(exif::Tag::DateTimeOriginal) {
+        out.push(("Taken".into(), d));
+    }
+    // One combined exposure line: shutter, aperture, ISO, focal length.
+    let mut exp: Vec<String> = Vec::new();
+    if let Some(t) = field(exif::Tag::ExposureTime) {
+        exp.push(t);
+    }
+    if let Some(fnum) = field(exif::Tag::FNumber) {
+        exp.push(fnum);
+    }
+    if let Some(iso) = field(exif::Tag::PhotographicSensitivity) {
+        exp.push(format!("ISO {iso}"));
+    }
+    if let Some(fl) = field(exif::Tag::FocalLength) {
+        exp.push(fl);
+    }
+    if !exp.is_empty() {
+        out.push(("Exposure".into(), exp.join("  ")));
+    }
+    out
+}
+
+/// Cheap content signature for the graphics cache.
+fn image_sig(img: &image::RgbaImage) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    img.width().hash(&mut h);
+    img.height().hash(&mut h);
+    img.as_raw().hash(&mut h);
+    h.finish()
+}
+
+/// List a local archive's top-level entries (capped), or `None` when it is too
+/// large or can't be read.
+async fn list_archive_preview(container: &Path) -> Option<Vec<String>> {
+    let meta = tokio::fs::metadata(container).await.ok()?;
+    if meta.len() > MAX_ARCHIVE_BYTES {
+        return None;
+    }
+    let root = VfsPath::archive(container.to_path_buf(), "/");
+    let fs = crate::vfs::archive::ArchiveFs::new();
+    let entries = fs.read_dir(&root).await.ok()?;
+    let mut names: Vec<String> = entries
+        .into_iter()
+        .filter(|e| e.name != "..")
+        .map(|e| if e.kind == VfsKind::Dir { format!("{}/", e.name) } else { e.name })
+        .collect();
+    names.sort();
+    names.truncate(500);
+    (!names.is_empty()).then_some(names)
+}
+
+/// Read the head of a text file and syntax-highlight it. Returns [`Preview::None`]
+/// when the content looks binary.
+async fn build_text_preview(
+    backend: &Arc<dyn Vfs>,
+    path: &VfsPath,
+    name: &str,
+    dark: bool,
+) -> Preview {
+    let Some(bytes) = read_head(backend, path, HEAD_BYTES).await else {
+        return Preview::None;
+    };
+    // Binary heuristic: any NUL byte, or many U+FFFD replacements after a lossy
+    // decode, means "not text".
+    if bytes.contains(&0) {
+        return Preview::None;
+    }
+    let text = String::from_utf8_lossy(&bytes);
+    let total = text.chars().count().max(1);
+    let bad = text.chars().filter(|&c| c == '\u{FFFD}').count();
+    if bad * 20 > total {
+        return Preview::None;
+    }
+
+    let mut hl = crate::syntax::Highlighter::for_file(name, dark);
+    let mut lines: Vec<PreviewLine> = Vec::new();
+    for (i, raw) in text.lines().take(HEAD_LINES).enumerate() {
+        let display = expand_tabs(raw);
+        let runs = if let Some(h) = hl.as_mut() {
+            h.process_next(&display);
+            h.line(i).to_vec()
+        } else {
+            Vec::new()
+        };
+        lines.push(PreviewLine { text: display, runs });
+    }
+    if lines.is_empty() {
+        Preview::None
+    } else {
+        Preview::Text(lines)
+    }
+}
+
+/// Expand tabs to 4-column tab stops (so highlight runs align to the display text).
+fn expand_tabs(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut col = 0usize;
+    for c in s.chars() {
+        if c == '\t' {
+            let n = 4 - (col % 4);
+            out.extend(std::iter::repeat_n(' ', n));
+            col += n;
+        } else {
+            out.push(c);
+            col += 1;
+        }
+    }
+    out
+}
+
+/// Build a shallow directory tree (dirs first, alphabetical), bounded in depth
+/// and line count.
+async fn build_tree_preview(backend: &Arc<dyn Vfs>, dir: &VfsPath) -> Preview {
+    let mut out: Vec<PreviewTreeLine> = Vec::new();
+    walk_tree(backend, dir, 0, &mut out).await;
+    if out.is_empty() {
+        Preview::None
+    } else {
+        Preview::Tree(out)
+    }
+}
+
+/// Recursive helper for [`build_tree_preview`] (boxed for async recursion).
+fn walk_tree<'a>(
+    backend: &'a Arc<dyn Vfs>,
+    dir: &'a VfsPath,
+    depth: u16,
+    out: &'a mut Vec<PreviewTreeLine>,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
+    Box::pin(async move {
+        if out.len() >= MAX_TREE_LINES {
+            return;
+        }
+        let mut entries = backend.read_dir(dir).await.unwrap_or_default();
+        entries.retain(|e| e.name != ".." && e.name != ".");
+        // Directories first, then alphabetical.
+        entries.sort_by(|a, b| {
+            (b.kind == VfsKind::Dir)
+                .cmp(&(a.kind == VfsKind::Dir))
+                .then_with(|| a.name.cmp(&b.name))
+        });
+        for e in entries {
+            if out.len() >= MAX_TREE_LINES {
+                break;
+            }
+            let is_dir = e.kind == VfsKind::Dir;
+            out.push(PreviewTreeLine { depth, name: e.name.clone(), is_dir });
+            if is_dir && e.symlink_target.is_none() && depth < MAX_TREE_DEPTH {
+                let sub = dir.join(&e.name);
+                walk_tree(backend, &sub, depth + 1, out).await;
+            }
+        }
+    })
 }

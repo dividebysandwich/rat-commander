@@ -320,3 +320,10 @@ code = "cs"
 # -- Git integration --
 "St&age/unstage" = "Přidat/odebrat z indexu (&A)"
 "Git di&ff vs HEAD" = "Git diff proti HEAD (&F)"
+"loading preview…" = "načítání náhledu…"
+
+# -- Image EXIF preview labels --
+"Camera" = "Fotoaparát"
+"Lens" = "Objektiv"
+"Taken" = "Pořízeno"
+"Exposure" = "Expozice"

@@ -37,6 +37,7 @@ fn gradient_line(text: &str, width: usize, fg: Color, theme: &Theme) -> Line<'st
 }
 
 /// Draw a panel (border, header, listing, mini-status) into `area`.
+#[allow(clippy::too_many_arguments)]
 pub fn render_panel(
     f: &mut Frame,
     area: Rect,
@@ -46,20 +47,29 @@ pub fn render_panel(
     theme: &Theme,
     brief_columns: usize,
     quick_search: Option<&str>,
+    graphics: bool,
 ) {
     let border_color = if active {
         theme.panel_border_active
     } else {
         theme.panel_border
     };
-    // In Tree view the title tracks the directory last committed with Enter
-    // (which also drives the other panel), not the fixed tree-root path.
+    // The Details view has no listing of its own (it describes the *other*
+    // panel), so its title is the fixed "Details view" label rather than a path.
+    // In Tree view the title tracks the directory last committed with Enter (not
+    // the fixed tree-root path).
     let mut title_path = match (panel.format, panel.tree.as_ref()) {
+        (ViewFormat::Details, _) => {
+            crate::l10n::tr("&Details view").chars().filter(|&c| c != '&').collect()
+        }
         (ViewFormat::Tree, Some(t)) => t.current.display(),
         _ => panel.cwd.display(),
     };
-    // Surface an active listing filter in the title so hidden entries are obvious.
-    if let Some(filter) = &panel.filter {
+    // Surface an active listing filter in the title so hidden entries are obvious
+    // (not in Details view, which has no filterable listing).
+    if panel.format != ViewFormat::Details
+        && let Some(filter) = &panel.filter
+    {
         title_path = format!("{title_path}  [{filter}]");
     }
     // Reserve a cell at the left of the title for the ◀ arrow, and a cell at the
@@ -104,6 +114,8 @@ pub fn render_panel(
     panel.hit = None;
     // The quick-search caret (set below when a search is rendering).
     panel.quick_caret = None;
+    // Cleared unless a Details image preview reserves an area below.
+    panel.preview_image_area = None;
 
     if inner.height == 0 || inner.width == 0 {
         return;
@@ -119,9 +131,10 @@ pub fn render_panel(
     }
 
     // The Details view shows info about the *other* panel (no own listing): the
-    // body fills the whole interior and there's nothing to hit-test.
+    // body fills the whole interior and there's nothing to hit-test. A pixel-image
+    // preview reports its target rect, drawn by the root layer (which owns `Gfx`).
     if matches!(panel.format, ViewFormat::Details) {
-        crate::details::render(f, inner, details, theme);
+        panel.preview_image_area = crate::details::render(f, inner, details, theme, graphics);
         return;
     }
 
@@ -797,7 +810,7 @@ mod tests {
             panel.format = fmt;
             panel.cursor = 1; // the archive is the current entry
             let mut term = Terminal::new(TestBackend::new(44, 8)).unwrap();
-            term.draw(|t| render_panel(t, t.area(), &mut panel, true, &Default::default(), &theme, 2, None))
+            term.draw(|t| render_panel(t, t.area(), &mut panel, true, &Default::default(), &theme, 2, None, false))
                 .unwrap();
             let b = term.backend().buffer();
             let seps = |row: u16| -> Vec<u16> {
@@ -841,7 +854,7 @@ mod tests {
         });
 
         let mut t = Terminal::new(TestBackend::new(44, 8)).unwrap();
-        t.draw(|f| render_panel(f, f.area(), &mut panel, true, &Default::default(), &theme, 2, None))
+        t.draw(|f| render_panel(f, f.area(), &mut panel, true, &Default::default(), &theme, 2, None, false))
             .unwrap();
         let b = t.backend().buffer();
         let all: String = (0..b.area.height)
@@ -870,7 +883,7 @@ mod tests {
         panel.filter = Some("*.rs".to_string());
 
         let mut t = Terminal::new(TestBackend::new(40, 8)).unwrap();
-        t.draw(|f| render_panel(f, f.area(), &mut panel, true, &Default::default(), &theme, 2, None))
+        t.draw(|f| render_panel(f, f.area(), &mut panel, true, &Default::default(), &theme, 2, None, false))
             .unwrap();
         let b = t.backend().buffer();
         let top: String = (0..b.area.width).map(|x| b[(x, 0)].symbol()).collect();
@@ -927,7 +940,7 @@ mod tests {
 
         // Wide enough that the mini-status path isn't ellipsized.
         let mut term = Terminal::new(TestBackend::new(90, 12)).unwrap();
-        term.draw(|t| render_panel(t, t.area(), &mut panel, true, &Default::default(), &theme, 2, None))
+        term.draw(|t| render_panel(t, t.area(), &mut panel, true, &Default::default(), &theme, 2, None, false))
             .unwrap();
         let buf = term.backend().buffer();
         let text: String = (0..buf.area.height)
@@ -1017,7 +1030,7 @@ mod tests {
 
         let mut term = Terminal::new(TestBackend::new(40, 8)).unwrap();
         term.draw(|t| {
-            render_panel(t, t.area(), &mut panel, true, &Default::default(), &theme, 2, Some("hi"))
+            render_panel(t, t.area(), &mut panel, true, &Default::default(), &theme, 2, Some("hi"), false)
         })
         .unwrap();
         let b = term.backend().buffer();

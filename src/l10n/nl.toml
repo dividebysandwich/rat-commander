@@ -320,3 +320,10 @@ code = "nl"
 # -- Git integration --
 "St&age/unstage" = "Indexeren/de-indexeren (&A)"
 "Git di&ff vs HEAD" = "Git-diff met HEAD (&F)"
+"loading preview…" = "voorbeeld laden…"
+
+# -- Image EXIF preview labels --
+"Camera" = "Camera"
+"Lens" = "Lens"
+"Taken" = "Genomen"
+"Exposure" = "Belichting"

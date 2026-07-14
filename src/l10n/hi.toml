@@ -320,3 +320,10 @@ code = "hi"
 # -- Git integration --
 "St&age/unstage" = "स्टेज/अनस्टेज (&A)"
 "Git di&ff vs HEAD" = "HEAD से Git अंतर (&F)"
+"loading preview…" = "पूर्वावलोकन लोड हो रहा है…"
+
+# -- Image EXIF preview labels --
+"Camera" = "कैमरा"
+"Lens" = "लेंस"
+"Taken" = "लिया गया"
+"Exposure" = "एक्सपोज़र"

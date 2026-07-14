@@ -329,3 +329,10 @@ code = "en"
 # -- Git integration --
 "St&age/unstage" = "St&age/unstage"
 "Git di&ff vs HEAD" = "Git di&ff vs HEAD"
+"loading preview…" = "loading preview…"
+
+# -- Image EXIF preview labels --
+"Camera" = "Camera"
+"Lens" = "Lens"
+"Taken" = "Taken"
+"Exposure" = "Exposure"

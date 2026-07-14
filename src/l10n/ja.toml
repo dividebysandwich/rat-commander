@@ -320,3 +320,10 @@ code = "ja"
 # -- Git integration --
 "St&age/unstage" = "ステージ/アンステージ(&A)"
 "Git di&ff vs HEAD" = "Git 差分（HEAD と）(&F)"
+"loading preview…" = "プレビューを読み込み中…"
+
+# -- Image EXIF preview labels --
+"Camera" = "カメラ"
+"Lens" = "レンズ"
+"Taken" = "撮影日時"
+"Exposure" = "露出"

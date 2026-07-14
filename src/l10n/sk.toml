@@ -320,3 +320,10 @@ code = "sk"
 # -- Git integration --
 "St&age/unstage" = "Pridať/odobrať z indexu (&A)"
 "Git di&ff vs HEAD" = "Git diff proti HEAD (&F)"
+"loading preview…" = "načítava sa náhľad…"
+
+# -- Image EXIF preview labels --
+"Camera" = "Fotoaparát"
+"Lens" = "Objektív"
+"Taken" = "Nasnímané"
+"Exposure" = "Expozícia"

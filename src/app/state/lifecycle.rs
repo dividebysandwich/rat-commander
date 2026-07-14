@@ -414,6 +414,9 @@ impl AppState {
             AppEvent::GitStatusScanned { side, generation, status } => {
                 self.apply_git_status(side, generation, status.map(|b| *b));
             }
+            AppEvent::DetailsPreview { viewer, generation, preview } => {
+                self.apply_details_preview(viewer, generation, *preview);
+            }
             AppEvent::DiskScanProgress { generation, done, total } => {
                 if let Some(dv) = self.diskview.as_mut()
                     && dv.generation == generation

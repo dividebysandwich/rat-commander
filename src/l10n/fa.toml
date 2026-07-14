@@ -324,3 +324,10 @@ rtl = true
 # -- Git integration --
 "St&age/unstage" = "افزودن/برداشتن از نمایه (&A)"
 "Git di&ff vs HEAD" = "تفاوت گیت با HEAD (&F)"
+"loading preview…" = "در حال بارگذاری پیش‌نمایش…"
+
+# -- Image EXIF preview labels --
+"Camera" = "دوربین"
+"Lens" = "لنز"
+"Taken" = "زمان عکس"
+"Exposure" = "نوردهی"

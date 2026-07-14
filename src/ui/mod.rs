@@ -169,16 +169,38 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
     } else {
         None
     };
+    // Whether the terminal-graphics layer can draw a pixel-image preview.
+    let gfx_on = state.gfx.as_ref().is_some_and(|g| g.available());
     for (i, area_opt, qs) in [(0, left_area, left_qs), (1, right_area, right_qs)] {
         if let Some(pa) = area_opt {
             render_panel(
                 f, pa, &mut state.panels[i], active == i, &state.details[i], &theme, brief_cols, qs,
+                gfx_on,
             );
         } else {
             // A hidden panel keeps no live geometry, so stray clicks in the
             // freed area can't move an unseen cursor or show a stray caret.
             state.panels[i].hit = None;
             state.panels[i].quick_caret = None;
+            state.panels[i].preview_image_area = None;
+        }
+    }
+
+    // Composite any Details image-thumbnail previews with the graphics layer, now
+    // that the panels are laid out. Skipped while a dialog or the menu is up, so a
+    // repainted image can't bleed over them (as with the net-view diagram above).
+    if state.dialog.is_none() && state.menu.is_none() {
+        for i in 0..2 {
+            if let Some(area) = state.panels[i].preview_image_area
+                && let crate::details::Preview::Image(pi) = &state.details[i].preview
+                && let Some(g) = state.gfx.as_mut()
+            {
+                // Centre the thumbnail in the preview area (aspect-preserved),
+                // using the terminal's cell-pixel size to size the target rect.
+                let target = center_image_rect(area, pi.img.width(), pi.img.height(), g.cell());
+                let (sig, img) = (pi.sig, &pi.img);
+                g.draw_cached(f, target, crate::ui::graphics::Slot::DetailsPreview(i as u16), sig, || img.clone());
+            }
         }
     }
 
@@ -284,6 +306,28 @@ fn split_body(area: Rect, split: SplitDir) -> (Rect, Rect) {
     (parts[0], parts[1])
 }
 
+/// The largest cell rect within `area` that keeps the image's aspect ratio,
+/// centred both horizontally and vertically. `cell` is the terminal's
+/// (pixel-width, pixel-height) per character cell, so the target reflects true
+/// pixel proportions rather than the ~1:2 cell shape.
+fn center_image_rect(area: Rect, iw: u32, ih: u32, cell: (u32, u32)) -> Rect {
+    let (cw, ch) = (cell.0.max(1), cell.1.max(1));
+    let (iw, ih) = (iw.max(1), ih.max(1));
+    let (avail_w, avail_h) = (area.width as u32 * cw, area.height as u32 * ch);
+    let scale = (avail_w as f64 / iw as f64).min(avail_h as f64 / ih as f64);
+    let pw = (iw as f64 * scale).round().max(1.0) as u32;
+    let ph = (ih as f64 * scale).round().max(1.0) as u32;
+    // Round the pixel dimensions up to whole cells so nothing is clipped.
+    let tw = (pw.div_ceil(cw) as u16).clamp(1, area.width);
+    let th = (ph.div_ceil(ch) as u16).clamp(1, area.height);
+    Rect {
+        x: area.x + (area.width - tw) / 2,
+        y: area.y + (area.height - th) / 2,
+        width: tw,
+        height: th,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -292,6 +336,24 @@ mod tests {
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use ratatui::buffer::Buffer;
+
+    #[test]
+    fn center_image_rect_preserves_aspect_and_centers() {
+        // 20×10 cells at 10×20 px/cell → a 200×200 px canvas.
+        let area = Rect::new(0, 0, 20, 10);
+        let cell = (10, 20);
+        // A square image fills the canvas exactly and stays at the origin.
+        let r = center_image_rect(area, 100, 100, cell);
+        assert_eq!((r.x, r.y, r.width, r.height), (0, 0, 20, 10));
+        // A wide image letterboxes vertically, centred (equal top/bottom margin).
+        let r = center_image_rect(area, 200, 50, cell);
+        assert_eq!(r.width, 20, "fills the width");
+        assert!(r.height < 10 && r.y > 0, "shorter and vertically centred");
+        assert_eq!(r.y, (area.height - r.height) / 2, "vertically centred");
+        // A tall image letterboxes horizontally, centred.
+        let r = center_image_rect(area, 50, 200, cell);
+        assert!(r.width < 20 && r.x > 0, "narrower and horizontally centred");
+    }
 
     fn buffer_text(buf: &Buffer) -> String {
         let mut s = String::new();

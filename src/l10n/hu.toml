@@ -320,3 +320,10 @@ code = "hu"
 # -- Git integration --
 "St&age/unstage" = "Előkészítés/visszavonás (&A)"
 "Git di&ff vs HEAD" = "Git diff a HEAD-hez (&F)"
+"loading preview…" = "előnézet betöltése…"
+
+# -- Image EXIF preview labels --
+"Camera" = "Fényképezőgép"
+"Lens" = "Objektív"
+"Taken" = "Készült"
+"Exposure" = "Expozíció"

@@ -140,6 +140,10 @@ pub struct Panel {
     /// remote/archive). Read by the renderer to glyph/colour entries and label
     /// the border.
     pub git: Option<crate::git::GitStatus>,
+    /// When this panel is in Details view and its preview is an image to be drawn
+    /// with pixel graphics, the renderer records the target rect here so the root
+    /// draw can composite the image (via `Gfx`) after the panels are laid out.
+    pub preview_image_area: Option<Rect>,
 }
 
 /// Largest number of directories kept on a panel's back/forward history stacks.
@@ -172,6 +176,7 @@ impl Panel {
             back_arrow: None,
             fwd_arrow: None,
             git: None,
+            preview_image_area: None,
         }
     }
 

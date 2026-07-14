@@ -40,6 +40,8 @@ pub enum Slot {
     NetRate,
     /// The network-explorer overview diagram (service-card grid).
     NetDiagram,
+    /// A Details-view image-thumbnail preview, per panel side.
+    DetailsPreview(u16),
 }
 
 struct Cached {

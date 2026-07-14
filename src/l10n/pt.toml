@@ -320,3 +320,10 @@ code = "pt"
 # -- Git integration --
 "St&age/unstage" = "Preparar/remover do índice (&A)"
 "Git di&ff vs HEAD" = "Diff do Git com HEAD (&F)"
+"loading preview…" = "carregando pré-visualização…"
+
+# -- Image EXIF preview labels --
+"Camera" = "Câmera"
+"Lens" = "Lente"
+"Taken" = "Capturada"
+"Exposure" = "Exposição"

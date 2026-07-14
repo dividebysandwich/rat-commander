@@ -2889,3 +2889,86 @@ async fn directory_history_filter_and_hotlist() {
 
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Drive the background preview loader until the Details view for `viewer` has a
+/// loaded (non-Loading) preview, applying every event that arrives.
+async fn drain_until_preview(st: &mut AppState, rx: &mut crate::util::async_bridge::AppReceiver) {
+    for _ in 0..100 {
+        match tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv()).await {
+            Ok(Some(ev)) => {
+                st.apply_event(ev).await;
+                if !matches!(
+                    st.details[1].preview,
+                    crate::details::Preview::Loading | crate::details::Preview::None
+                ) {
+                    return;
+                }
+            }
+            _ => return,
+        }
+    }
+}
+
+#[tokio::test]
+async fn details_preview_loads_text_head_and_dir_tree() {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("rc_prev_{}_{nanos}", std::process::id()));
+    std::fs::create_dir_all(root.join("sub")).unwrap();
+    std::fs::write(root.join("sub/inner.rs"), b"pub fn inner() {}\n").unwrap();
+    std::fs::write(root.join("notes.rs"), b"fn main() {\n    let x = 1;\n}\n").unwrap();
+
+    let (tx, mut rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    // Source = panel 0; the Details view = panel 1.
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+    st.panels[1].format = ViewFormat::Details;
+
+    // -- A text file → syntax-highlighted head --
+    let idx = st.panels[0].entries.iter().position(|e| e.name == "notes.rs").unwrap();
+    st.panels[0].cursor = idx;
+    st.update_details();
+    drain_until_preview(&mut st, &mut rx).await;
+    match &st.details[1].preview {
+        crate::details::Preview::Text(lines) => {
+            assert!(lines.iter().any(|l| l.text.contains("fn main")), "text head loaded");
+            assert!(lines.iter().any(|l| !l.runs.is_empty()), "a .rs head is syntax-highlighted");
+        }
+        other => panic!("expected a text preview, got {other:?}"),
+    }
+
+    // -- A directory → shallow tree --
+    let didx = st.panels[0].entries.iter().position(|e| e.name == "sub").unwrap();
+    st.panels[0].cursor = didx;
+    st.update_details();
+    drain_until_preview(&mut st, &mut rx).await;
+    match &st.details[1].preview {
+        crate::details::Preview::Tree(rows) => {
+            assert!(rows.iter().any(|r| r.name == "inner.rs"), "tree lists the child file");
+        }
+        other => panic!("expected a tree preview, got {other:?}"),
+    }
+
+    // -- An image file → decoded thumbnail (exercises the image decoders) --
+    image::RgbaImage::from_pixel(8, 6, image::Rgba([10, 200, 60, 255]))
+        .save(root.join("pic.png"))
+        .unwrap();
+    st.panels[0].reload().await.unwrap();
+    let pidx = st.panels[0].entries.iter().position(|e| e.name == "pic.png").unwrap();
+    st.panels[0].cursor = pidx;
+    st.update_details();
+    drain_until_preview(&mut st, &mut rx).await;
+    match &st.details[1].preview {
+        crate::details::Preview::Image(pi) => {
+            assert!(pi.img.width() > 0 && pi.img.height() > 0, "decoded a thumbnail");
+        }
+        other => panic!("expected an image preview, got {other:?}"),
+    }
+
+    let _ = std::fs::remove_dir_all(&root);
+}

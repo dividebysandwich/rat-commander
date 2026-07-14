@@ -325,3 +325,10 @@ code = "de"
 # -- Git integration --
 "St&age/unstage" = "S&tagen/Unstagen"
 "Git di&ff vs HEAD" = "Git-Diff g&egen HEAD"
+"loading preview…" = "Vorschau wird geladen…"
+
+# -- Image EXIF preview labels --
+"Camera" = "Kamera"
+"Lens" = "Objektiv"
+"Taken" = "Aufgenommen"
+"Exposure" = "Belichtung"

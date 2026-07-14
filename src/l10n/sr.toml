@@ -320,3 +320,10 @@ code = "sr"
 # -- Git integration --
 "St&age/unstage" = "Dodaj/ukloni iz indeksa (&A)"
 "Git di&ff vs HEAD" = "Git diff u odnosu na HEAD (&F)"
+"loading preview…" = "učitavanje pregleda…"
+
+# -- Image EXIF preview labels --
+"Camera" = "Kamera"
+"Lens" = "Objektiv"
+"Taken" = "Snimljeno"
+"Exposure" = "Ekspozicija"

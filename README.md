@@ -20,7 +20,11 @@ The installed executable is named **`rc`** for quick typing.
 
 - **Two panels** with **full**, **brief**, **details** and **tree** view formats,
   vertical or horizontal split, configurable sort, multi-file selection, type
-  markers and file-type colors. Full **mouse** support.
+  markers and file-type colors. Full **mouse** support. The **details** view adds
+  a background-loaded **preview** of the other panel's item — a syntax-highlighted
+  text head, a centered image thumbnail (true-pixel where graphics are available,
+  else half-block art) with an EXIF summary, an archive's file list, or a
+  directory tree.
 - **File operations** — copy / move / delete with a progress window and
   transfer-speed chart, rich overwrite handling, chmod / chown / symlink (with
   recursion), and make-directory.

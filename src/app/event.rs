@@ -110,6 +110,13 @@ pub enum AppEvent {
         generation: u64,
         status: Option<Box<crate::git::GitStatus>>,
     },
+    /// A background Details-view preview load finished for panel `viewer`; a stale
+    /// `generation` is ignored.
+    DetailsPreview {
+        viewer: usize,
+        generation: u64,
+        preview: Box<crate::details::Preview>,
+    },
     /// A view/edit fetch streamed a (remote/archive) file to a local temp file;
     /// the handler opens it (paged viewer, or editor targeting `orig_path`).
     FileFetched {

@@ -1,6 +1,6 @@
 [package]
 name = "rat-commander"
-version = "1.6.1"
+version = "1.7.0"
 edition = "2024"
 description = "A self-contained Norton/Midnight-Commander-style TUI file manager"
 license = "GPL-2.0-only"
@@ -93,7 +93,13 @@ sysinfo = { version = "0.39.6", default-features = false, features = ["system", 
 ar-reshaper = "1.5.0"
 unicode-bidi = "0.3.18"
 ratatui-image = { version = "11.0.6", default-features = false, features = ["crossterm"] }
-image = { version = "0.25.10", default-features = false }
+# Pure-Rust image decoders for the Details-view thumbnail preview (no C deps, so
+# the ARM cross-compile keeps working). RgbaImage construction for the terminal-
+# graphics rasters needs no features; these add the common decode formats.
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "bmp", "webp"] }
+# Pure-Rust EXIF parser, used to pull a JPEG's embedded thumbnail for the Details
+# preview so we don't decode a full-resolution photo just to shrink it.
+kamadak-exif = "0.6"
 # Anti-aliased text baked into the terminal-graphics images (dialog button
 # labels, disk-explorer treemap labels). `fontdue` is a pure-Rust glyph
 # rasterizer (no C, ARM-cross-compile safe); `epaint_default_fonts` supplies the

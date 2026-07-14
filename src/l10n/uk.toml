@@ -320,3 +320,10 @@ code = "uk"
 # -- Git integration --
 "St&age/unstage" = "Індексувати/прибрати (&A)"
 "Git di&ff vs HEAD" = "Git diff з HEAD (&F)"
+"loading preview…" = "завантаження перегляду…"
+
+# -- Image EXIF preview labels --
+"Camera" = "Камера"
+"Lens" = "Об'єктив"
+"Taken" = "Знято"
+"Exposure" = "Експозиція"

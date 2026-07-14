@@ -351,8 +351,21 @@ one from the **Left** / **Right** menu:
   - on a **multi-file selection**, a tally of the combined size and the number
     of files and directories included.
 
-  This is useful for inspecting a file's metadata, or measuring how much space a
-  folder or a set of tagged items uses, while you browse with the other panel.
+  Beneath the metadata, a **preview** of the item is shown (loaded in the
+  background so large or remote items stay responsive):
+  - a **text file** → a syntax-highlighted view of its first lines;
+  - an **image** → a thumbnail — a true-pixel image where the terminal supports
+    graphics (Kitty / Sixel / iTerm2), or half-block cell art otherwise —
+    **centred** in the panel. An embedded EXIF thumbnail is used when present (so
+    a full-resolution photo isn't decoded just to shrink it), and a short **EXIF
+    summary** (camera, lens, date, exposure) is shown above it when the image
+    carries one;
+  - an **archive** (`.zip`, `.tar.*`, `.7z`, …) → its top-level file list;
+  - a **directory** → a shallow tree of its contents.
+
+  This is useful for inspecting a file's metadata, glancing at its contents, or
+  measuring how much space a folder or a set of tagged items uses, while you
+  browse with the other panel.
 - **Tree** — the directory structure is visualized as a tree, arrow keys navigate,
   pressing enter changes the opposite panel's directory and opens up the directory
   structure underneath.
