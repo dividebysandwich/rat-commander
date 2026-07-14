@@ -319,6 +319,12 @@ async fn run_command(
     subshell: &mut Option<crate::shell::Subshell>,
     cmd: &str,
 ) -> Result<()> {
+    // On Windows the persistent PTY console isn't used (its Unix tty passthrough
+    // and POSIX `cd` quoting don't hold — see `toggle_subshell`), so run each
+    // command the classic suspended way, in the active panel's directory.
+    if cfg!(windows) {
+        return run_command_fallback(term, state, cmd).await;
+    }
     let size = term.size()?;
     // The active panel's directory when it's a real local path (the shell is
     // local, so a remote/archive panel can't drive its cwd — see the prompt,
@@ -438,6 +444,17 @@ async fn toggle_subshell(
             std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"))
         }
     };
+
+    // Windows: the persistent PTY subshell relies on forwarding the real
+    // terminal's raw VT byte stream into the PTY and scanning it for Ctrl-O
+    // (`Subshell::run_until_toggle`). Windows delivers console input as key-event
+    // records, not a VT byte stream, so that model doesn't work — drop into a
+    // one-shot interactive shell instead (state is not preserved between visits,
+    // but it behaves correctly).
+    if cfg!(windows) {
+        return run_oneshot_shell(term, state, &cwd).await;
+    }
+
     let size = term.size()?;
 
     // (Re)create the shared console shell if needed (same session as the command

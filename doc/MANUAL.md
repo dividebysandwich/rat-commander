@@ -48,6 +48,13 @@ to step back). Colours and cursor motion render faithfully, so it reads like the
 real terminal it is. (Interactive programs and Ctrl-C act on the shell while
 you're in it via `Ctrl-O`.)
 
+> **Windows note.** The persistent behind-the-panels console is a Unix feature.
+> On Windows the command line and `Ctrl-O` instead run **the classic way**: the
+> panels are suspended while `cmd.exe` runs (a command line runs once and waits
+> for a key; `Ctrl-O` opens an interactive shell until you type `exit`), then the
+> panels return. There is no live console backdrop, and shell state is not carried
+> between separate runs — each command runs in the active panel's directory.
+
 
 ## Getting started — two-panel basics
 
@@ -760,6 +767,11 @@ For interactive work, **Ctrl-O** drops to a **full-screen persistent subshell**
 in the current directory; press **Ctrl-O** again to return to the panels with
 your shell session still alive.
 
+On **Windows** this works differently (see the *Windows note* under *The
+console* above): `Ctrl-O` opens a fresh interactive `cmd.exe` that you leave by
+typing `exit`, and command-line commands run one at a time with the panels
+suspended — there is no persistent behind-the-panels session.
+
 
 ## The user menu (F2)
 
@@ -1069,6 +1081,11 @@ panel menu's **Drive…** entry) shows the available **drive letters** on its fi
 row, with the current drive highlighted. Use the arrow keys or press a
 drive-letter key to switch the panel to that drive. The **Local** button, any
 open remote connections and the SFTP / FTP / SCP buttons appear below.
+
+The command line and `Ctrl-O` shell also behave differently on Windows — see the
+**Windows note** under [The console](#the-console-behind-the-panels): commands run
+with the panels suspended (there is no persistent behind-the-panels console), and
+`Ctrl-O` opens an interactive `cmd.exe` you leave by typing `exit`.
 
 
 ## Configuration

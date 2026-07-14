@@ -84,7 +84,10 @@ The installed executable is named **`rc`** for quick typing.
   this off when the terminal handles bidi itself).
 - **Windows support** — Full support for windows drives using the familiar
   Alt-F1/Alt-F2 Norton Commander shortcuts. All features except Drive Manager and
-  Network Connections are available.
+  Network Connections are available. The command line and `Ctrl-O` shell run the
+  classic *suspend-and-run* way on Windows (the TUI pauses while `cmd.exe` runs,
+  then resumes) rather than the persistent behind-the-panels console used on
+  Unix, so there is no live console backdrop there.
 
 For a full, feature-by-feature walkthrough see the **[user manual](doc/MANUAL.md)** —
 also available in-program by pressing **F1**.
