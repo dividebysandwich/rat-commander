@@ -75,6 +75,17 @@ pub enum ViewMode {
     Hex,
 }
 
+/// A decoded image shown fullscreen when F3 opens a supported image file. Falls
+/// back to the raw text/hex view when a file can't be decoded, or via F8.
+pub struct ViewerImage {
+    /// The image scaled down for display (aspect preserved).
+    pub img: image::RgbaImage,
+    /// Cheap content signature for the graphics cache.
+    pub sig: u64,
+    /// Original pixel dimensions (before scaling), shown in the header.
+    pub orig: (u32, u32),
+}
+
 /// How the "Goto" dialog interprets its entered value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GotoMode {
@@ -155,6 +166,11 @@ pub struct ViewerState {
     outline_top: usize,
     /// Interior rect of the outline list, recorded by the renderer for mouse hits.
     outline_area: Rect,
+    /// A decoded image, when this file could be shown as one (F3 on an image).
+    image: Option<ViewerImage>,
+    /// Whether the image (vs. the raw text/hex) is currently displayed — toggled
+    /// with F8. Only meaningful when `image` is set.
+    show_image: bool,
 }
 
 impl ViewerState {
@@ -196,6 +212,8 @@ impl ViewerState {
             outline_sel: 0,
             outline_top: 0,
             outline_area: Rect::default(),
+            image: None,
+            show_image: false,
         }
     }
 
@@ -240,6 +258,8 @@ impl ViewerState {
             outline_sel: 0,
             outline_top: 0,
             outline_area: Rect::default(),
+            image: None,
+            show_image: false,
         }
     }
 
@@ -400,6 +420,8 @@ impl ViewerState {
             KeyCode::F(5) => return ViewerSignal::OpenGoto,
             // F6 (Markdown files in text mode): open the document outline.
             KeyCode::F(6) if self.is_markdown && self.mode == ViewMode::Text => self.open_outline(),
+            // F8 (image files): toggle between the image and the raw text/hex.
+            KeyCode::F(8) if self.image.is_some() => self.show_image = !self.show_image,
             // F8 (Markdown files only): toggle the Markdown render and the raw
             // (syntax-highlighted) text.
             KeyCode::F(8) if self.is_markdown && self.mode == ViewMode::Text => {
@@ -486,19 +508,32 @@ impl ViewerState {
         self.is_markdown && self.markdown_render && self.mode == ViewMode::Text
     }
 
+    /// Attach a decoded image and switch to showing it (F3 on an image file).
+    pub fn set_image(&mut self, iv: ViewerImage) {
+        self.image = Some(iv);
+        self.show_image = true;
+    }
+
+    /// The decoded image, when it is currently being displayed (vs. the raw view).
+    pub(crate) fn active_image(&self) -> Option<&ViewerImage> {
+        self.show_image.then_some(self.image.as_ref()).flatten()
+    }
+
     pub(crate) fn footer_labels(&self) -> [&'static str; 10] {
         let wrap = if self.wrap { "Unwrap" } else { "Wrap" };
         let mode = if self.mode == ViewMode::Hex { "Text" } else { "Hex" };
-        // F8: only for Markdown files in text mode — "Raw" shows the source,
-        // "Render" returns to the Markdown approximation.
-        let md = if self.is_markdown && self.mode == ViewMode::Text {
+        // F8: for an image file, toggle Image/Raw; for a Markdown file in text
+        // mode, "Raw" shows the source and "Render" the approximation.
+        let f8 = if self.image.is_some() {
+            if self.show_image { "Raw" } else { "Image" }
+        } else if self.is_markdown && self.mode == ViewMode::Text {
             if self.markdown_render { "Raw" } else { "Render" }
         } else {
             ""
         };
         // F6: the document outline, offered for Markdown files in text mode.
         let outline = if self.is_markdown && self.mode == ViewMode::Text { "Outline" } else { "" };
-        ["Help", wrap, "Quit", mode, "Goto", outline, "Search", md, "Next", "Quit"]
+        ["Help", wrap, "Quit", mode, "Goto", outline, "Search", f8, "Next", "Quit"]
     }
 
     /// Perform the action of F-key index `i` (0-based) from a bar click.
@@ -1004,7 +1039,7 @@ mod tests {
         v.open_outline(); // selection starts on "One" (index 0)
         let theme = crate::ui::theme::Theme::mc();
         let mut t = Terminal::new(TestBackend::new(50, 16)).unwrap();
-        t.draw(|f| crate::viewer::render::render(f, f.area(), &mut v, &theme)).unwrap();
+        t.draw(|f| crate::viewer::render::render(f, f.area(), &mut v, &theme, None)).unwrap();
         let b = t.backend().buffer();
 
         // Every heading title is drawn somewhere in the overlay.
@@ -1041,7 +1076,7 @@ mod tests {
         assert!(v.markdown_active());
         let theme = crate::ui::theme::Theme::mc();
         let mut t = Terminal::new(TestBackend::new(40, 12)).unwrap();
-        t.draw(|f| crate::viewer::render::render(f, f.area(), &mut v, &theme)).unwrap();
+        t.draw(|f| crate::viewer::render::render(f, f.area(), &mut v, &theme, None)).unwrap();
         let b = t.backend().buffer();
         let rows: Vec<String> = (0..b.area.height)
             .map(|y| (0..b.area.width).map(|x| b[(x, y)].symbol().to_string()).collect())
@@ -1078,7 +1113,7 @@ mod tests {
         assert!(v.in_code_fence_at(v.top), "top of the viewport is inside a fence");
         let theme = crate::ui::theme::Theme::mc();
         let mut t = Terminal::new(TestBackend::new(30, 8)).unwrap();
-        t.draw(|f| crate::viewer::render::render(f, f.area(), &mut v, &theme)).unwrap();
+        t.draw(|f| crate::viewer::render::render(f, f.area(), &mut v, &theme, None)).unwrap();
         let b = t.backend().buffer();
         let rows: Vec<String> = (0..b.area.height)
             .map(|y| (0..b.area.width).map(|x| b[(x, y)].symbol().to_string()).collect())
@@ -1100,7 +1135,7 @@ mod tests {
         v.open_outline();
         let theme = crate::ui::theme::Theme::by_name("GitHub Light", true);
         let mut t = Terminal::new(TestBackend::new(50, 16)).unwrap();
-        t.draw(|f| crate::viewer::render::render(f, f.area(), &mut v, &theme)).unwrap();
+        t.draw(|f| crate::viewer::render::render(f, f.area(), &mut v, &theme, None)).unwrap();
         let b = t.backend().buffer();
 
         // Every non-selected outline entry cell (drawn on the dialog background)
@@ -1425,7 +1460,7 @@ mod tests {
         let mut v = ViewerState::new("t".into(), b"x #ff501a y".to_vec());
         let theme = crate::ui::theme::Theme::mc();
         let mut t = Terminal::new(TestBackend::new(40, 6)).unwrap();
-        t.draw(|f| crate::viewer::render::render(f, f.area(), &mut v, &theme)).unwrap();
+        t.draw(|f| crate::viewer::render::render(f, f.area(), &mut v, &theme, None)).unwrap();
         let b = t.backend().buffer();
         let hash = (0..b.area.height)
             .flat_map(|y| (0..b.area.width).map(move |x| (x, y)))
@@ -1455,7 +1490,7 @@ mod tests {
 
         let theme = crate::ui::theme::Theme::mc();
         let mut t = Terminal::new(TestBackend::new(80, 6)).unwrap();
-        t.draw(|f| render::render(f, f.area(), &mut v, &theme)).unwrap();
+        t.draw(|f| render::render(f, f.area(), &mut v, &theme, None)).unwrap();
         let b = t.backend().buffer();
 
         // Body is on row 1 (row 0 is the header). Collect text + distinct colors.
@@ -1470,5 +1505,38 @@ mod tests {
         assert!(colors.len() > 1, "highlighting uses more than one color");
 
         drop(v);
+    }
+
+    #[test]
+    fn image_mode_renders_and_f8_toggles_raw() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let mut v = ViewerState::new("photo.png".into(), b"\x89PNG not-really".to_vec());
+        let img = image::RgbaImage::from_pixel(8, 6, image::Rgba([20, 180, 90, 255]));
+        let sig = crate::util::img::image_sig(&img);
+        v.set_image(ViewerImage { img, sig, orig: (800, 600) });
+        assert!(v.active_image().is_some(), "opens showing the image");
+
+        let theme = crate::ui::theme::Theme::mc();
+        let mut t = Terminal::new(TestBackend::new(40, 12)).unwrap();
+        t.draw(|f| render::render(f, f.area(), &mut v, &theme, None)).unwrap();
+        let b = t.backend().buffer();
+        let all: String = (0..b.area.height)
+            .flat_map(|y| (0..b.area.width).map(move |x| (x, y)))
+            .map(|(x, y)| b[(x, y)].symbol().to_string())
+            .collect();
+        // Header names the image and its original dimensions; body has half-blocks.
+        assert!(all.contains("Image") && all.contains("800×600"), "header: {all:?}");
+        assert!(all.contains('▀'), "ascii image drawn (no graphics)");
+        // The F-key bar offers the Image/Raw toggle on F8.
+        assert_eq!(v.footer_labels()[7], "Raw");
+
+        // F8 toggles to the raw view and back.
+        let f8 = KeyEvent::new(KeyCode::F(8), KeyModifiers::NONE);
+        v.handle_key(f8);
+        assert!(v.active_image().is_none(), "F8 hides the image");
+        assert_eq!(v.footer_labels()[7], "Image");
+        v.handle_key(f8);
+        assert!(v.active_image().is_some(), "F8 shows it again");
     }
 }

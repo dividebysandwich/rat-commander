@@ -2972,3 +2972,41 @@ async fn details_preview_loads_text_head_and_dir_tree() {
 
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[tokio::test]
+async fn f3_opens_image_viewer_and_falls_back_to_text() {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("rc_imgview_{}_{nanos}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    image::RgbaImage::from_pixel(12, 8, image::Rgba([200, 30, 60, 255]))
+        .save(root.join("pic.png"))
+        .unwrap();
+    std::fs::write(root.join("notes.txt"), b"hello world\n").unwrap();
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+
+    // F3 on the image → the viewer opens showing the decoded image.
+    let idx = st.panels[0].entries.iter().position(|e| e.name == "pic.png").unwrap();
+    st.panels[0].cursor = idx;
+    st.open_view().await;
+    let v = st.viewer.as_ref().expect("viewer opened for the image");
+    assert!(v.active_image().is_some(), "F3 on an image shows it as an image");
+    st.viewer = None;
+
+    // F3 on a text file → the normal text viewer (no image).
+    let idx = st.panels[0].entries.iter().position(|e| e.name == "notes.txt").unwrap();
+    st.panels[0].cursor = idx;
+    st.open_view().await;
+    let v = st.viewer.as_ref().expect("viewer opened for the text file");
+    assert!(v.active_image().is_none(), "a text file is not shown as an image");
+
+    let _ = std::fs::remove_dir_all(&root);
+}

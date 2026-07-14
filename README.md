@@ -30,7 +30,9 @@ The installed executable is named **`rc`** for quick typing.
   recursion), and make-directory.
 - **Built-in viewer (F3)** — text and hex modes, search, goto, line wrap, syntax
   highlighting, a **rendered Markdown** mode for `.md` files, and hex-color
-  swatches. Pages huge files straight from disk.
+  swatches. Pages huge files straight from disk. Opens **images** fullscreen —
+  true-pixel where the terminal supports graphics, half-block art otherwise
+  (F8 toggles to the raw bytes).
 - **Built-in editor (F4)** — `mcedit`-style block copy/move/delete, clipboard,
   search & replace (literal or regex), undo/redo, syntax highlighting, and an
   in-place **hex editor** for arbitrarily large files. Launch straight into it
@@ -149,7 +151,7 @@ also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1
 | `F4` | Toggle hex / text mode |
 | `F5` | Goto (line / percent / byte offset) |
 | `F7` | Search (`n` repeats) |
-| `F8` | (Markdown) toggle Raw / Render |
+| `F8` | (Markdown) toggle Raw / Render — (image) toggle Image / Raw |
 | `Esc` / `F10` / `q` | Close |
 
 ### Editor (F4)

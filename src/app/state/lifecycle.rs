@@ -467,6 +467,13 @@ impl AppState {
                                 );
                                 v.enable_syntax(dark);
                                 v.set_search_seed(self.search_memory.viewer_query.clone());
+                                // Show a supported image fullscreen (from the
+                                // fetched temp copy); falls back to raw on failure.
+                                if crate::util::img::is_image_name(&v.name)
+                                    && let Some(iv) = load_view_image(&temp).await
+                                {
+                                    v.set_image(iv);
+                                }
                                 self.viewer = Some(v);
                             }
                             Ok(Err(e)) => {

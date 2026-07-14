@@ -4,6 +4,7 @@ pub mod async_bridge;
 pub mod bytes;
 pub mod checksum;
 pub mod error;
+pub mod img;
 pub mod sysinfo;
 pub mod text;
 

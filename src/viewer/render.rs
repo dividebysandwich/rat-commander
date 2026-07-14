@@ -10,7 +10,13 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph};
 
-pub fn render(f: &mut Frame, area: Rect, v: &mut ViewerState, theme: &Theme) {
+pub fn render(
+    f: &mut Frame,
+    area: Rect,
+    v: &mut ViewerState,
+    theme: &Theme,
+    gfx: Option<&mut crate::ui::graphics::Gfx>,
+) {
     if area.height < 3 {
         return;
     }
@@ -31,13 +37,20 @@ pub fn render(f: &mut Frame, area: Rect, v: &mut ViewerState, theme: &Theme) {
     v.content_area = content;
     v.footer_area = footer;
 
+    render_header(f, header, v, theme);
+    // An image file shows the decoded image fullscreen (pixel graphics where
+    // available, else half-block cell art); F8 toggles to the raw text/hex.
+    if v.active_image().is_some() {
+        render_image(f, content, v, theme, gfx);
+        render_footer(f, footer, v, theme);
+        return;
+    }
+
     // Make sure the lines about to be drawn (plus one past, so the last line's
     // extent is known) are indexed — the rest of the file stays unscanned.
     if v.mode == ViewMode::Text {
         v.extend_to_line(v.top + v.view_rows);
     }
-
-    render_header(f, header, v, theme);
     match v.mode {
         ViewMode::Hex => render_hex(f, content, v, theme),
         // Markdown files render the approximation by default; F8 shows the raw,
@@ -172,7 +185,54 @@ fn build_styled(chars: &[char], base: usize, styles: &[Style], default: Style) -
     Line::from(spans)
 }
 
+/// Draw the decoded image fullscreen — pixel graphics where available, else
+/// centred half-block cell art.
+fn render_image(
+    f: &mut Frame,
+    area: Rect,
+    v: &ViewerState,
+    theme: &Theme,
+    gfx: Option<&mut crate::ui::graphics::Gfx>,
+) {
+    let Some(iv) = v.active_image() else {
+        return;
+    };
+    // Clear the content region so the letterbox is clean under either renderer.
+    f.render_widget(ratatui::widgets::Clear, area);
+    f.render_widget(
+        ratatui::widgets::Block::default().style(Style::default().bg(theme.panel_bg)),
+        area,
+    );
+    match gfx {
+        Some(g) if g.available() => {
+            let target =
+                crate::util::img::center_rect(area, iv.img.width(), iv.img.height(), g.cell());
+            let (sig, img) = (iv.sig, &iv.img);
+            g.draw_cached(f, target, crate::ui::graphics::Slot::ViewerImage, sig, || img.clone());
+        }
+        _ => crate::util::img::render_halfblocks(f, area, &iv.img, theme.panel_bg),
+    }
+}
+
 fn render_header(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
+    // In image mode the header names the file and its original pixel dimensions.
+    if let Some(iv) = v.active_image() {
+        let (w, h) = iv.orig;
+        let text = format!(
+            " {}: {}  [{} {w}×{h}]",
+            crate::l10n::trd("View"),
+            ellipsize(&v.name, area.width.saturating_sub(24) as usize),
+            crate::l10n::trd("Image"),
+        );
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                pad_right(&text, area.width as usize),
+                theme.menubar.add_modifier(Modifier::BOLD),
+            ))),
+            area,
+        );
+        return;
+    }
     let mode = match v.mode {
         ViewMode::Hex => crate::l10n::trd("Hex"),
         ViewMode::Text if v.markdown_active() => crate::l10n::trd("Markdown"),

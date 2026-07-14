@@ -328,7 +328,7 @@ async fn build_preview(
     if kind != VfsKind::File {
         return Preview::None;
     }
-    if is_image_name(&name)
+    if crate::util::img::is_image_name(&name)
         && size <= MAX_IMAGE_BYTES
         && let Some(pi) = load_image_preview(&backend, &path).await
     {
@@ -344,12 +344,6 @@ async fn build_preview(
     build_text_preview(&backend, &path, &name, dark).await
 }
 
-/// Whether `name`'s extension is a decodable image format.
-fn is_image_name(name: &str) -> bool {
-    let ext = name.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
-    matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "gif" | "bmp" | "webp")
-}
-
 /// Read up to `n` bytes from the head of `path`.
 async fn read_head(backend: &Arc<dyn Vfs>, path: &VfsPath, n: usize) -> Option<Vec<u8>> {
     let reader = backend.open_read(path).await.ok()?;
@@ -358,96 +352,19 @@ async fn read_head(backend: &Arc<dyn Vfs>, path: &VfsPath, n: usize) -> Option<V
     Some(buf)
 }
 
-/// Decode an image and shrink it to a thumbnail (aspect preserved), plus a short
-/// EXIF summary. Prefers a small embedded EXIF thumbnail when present (cheap),
-/// falling back to decoding the full-resolution image. The EXIF is parsed once
-/// and the decode (CPU-heavy) runs on the blocking pool.
+/// Decode an image into a thumbnail (aspect preserved) plus a short EXIF summary,
+/// preferring an embedded EXIF thumbnail when present. The decode (CPU-heavy)
+/// runs on the blocking pool.
 async fn load_image_preview(backend: &Arc<dyn Vfs>, path: &VfsPath) -> Option<PreviewImage> {
     let bytes = read_head(backend, path, MAX_IMAGE_BYTES as usize).await?;
     let (thumb, exif) = tokio::task::spawn_blocking(move || {
-        let parsed = exif::Reader::new()
-            .read_from_container(&mut std::io::Cursor::new(&bytes))
-            .ok();
-        let summary = parsed.as_ref().map(summarize_exif).unwrap_or_default();
-        let decoded = parsed
-            .as_ref()
-            .and_then(embedded_thumbnail)
-            .and_then(|t| image::load_from_memory(&t).ok())
-            .or_else(|| image::load_from_memory(&bytes).ok())?;
-        Some((decoded.thumbnail(THUMB_MAX, THUMB_MAX).to_rgba8(), summary))
+        let thumb = crate::util::img::decode_scaled(&bytes, THUMB_MAX, true)?;
+        Some((thumb, crate::util::img::exif_summary(&bytes)))
     })
     .await
     .ok()??;
-    let sig = image_sig(&thumb);
+    let sig = crate::util::img::image_sig(&thumb);
     Some(PreviewImage { img: thumb, sig, exif })
-}
-
-/// The JPEG thumbnail embedded in EXIF metadata, if any (JPEG/TIFF photos carry
-/// these). Using it avoids decoding the full-resolution image.
-fn embedded_thumbnail(exif: &exif::Exif) -> Option<Vec<u8>> {
-    let off = exif
-        .get_field(exif::Tag::JPEGInterchangeFormat, exif::In::THUMBNAIL)?
-        .value
-        .get_uint(0)? as usize;
-    let len = exif
-        .get_field(exif::Tag::JPEGInterchangeFormatLength, exif::In::THUMBNAIL)?
-        .value
-        .get_uint(0)? as usize;
-    exif.buf().get(off..off.checked_add(len)?).map(<[u8]>::to_vec)
-}
-
-/// A compact human-readable summary of the most useful EXIF fields.
-fn summarize_exif(exif: &exif::Exif) -> Vec<(String, String)> {
-    let field = |tag| -> Option<String> {
-        let f = exif.get_field(tag, exif::In::PRIMARY)?;
-        let s = f.display_value().with_unit(exif).to_string();
-        let s = s.trim().trim_matches('"').trim().to_string();
-        (!s.is_empty()).then_some(s)
-    };
-    let mut out: Vec<(String, String)> = Vec::new();
-    // Camera = Make + Model (avoid repeating the make inside the model).
-    let camera = match (field(exif::Tag::Make), field(exif::Tag::Model)) {
-        (Some(mk), Some(md)) => Some(if md.starts_with(&mk) { md } else { format!("{mk} {md}") }),
-        (Some(s), None) | (None, Some(s)) => Some(s),
-        (None, None) => None,
-    };
-    if let Some(c) = camera {
-        out.push(("Camera".into(), c));
-    }
-    if let Some(l) = field(exif::Tag::LensModel) {
-        out.push(("Lens".into(), l));
-    }
-    if let Some(d) = field(exif::Tag::DateTimeOriginal) {
-        out.push(("Taken".into(), d));
-    }
-    // One combined exposure line: shutter, aperture, ISO, focal length.
-    let mut exp: Vec<String> = Vec::new();
-    if let Some(t) = field(exif::Tag::ExposureTime) {
-        exp.push(t);
-    }
-    if let Some(fnum) = field(exif::Tag::FNumber) {
-        exp.push(fnum);
-    }
-    if let Some(iso) = field(exif::Tag::PhotographicSensitivity) {
-        exp.push(format!("ISO {iso}"));
-    }
-    if let Some(fl) = field(exif::Tag::FocalLength) {
-        exp.push(fl);
-    }
-    if !exp.is_empty() {
-        out.push(("Exposure".into(), exp.join("  ")));
-    }
-    out
-}
-
-/// Cheap content signature for the graphics cache.
-fn image_sig(img: &image::RgbaImage) -> u64 {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    img.width().hash(&mut h);
-    img.height().hash(&mut h);
-    img.as_raw().hash(&mut h);
-    h.finish()
 }
 
 /// List a local archive's top-level entries (capped), or `None` when it is too

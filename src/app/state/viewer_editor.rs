@@ -113,6 +113,13 @@ impl AppState {
                     let mut v = ViewerState::from_scanned(name, file, len, line_starts, scanned, None);
                     v.enable_syntax(dark);
                     v.set_search_seed(self.search_memory.viewer_query.clone());
+                    // A supported image opens showing the decoded image fullscreen
+                    // (it falls back to the raw text/hex view if it can't decode).
+                    if crate::util::img::is_image_name(&v.name)
+                        && let Some(iv) = load_view_image(&path.path).await
+                    {
+                        v.set_image(iv);
+                    }
                     self.viewer = Some(v);
                 }
                 Ok(Err(e)) => self.show_error(format!("cannot open file: {e}")),

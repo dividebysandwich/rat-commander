@@ -519,6 +519,32 @@ async fn load_file(backend: &std::sync::Arc<dyn Vfs>, path: &VfsPath) -> crate::
     Ok(buf)
 }
 
+/// Longest edge a viewer image is scaled to for fullscreen display.
+const VIEW_IMAGE_MAX_EDGE: u32 = 2000;
+/// Largest local image (bytes) opened in the fullscreen F3 viewer.
+const VIEW_IMAGE_MAX_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Decode a local image file for the fullscreen viewer: a full decode scaled to
+/// a display cap, with the original dimensions recorded. `None` when it is too
+/// large or can't be decoded (the caller then falls back to the raw view). The
+/// decode (CPU-heavy) runs on the blocking pool.
+async fn load_view_image(path: &Path) -> Option<crate::viewer::ViewerImage> {
+    let meta = tokio::fs::metadata(path).await.ok()?;
+    if meta.len() > VIEW_IMAGE_MAX_BYTES {
+        return None;
+    }
+    let bytes = tokio::fs::read(path).await.ok()?;
+    tokio::task::spawn_blocking(move || {
+        let full = image::load_from_memory(&bytes).ok()?;
+        let orig = (full.width(), full.height());
+        let img = full.thumbnail(VIEW_IMAGE_MAX_EDGE, VIEW_IMAGE_MAX_EDGE).to_rgba8();
+        let sig = crate::util::img::image_sig(&img);
+        Some(crate::viewer::ViewerImage { img, sig, orig })
+    })
+    .await
+    .ok()?
+}
+
 /// Stream `path` from `backend` to the local `temp` file, emitting throttled
 /// progress and honoring `cancel`. Returns `Ok(true)` when complete, `Ok(false)`
 /// when cancelled, or `Err` on I/O failure. The caller cleans up `temp`.

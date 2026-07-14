@@ -305,7 +305,7 @@ fn render_preview(
             } else if graphics {
                 Some(img_area) // the caller draws the pixel image here
             } else {
-                render_ascii_image(f, img_area, &pi.img, theme);
+                crate::util::img::render_halfblocks(f, img_area, &pi.img, theme.panel_bg);
                 None
             }
         }
@@ -389,50 +389,6 @@ fn render_preview_tree(f: &mut Frame, area: Rect, rows: &[PreviewTreeLine], them
         lines.push(Line::from(Span::styled(format!(" … {} more", rows.len() - shown), dim)));
     }
     f.render_widget(Paragraph::new(lines).style(Style::default().bg(theme.panel_bg)), area);
-}
-
-/// Render an image as half-block cell art (the fallback when no pixel-graphics
-/// protocol is available): each cell is two vertically-stacked pixels via `▀`
-/// (upper = foreground, lower = background).
-fn render_ascii_image(f: &mut Frame, area: Rect, img: &image::RgbaImage, theme: &Theme) {
-    use image::imageops::FilterType;
-    let (cols, rows) = (area.width as u32, area.height as u32);
-    if cols == 0 || rows == 0 {
-        return;
-    }
-    // Fit within cols × (2·rows) pixels, preserving aspect ratio.
-    let (iw, ih) = (img.width().max(1), img.height().max(1));
-    let scale = (cols as f64 / iw as f64).min((rows * 2) as f64 / ih as f64);
-    let tw = ((iw as f64 * scale).round() as u32).clamp(1, cols);
-    let th = ((ih as f64 * scale).round() as u32).clamp(1, rows * 2);
-    let small = image::imageops::resize(img, tw, th, FilterType::Triangle);
-    let cell_rows = th.div_ceil(2);
-    let x0 = area.x + ((cols - tw) / 2) as u16;
-    let y0 = area.y + ((rows - cell_rows) / 2) as u16;
-    let bg = theme.panel_bg;
-    for cy in 0..cell_rows {
-        let y = y0 + cy as u16;
-        if y >= area.y + area.height {
-            break;
-        }
-        let mut spans: Vec<Span> = Vec::with_capacity(tw as usize);
-        for cx in 0..tw {
-            let top = small.get_pixel(cx, cy * 2);
-            let top_c = Color::Rgb(top[0], top[1], top[2]);
-            let by = cy * 2 + 1;
-            let bot_c = if by < th {
-                let b = small.get_pixel(cx, by);
-                Color::Rgb(b[0], b[1], b[2])
-            } else {
-                bg
-            };
-            spans.push(Span::styled("▀".to_string(), Style::default().fg(top_c).bg(bot_c)));
-        }
-        f.render_widget(
-            Paragraph::new(Line::from(spans)),
-            Rect { x: x0, y, width: tw as u16, height: 1 },
-        );
-    }
 }
 
 /// Draw `label: value` rows, right-aligning the labels into a column. Labels are

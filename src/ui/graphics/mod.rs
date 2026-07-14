@@ -42,6 +42,8 @@ pub enum Slot {
     NetDiagram,
     /// A Details-view image-thumbnail preview, per panel side.
     DetailsPreview(u16),
+    /// The F3 fullscreen image viewer.
+    ViewerImage,
 }
 
 struct Cached {
