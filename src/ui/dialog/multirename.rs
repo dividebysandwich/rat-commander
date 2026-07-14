@@ -491,7 +491,7 @@ impl MultiRenameDialog {
             height: 1,
         };
         let mut gfx = gfx;
-        if gfx.as_deref().is_some_and(|g| g.available()) {
+        if gfx.as_deref().is_some_and(|g| g.buttons_ok()) {
             gfx_button(f, gfx.as_deref_mut(), Slot::Button(0), exec_rect, &exec_label, true, theme);
             gfx_button(f, gfx, Slot::Button(1), cancel_rect, &cancel_label, false, theme);
         } else {

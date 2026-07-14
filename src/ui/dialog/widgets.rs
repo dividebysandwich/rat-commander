@@ -306,7 +306,7 @@ pub(crate) fn gfx_button_colored(
     theme: &Theme,
 ) -> bool {
     let Some(g) = gfx else { return false };
-    if !g.available() || rect.width == 0 || rect.height == 0 {
+    if !g.buttons_ok() || rect.width == 0 || rect.height == 0 {
         return false;
     }
     // The label is baked as pixels; if the bundled font can't render it (Arabic,
@@ -444,7 +444,7 @@ pub(crate) fn check_span(label: &str, checked: bool, focused: bool, theme: &Them
 /// narrow), so the caller falls back to [`ok_cancel_line`].
 pub(crate) fn draw_ok_cancel(f: &mut Frame, gfx: Option<&mut Gfx>, row: Rect, theme: &Theme) -> bool {
     let mut gfx = gfx;
-    if !gfx.as_deref().is_some_and(|g| g.available()) {
+    if !gfx.as_deref().is_some_and(|g| g.buttons_ok()) {
         return false;
     }
     let ok_txt = crate::l10n::tr("OK");

@@ -479,7 +479,7 @@ impl ConfirmDialog {
 
         let labels = self.button_labels();
         let mut gfx = gfx;
-        if gfx.as_deref().is_some_and(|g| g.available()) {
+        if gfx.as_deref().is_some_and(|g| g.buttons_ok()) {
             // Graphical buttons: lay them out exactly as `handle_click` computes
             // the hit zones so clicks still land.
             let total: usize = labels.iter().map(|l| l.chars().count()).sum::<usize>()

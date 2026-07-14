@@ -985,7 +985,7 @@ impl FormDialog {
         let cancel_txt = crate::l10n::tr("Cancel");
         // Graphical buttons only when the font can render the labels; otherwise
         // fall back to the text button row (terminal font handles any script).
-        if gfx.as_deref().is_some_and(|g| g.available()) && all_renderable(&[&ok_txt, &cancel_txt]) {
+        if gfx.as_deref().is_some_and(|g| g.buttons_ok()) && all_renderable(&[&ok_txt, &cancel_txt]) {
             // Graphical buttons: OK at the left, Cancel at the right, with the
             // navigation hint between them. Left/right halves still hit-test OK/Cancel.
             let ok_w = 10u16.min(hint.width);

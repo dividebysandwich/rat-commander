@@ -238,7 +238,7 @@ impl OverwriteDialog {
         let total: usize = labels.iter().map(|l| l.chars().count()).sum::<usize>() + labels.len().saturating_sub(1);
         let mut x = inner.x + (inner.width.saturating_sub(total as u16)) / 2;
         let mut gfx = gfx;
-        let use_gfx = gfx.as_deref().is_some_and(|g| g.available());
+        let use_gfx = gfx.as_deref().is_some_and(|g| g.buttons_ok());
         for (label, (plain, ctrl)) in labels.iter().zip(buttons.iter()) {
             let focused = OW_ORDER[self.focus] == *ctrl;
             let wlen = label.chars().count() as u16;

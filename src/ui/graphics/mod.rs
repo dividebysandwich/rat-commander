@@ -86,6 +86,16 @@ impl Gfx {
         self.enabled
     }
 
+    /// Whether graphical push-buttons should be drawn (else the caller falls back
+    /// to text buttons). False under Sixel: a Sixel button is a pixel raster
+    /// anchored to the text cursor, and on some terminals it lands a row below the
+    /// cell it was addressed to — which pushes a dialog's bottom-row buttons onto
+    /// or below the border. Kitty/iTerm2 place images in real grid cells, so those
+    /// stay cell-exact and keep the graphical buttons.
+    pub fn buttons_ok(&self) -> bool {
+        self.enabled && self.picker.protocol_type() != ProtocolType::Sixel
+    }
+
     /// Apply a `graphics` preference at runtime (Settings live preview): `off`
     /// disables, `auto` restores the detected protocol, and `kitty|sixel|iterm`
     /// force one. Clears the cache so images re-transmit under the new scheme.
