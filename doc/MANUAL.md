@@ -232,6 +232,33 @@ scrolls so it sits in the vertical center of the view.
 choices, `Enter` confirms, `Esc` cancels. Progress dialogs can be aborted with
 `Esc`. You can also click the buttons with the mouse.
 
+### Theme editor
+
+Opened from **Options → Edit themes…**. `Tab` / `Shift-Tab` cycle the four panes
+(theme picker, color list, color picker, buttons).
+
+- **Theme picker** — `↑ ↓` / `← →` choose the theme to edit; `Home` / `End` jump
+  to the first / last. Switching with unsaved edits prompts to save, discard, or
+  cancel.
+- **Color list** — `↑ ↓` / `PgUp PgDn` / `Home End` select the element to
+  recolor; `Enter` / `→` jump to the color picker.
+- **Color picker** (truecolor) — `↑ ↓` pick the R / G / B channel; `← →` adjust
+  it by 1, `Shift-←` / `Shift-→` by 20, `PgUp` / `PgDn` by 16, `Home` / `End`
+  set it to 0 / 255; `Enter` returns to the list. You can also **type a six-digit
+  hex code** (e.g. `1a2b3c`) to set the color directly — `Backspace` edits it and
+  `Esc` cancels the entry. On a 16-color terminal the picker is a swatch grid
+  moved through with the arrows.
+- **Buttons** — `← →` move between **Save**, **Save as…** and **Cancel**;
+  `Enter` / `Space` activates.
+- `F2` / `Ctrl-S` — Save; `Esc` / `F10` — Close (prompts if there are unsaved
+  changes).
+- **Mouse** — click a row in the color list to select it and the wheel scrolls
+  it; click a channel bar to set its value; click a swatch; click **Save** /
+  **Save as…** / **Cancel** or the confirmation-dialog buttons.
+
+The right-hand **preview** updates live, showing whichever surface the selected
+element affects: the file panels, a demo dialog, or a small editor.
+
 
 ## Selecting (tagging) files
 
@@ -969,15 +996,24 @@ Night, Catppuccin, One Dark and more — plus a classic Midnight Commander look,
 Monochrome, Amber/Green CRT, and some playful ones. On a truecolor terminal the
 bars and cursor render as animated gradients.
 
-**Custom themes** live in **`themes.toml`**, generated with all the presets on
-first run. Each `[[theme]]` sets an explicit `#rrggbb` color for **every UI
-element** — `panel_bg`, `menu_bg`, `dialog_bg`, `dialog_border_fg` /
-`dialog_border_bg`, `input_bg` / `input_fg`, `cursor_bg` / `cursor_fg`,
-`menu_selection_bg` / `menu_selection_fg`, the file-type colors, the gradient
-endpoints, and so on — so you have full control over each element. Edit any
-preset, or add your own `[[theme]]` blocks (they appear in the theme chooser).
-**Options → Edit themes…** opens the file in the built-in editor; saving applies
-the changes immediately. Delete the file to regenerate the presets.
+**Options → Edit themes…** opens a **visual theme editor**. It starts on the
+theme in use; pick any UI element from the color list and set its color with the
+RGB **color picker** (a 16-color swatch grid on non-truecolor terminals), while a
+**live preview** on the right shows whichever surface that element affects — the
+file panels, a demo dialog, or a small editor. **Save** writes the change
+(applying it at once when you are editing the active theme), **Save as…** stores
+it under a new name that then appears in the theme chooser, and **Cancel** / `Esc`
+leaves — prompting to save, discard, or cancel if there are unsaved edits (as
+does switching the picker to another theme). The full key list is under
+[Theme editor](#theme-editor) above.
+
+Themes are stored in **`themes.toml`**, generated with all the presets on first
+run. Each `[[theme]]` holds an explicit `#rrggbb` color for **every UI element** —
+`panel_bg`, `menu_bg`, `dialog_bg`, `dialog_border_fg` / `dialog_border_bg`,
+`input_bg` / `input_fg`, `cursor_bg` / `cursor_fg`, `menu_selection_bg` /
+`menu_selection_fg`, the file-type colors, the gradient endpoints, and so on. You
+can also edit the file directly — open it with **F4** in a panel, and saving
+live-reloads it. Delete the file to regenerate the presets.
 
 ### The F2 user-menu format
 

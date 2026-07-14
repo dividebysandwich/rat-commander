@@ -39,6 +39,7 @@ impl AppState {
             diffview: None,
             mountview: None,
             netview: None,
+            theme_editor: None,
             pending_sudo: None,
             pending_flash: None,
             pending_image: None,

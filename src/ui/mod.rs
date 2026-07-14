@@ -10,6 +10,7 @@ pub mod menu;
 pub mod menubar;
 pub mod textedit;
 pub mod theme;
+pub mod theme_editor;
 
 use crate::app::state::AppState;
 use crate::panel::render::render_panel;
@@ -62,6 +63,13 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
     }
     if let Some(dv) = state.diffview.as_mut() {
         crate::diff::render::render(f, area, dv, &theme);
+        if let Some(d) = &mut state.dialog {
+            d.render(f, area, &theme, state.gfx.as_mut());
+        }
+        return;
+    }
+    if let Some(te) = state.theme_editor.as_mut() {
+        theme_editor::render::render(f, area, te, &theme);
         if let Some(d) = &mut state.dialog {
             d.render(f, area, &theme, state.gfx.as_mut());
         }

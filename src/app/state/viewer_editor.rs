@@ -391,19 +391,42 @@ impl AppState {
         }
     }
 
-    /// Open `themes.toml` in the internal editor (Options → Edit themes),
-    /// generating it from the presets first if it doesn't exist yet.
+    /// Open the visual theme editor (Options → Edit themes), starting on the
+    /// app's currently-active theme.
     pub(in crate::app::state) fn open_edit_themes(&mut self) {
-        let Some(path) = crate::ui::theme::ensure_themes_file() else {
-            return self.show_error("No config directory available");
-        };
-        match std::fs::read_to_string(&path) {
-            Ok(text) => {
-                let mut ed = EditorState::new("themes.toml".to_string(), VfsPath::local(&path), &text);
-                ed.enable_syntax(self.dark_ui());
-                self.editor = Some(ed);
-            }
-            Err(e) => self.show_error(format!("cannot open themes.toml: {e}")),
+        self.theme_editor =
+            Some(crate::ui::theme_editor::ThemeEditor::new(&self.config.theme, self.truecolor));
+    }
+
+    /// Apply a signal from the visual theme editor: close it, or persist the
+    /// edited spec to `themes.toml` and re-derive the live theme.
+    pub(in crate::app::state) fn apply_theme_editor_signal(
+        &mut self,
+        sig: crate::ui::theme_editor::ThemeEditorSignal,
+    ) {
+        use crate::ui::theme_editor::ThemeEditorSignal;
+        match sig {
+            ThemeEditorSignal::Stay => {}
+            ThemeEditorSignal::Close => self.theme_editor = None,
+            ThemeEditorSignal::Save(spec) => match crate::ui::theme::save_spec(*spec) {
+                Ok(()) => {
+                    if let Some(te) = self.theme_editor.as_mut() {
+                        te.mark_saved();
+                    }
+                    // Re-derive the active theme: if the saved theme is the one in
+                    // use, its edits take effect at once; otherwise this is a no-op.
+                    self.theme = Theme::by_name(&self.config.theme, self.truecolor);
+                }
+                Err(e) => self.show_error(format!("Could not save theme: {e}")),
+            },
+            ThemeEditorSignal::SaveAndClose(spec) => match crate::ui::theme::save_spec(*spec) {
+                Ok(()) => {
+                    self.theme = Theme::by_name(&self.config.theme, self.truecolor);
+                    self.theme_editor = None;
+                }
+                // Keep the editor open on a write error so the edits aren't lost.
+                Err(e) => self.show_error(format!("Could not save theme: {e}")),
+            },
         }
     }
 

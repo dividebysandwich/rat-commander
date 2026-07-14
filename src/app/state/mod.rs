@@ -159,6 +159,8 @@ pub struct AppState {
     pub mountview: Option<MountView>,
     /// The full-screen network-connections explorer, when open (Linux).
     pub netview: Option<NetView>,
+    /// The full-screen visual theme editor, when open (Options → Edit themes).
+    pub theme_editor: Option<crate::ui::theme_editor::ThemeEditor>,
     /// A privileged command queued while prompting for a sudo password.
     pending_sudo: Option<PendingPriv>,
     /// A flash queued while prompting for a sudo password.

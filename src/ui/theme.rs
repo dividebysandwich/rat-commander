@@ -59,7 +59,7 @@ pub struct Palette {
 /// hue mixing. The built-in [`PALETTES`] seed it (their well-known schemes are
 /// derived once into these component colors) and are the fallback if the file is
 /// missing or invalid. Colors are `#rrggbb` hex.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ThemeSpec {
     pub name: String,
 
@@ -131,6 +131,136 @@ pub struct ThemeSpec {
     /// Animated gradient endpoints (bars/cursor on truecolor terminals).
     #[serde(with = "hex_color")] pub gradient_from: Color,
     #[serde(with = "hex_color")] pub gradient_to: Color,
+}
+
+/// Which live-preview surface best exercises a given color, so the visual theme
+/// editor can show the relevant chrome while that color is selected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PreviewKind {
+    /// The two file panels plus the menu bar, function-key bar and pulldown menu.
+    Panels,
+    /// A demo dialog with a text input and buttons.
+    Dialog,
+    /// A small editor / viewer with body text.
+    Editor,
+}
+
+/// One editable color in a [`ThemeSpec`]: a human label and the preview surface
+/// it drives. Entries are shown, in order, in the theme editor's item list.
+pub struct ThemeFieldMeta {
+    pub group: &'static str,
+    pub label: &'static str,
+    pub preview: PreviewKind,
+}
+
+/// Generate the editable-field table and indexed color accessors from a single
+/// ordered list, so [`THEME_FIELDS`] and [`ThemeSpec::color_at`] can never drift
+/// out of sync.
+macro_rules! theme_fields {
+    ( $( $group:literal, $label:literal, $preview:ident, $field:ident ; )* ) => {
+        /// Every editable color, in item-list display order. The index into this
+        /// table matches [`ThemeSpec::color_at`] / [`ThemeSpec::set_color_at`].
+        pub static THEME_FIELDS: &[ThemeFieldMeta] = &[
+            $( ThemeFieldMeta { group: $group, label: $label, preview: PreviewKind::$preview }, )*
+        ];
+        impl ThemeSpec {
+            /// The color of the editable field at display index `i` (falls back to
+            /// the panel background for an out-of-range index).
+            pub fn color_at(&self, i: usize) -> Color {
+                let mut n = 0usize;
+                $( if n == i { return self.$field; } n += 1; )*
+                let _ = n;
+                self.panel_bg
+            }
+            /// Replace the color of the editable field at display index `i`.
+            pub fn set_color_at(&mut self, i: usize, c: Color) {
+                let mut n = 0usize;
+                $( if n == i { self.$field = c; return; } n += 1; )*
+                let _ = n;
+            }
+        }
+    };
+}
+
+theme_fields! {
+    // -- Panels & chrome (previewed on the two-panel view) --
+    "Panel", "Background", Panels, panel_bg;
+    "Panel", "Foreground", Panels, panel_fg;
+    "Panel", "Border", Panels, panel_border;
+    "Panel", "Active border", Panels, panel_border_active;
+    "Panel", "Column header", Panels, header_fg;
+    "Cursor", "Background", Panels, cursor_bg;
+    "Cursor", "Foreground", Panels, cursor_fg;
+    "Cursor", "Inactive background", Panels, cursor_inactive_bg;
+    "Cursor", "Inactive foreground", Panels, cursor_inactive_fg;
+    "File types", "Marked", Panels, marked_fg;
+    "File types", "Directory", Panels, dir_fg;
+    "File types", "Executable", Panels, exec_fg;
+    "File types", "Symlink", Panels, symlink_fg;
+    "File types", "Archive", Panels, archive_fg;
+    "File types", "Document", Panels, doc_fg;
+    "File types", "Image", Panels, image_fg;
+    "File types", "Media", Panels, media_fg;
+    "Menu bar", "Background", Panels, menubar_bg;
+    "Menu bar", "Foreground", Panels, menubar_fg;
+    "Function keys", "Label background", Panels, fkey_label_bg;
+    "Function keys", "Label foreground", Panels, fkey_label_fg;
+    "Function keys", "Number background", Panels, fkey_num_bg;
+    "Function keys", "Number foreground", Panels, fkey_num_fg;
+    "Function keys", "Gradient text", Panels, bar_fg;
+    "Gradient", "From", Panels, gradient_from;
+    "Gradient", "To", Panels, gradient_to;
+    "Pulldown menu", "Background", Panels, menu_bg;
+    "Pulldown menu", "Foreground", Panels, menu_fg;
+    "Pulldown menu", "Selection background", Panels, menu_selection_bg;
+    "Pulldown menu", "Selection foreground", Panels, menu_selection_fg;
+    "Pulldown menu", "Hotkey letter", Panels, hotkey_fg;
+    // -- Dialogs, inputs & buttons (previewed on the demo dialog) --
+    "Dialog", "Background", Dialog, dialog_bg;
+    "Dialog", "Foreground", Dialog, dialog_fg;
+    "Dialog", "Title", Dialog, dialog_title;
+    "Dialog", "Border", Dialog, dialog_border_fg;
+    "Dialog", "Border background", Dialog, dialog_border_bg;
+    "Dialog", "Selection background", Dialog, dialog_selection_bg;
+    "Dialog", "Selection foreground", Dialog, dialog_selection_fg;
+    "Dialog", "Error text", Dialog, error_fg;
+    "Input", "Background", Dialog, input_bg;
+    "Input", "Foreground", Dialog, input_fg;
+    "Button", "Background", Dialog, button_bg;
+    "Button", "Foreground", Dialog, button_fg;
+    "Button", "Focused background", Dialog, button_focused_bg;
+    "Button", "Focused foreground", Dialog, button_focused_fg;
+    // -- Editor / viewer --
+    "Editor / Viewer", "Body text", Editor, text_fg;
+}
+
+/// A clone of every active theme spec, in file order — the editable source for
+/// the visual theme editor's picker.
+pub fn active_specs() -> Vec<ThemeSpec> {
+    ACTIVE.read().unwrap().clone()
+}
+
+/// The active spec matching `name` (fuzzy, like [`Theme::by_name`]).
+pub fn spec_by_name(name: &str) -> Option<ThemeSpec> {
+    let key = norm_name(name);
+    ACTIVE.read().unwrap().iter().find(|p| norm_name(&p.name) == key).cloned()
+}
+
+/// Insert or replace `spec` (matched by name) in the active set and persist the
+/// whole set to `themes.toml`. The in-memory set is updated even if the file
+/// write fails; the error string is for surfacing to the user.
+pub fn save_spec(spec: ThemeSpec) -> Result<(), String> {
+    {
+        let mut active = ACTIVE.write().unwrap();
+        let key = norm_name(&spec.name);
+        match active.iter_mut().find(|p| norm_name(&p.name) == key) {
+            Some(slot) => *slot = spec,
+            None => active.push(spec),
+        }
+    }
+    let specs = active_specs();
+    let path = crate::config::paths::themes_file().ok_or("no config directory available")?;
+    write_themes(&path, &specs).map_err(|e| e.to_string())
 }
 
 /// Extract the per-component colors from a (derived) [`Theme`] into a [`ThemeSpec`]

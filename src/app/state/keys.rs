@@ -89,6 +89,7 @@ impl AppState {
             && self.diffview.is_none()
             && self.mountview.is_none()
             && self.netview.is_none()
+            && self.theme_editor.is_none()
     }
 
     /// Deliver a held Esc once its function-key window has elapsed without a
@@ -168,6 +169,11 @@ impl AppState {
         if self.mountview.is_some() {
             let sig = self.mountview.as_mut().unwrap().handle_key(key);
             self.apply_mount_signal(sig).await;
+            return Flow::Continue;
+        }
+        if self.theme_editor.is_some() {
+            let sig = self.theme_editor.as_mut().unwrap().handle_key(key);
+            self.apply_theme_editor_signal(sig);
             return Flow::Continue;
         }
         if self.menu.is_some() {

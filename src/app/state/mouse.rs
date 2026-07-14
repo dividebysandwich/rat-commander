@@ -71,6 +71,13 @@ impl AppState {
             self.apply_viewer_signal(sig);
             return Flow::Continue;
         }
+        // The theme editor hit-tests clicks/scroll against the zones it stored
+        // during the last render.
+        if self.theme_editor.is_some() {
+            let sig = self.theme_editor.as_mut().unwrap().handle_mouse(ev);
+            self.apply_theme_editor_signal(sig);
+            return Flow::Continue;
+        }
 
         // Disk explorer: a left click selects the box under the pointer; a second
         // click on the same box (within the double-click window) dives into it,
