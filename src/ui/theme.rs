@@ -15,15 +15,9 @@ const fn rgb(h: u32) -> Color {
     Color::Rgb((h >> 16) as u8, (h >> 8) as u8, h as u8)
 }
 
-/// The signature Midnight Commander teal used for the selection bar and menu /
-/// function-key bars in both MC themes (matching the real program).
+/// The signature Rat/Midnight Commander teal used for the selection bar and
+/// menu / function-key bars (matching the real program).
 const MC_TEAL: Color = rgb(0x00a3a3);
-
-/// Gradient endpoints for the MC themes — a narrow teal-family ramp kept close
-/// together so the menu bar and cursor shift only subtly around the signature
-/// teal rather than sweeping a wide range.
-const MC_GRAD_A: Color = rgb(0x009c9c);
-const MC_GRAD_B: Color = rgb(0x12baba);
 
 /// A 16-color terminal palette plus background/foreground.
 #[derive(Clone, Copy)]
@@ -373,11 +367,181 @@ const THEMES_HEADER: &str = "\
 # Settings (the Theme field). Saving applies the change at once. Delete this file
 # to regenerate the presets.\n\n";
 
-/// The built-in presets as component specs: each well-known ANSI scheme is
-/// derived once (via [`Theme::from_ansi`]) into explicit per-element colors,
-/// which seed `themes.toml` and serve as the fallback set.
+/// The signature Rat Commander theme (the default): a deep-blue two-panel look
+/// with a teal selection bar and light "paper" dialogs. Defined with explicit
+/// component colors rather than derived from an ANSI palette.
+fn rat_commander_spec() -> ThemeSpec {
+    ThemeSpec {
+        name: "Rat Commander".to_string(),
+        panel_bg: rgb(0x0000cd),
+        panel_fg: rgb(0xc6c6c6),
+        text_fg: rgb(0xd7d7d7),
+        panel_border: rgb(0x5959ca),
+        panel_border_active: rgb(0x55ffff),
+        header_fg: rgb(0xffff55),
+        cursor_bg: rgb(0x00a3a3),
+        cursor_fg: rgb(0x000000),
+        cursor_inactive_bg: rgb(0x1818cc),
+        cursor_inactive_fg: rgb(0xc6c6c6),
+        marked_fg: rgb(0xffff55),
+        dir_fg: rgb(0xc6c6c6),
+        file_fg: rgb(0xc6c6c6),
+        exec_fg: rgb(0x55ff55),
+        symlink_fg: rgb(0x55ffff),
+        archive_fg: rgb(0xff55ff),
+        doc_fg: rgb(0xaa5500),
+        image_fg: rgb(0x55ffff),
+        media_fg: rgb(0x55ff55),
+        menubar_bg: rgb(0x00a3a3),
+        menubar_fg: rgb(0x0000cd),
+        fkey_label_bg: rgb(0x00a3a3),
+        fkey_label_fg: rgb(0x0000cd),
+        fkey_num_bg: rgb(0x000000),
+        fkey_num_fg: rgb(0xffffff),
+        dialog_bg: rgb(0xc6c6c6),
+        dialog_fg: rgb(0x000000),
+        dialog_title: rgb(0x0000cc),
+        dialog_border_fg: rgb(0x0000cc),
+        dialog_border_bg: rgb(0xc6c6c6),
+        dialog_selection_bg: rgb(0x0dcdcd),
+        dialog_selection_fg: rgb(0x000000),
+        menu_bg: rgb(0x0dcdcd),
+        menu_fg: rgb(0xffffff),
+        menu_selection_bg: rgb(0x000000),
+        menu_selection_fg: rgb(0xffffff),
+        hotkey_fg: rgb(0xffff00),
+        input_bg: rgb(0x0dcdcd),
+        input_fg: rgb(0x000000),
+        button_bg: rgb(0xc6c6c6),
+        button_fg: rgb(0x000000),
+        button_focused_bg: rgb(0x0dcdcd),
+        button_focused_fg: rgb(0x000000),
+        error_fg: rgb(0xff5555),
+        bar_fg: rgb(0x000000),
+        gradient_from: rgb(0x009c9c),
+        gradient_to: rgb(0x12baba),
+    }
+}
+
+/// The classic Midnight Commander look: a lighter blue panel with white text and
+/// a bright cyan menu/status bar.
+fn midnight_commander_spec() -> ThemeSpec {
+    ThemeSpec {
+        name: "Midnight Commander".to_string(),
+        panel_bg: rgb(0x0d73cc),
+        panel_fg: rgb(0xffffff),
+        text_fg: rgb(0xd7d7d7),
+        panel_border: rgb(0xffffff),
+        panel_border_active: rgb(0xffffff),
+        header_fg: rgb(0xffff55),
+        cursor_bg: rgb(0x0dcdcd),
+        cursor_fg: rgb(0x000000),
+        cursor_inactive_bg: rgb(0x0d73cc),
+        cursor_inactive_fg: rgb(0xffffff),
+        marked_fg: rgb(0xffff55),
+        dir_fg: rgb(0xffffff),
+        file_fg: rgb(0xd2d2d2),
+        exec_fg: rgb(0x55ff55),
+        symlink_fg: rgb(0x55ffff),
+        archive_fg: rgb(0xff55ff),
+        doc_fg: rgb(0xe61000),
+        image_fg: rgb(0x55ffff),
+        media_fg: rgb(0x55ff55),
+        menubar_bg: rgb(0x0dcdcd),
+        menubar_fg: rgb(0x000000),
+        fkey_label_bg: rgb(0x0dcdcd),
+        fkey_label_fg: rgb(0x0000cd),
+        fkey_num_bg: rgb(0x000000),
+        fkey_num_fg: rgb(0xffffff),
+        dialog_bg: rgb(0xc6c6c6),
+        dialog_fg: rgb(0x000000),
+        dialog_title: rgb(0x0d73cc),
+        dialog_border_fg: rgb(0x000000),
+        dialog_border_bg: rgb(0xc6c6c6),
+        dialog_selection_bg: rgb(0x0dcdcd),
+        dialog_selection_fg: rgb(0x000000),
+        menu_bg: rgb(0x0dcdcd),
+        menu_fg: rgb(0xffffff),
+        menu_selection_bg: rgb(0x000000),
+        menu_selection_fg: rgb(0xffffff),
+        hotkey_fg: rgb(0xffff00),
+        input_bg: rgb(0x0dcdcd),
+        input_fg: rgb(0x000000),
+        button_bg: rgb(0xc6c6c6),
+        button_fg: rgb(0x000000),
+        button_focused_bg: rgb(0x0dcdcd),
+        button_focused_fg: rgb(0x000000),
+        error_fg: rgb(0xff5555),
+        bar_fg: rgb(0x000000),
+        gradient_from: rgb(0x0dcdcd),
+        gradient_to: rgb(0x0dcdcd),
+    }
+}
+
+/// A darker Midnight Commander variant: deep indigo panels with a teal accent.
+fn midnight_commander_dark_spec() -> ThemeSpec {
+    ThemeSpec {
+        name: "Midnight Commander Dark".to_string(),
+        panel_bg: rgb(0x1818d4),
+        panel_fg: rgb(0xe8e8e8),
+        text_fg: rgb(0xefefef),
+        panel_border: rgb(0x7676dd),
+        panel_border_active: rgb(0x4cffff),
+        header_fg: rgb(0xffff44),
+        cursor_bg: rgb(0x00a3a3),
+        cursor_fg: rgb(0x000000),
+        cursor_inactive_bg: rgb(0x3131d6),
+        cursor_inactive_fg: rgb(0xe8e8e8),
+        marked_fg: rgb(0xffff44),
+        dir_fg: rgb(0x4cffff),
+        file_fg: rgb(0xe8e8e8),
+        exec_fg: rgb(0x4cff4c),
+        symlink_fg: rgb(0x4cffff),
+        archive_fg: rgb(0xff55ff),
+        doc_fg: rgb(0xe8e8e8),
+        image_fg: rgb(0x4cffff),
+        media_fg: rgb(0x4cff4c),
+        menubar_bg: rgb(0x00a3a3),
+        menubar_fg: rgb(0x1818d4),
+        fkey_label_bg: rgb(0x00a3a3),
+        fkey_label_fg: rgb(0x1818d4),
+        fkey_num_bg: rgb(0x1818d4),
+        fkey_num_fg: rgb(0xffffff),
+        dialog_bg: rgb(0x3131d6),
+        dialog_fg: rgb(0xe8e8e8),
+        dialog_title: rgb(0x4cffff),
+        dialog_border_fg: rgb(0x4cffff),
+        dialog_border_bg: rgb(0x3131d6),
+        dialog_selection_bg: rgb(0x4cffff),
+        dialog_selection_fg: rgb(0x1818d4),
+        menu_bg: rgb(0x0e0ed1),
+        menu_fg: rgb(0xffffff),
+        menu_selection_bg: rgb(0x6c6cff),
+        menu_selection_fg: rgb(0xffffff),
+        hotkey_fg: rgb(0xffff44),
+        input_bg: rgb(0x0000cc),
+        input_fg: rgb(0xffffff),
+        button_bg: rgb(0x3131d6),
+        button_fg: rgb(0xe8e8e8),
+        button_focused_bg: rgb(0x4cffff),
+        button_focused_fg: rgb(0x1818d4),
+        error_fg: rgb(0xff6464),
+        bar_fg: rgb(0x000000),
+        gradient_from: rgb(0x009c9c),
+        gradient_to: rgb(0x12baba),
+    }
+}
+
+/// The built-in presets as component specs. The three Rat/Midnight Commander
+/// themes are defined explicitly (above); every other well-known scheme is
+/// derived once from its ANSI [`Palette`] via [`Theme::from_ansi`]. These seed
+/// `themes.toml` and serve as the fallback set. `Rat Commander` is first, so it
+/// is the default ([`Theme::mc`], [`BUILTIN`]`[0]`).
 fn builtin_specs() -> Vec<ThemeSpec> {
-    PALETTES.iter().map(|p| theme_to_spec(&Theme::from_ansi(p, true))).collect()
+    let mut specs =
+        vec![rat_commander_spec(), midnight_commander_spec(), midnight_commander_dark_spec()];
+    specs.extend(PALETTES.iter().map(|p| theme_to_spec(&Theme::from_ansi(p, true))));
+    specs
 }
 
 static BUILTIN: LazyLock<Vec<ThemeSpec>> = LazyLock::new(builtin_specs);
@@ -609,16 +773,10 @@ impl Theme {
         } else {
             p.bright_black
         };
-        // Both Midnight Commander themes use the signature teal selection bar
-        // with black text (like the real program); other themes use the
-        // (gradient-friendly) bright-blue cursor.
-        let is_mc =
-            p.name == "Midnight Commander" || p.name == "MidnightCommander Classic";
-        let (cursor_bg, cursor_fg) = if is_mc {
-            (p.cyan, p.black)
-        } else {
-            (p.bright_blue, best_contrast(p.bright_blue, p.bg, p.bright_white))
-        };
+        // Derived themes use a gradient-friendly bright-blue cursor. (The teal
+        // Commander cursor lives in the explicit specs, not here.)
+        let (cursor_bg, cursor_fg) =
+            (p.bright_blue, best_contrast(p.bright_blue, p.bg, p.bright_white));
         // Borders/column separators must contrast with the panel background on
         // every theme (e.g. MC's blue border would vanish on its blue bg), so
         // derive them from a bg↔fg mix rather than a palette hue.
@@ -630,13 +788,10 @@ impl Theme {
         let dialog_surface = surface;
         let menu_surface = mix(p.bg, p.blue, 0.40);
 
-        // The top menu bar and bottom F-key bar are the Midnight Commander
-        // themes' signature teal; every other theme draws them from the middle of
-        // its own accent gradient (the same colour the truecolor bars fade
+        // The top menu bar and bottom F-key bar are drawn from the middle of the
+        // theme's own accent gradient (the same colour the truecolor bars fade
         // through) so the chrome matches the theme instead of a stock cyan.
-        let (bar_bg, bar_bg_fg) = if is_mc {
-            (p.cyan, p.bg)
-        } else {
+        let (bar_bg, bar_bg_fg) = {
             let mid = mix(p.bright_blue, p.bright_magenta, 0.5);
             (mid, best_contrast(mid, p.black, p.bright_white))
         };
@@ -706,56 +861,16 @@ impl Theme {
                 .fg(p.bg)
                 .add_modifier(Modifier::BOLD),
             error_fg: p.bright_red,
-            // Most themes use a vivid blue→magenta gradient. The Midnight
-            // Commander themes stay in the teal family (deep teal → bright cyan)
-            // so the bars/cursor keep their signature color while still shifting.
-            bar_fg: if is_mc {
-                p.black
-            } else {
-                best_contrast(mix(p.bright_blue, p.bright_magenta, 0.5), p.black, p.bright_white)
-            },
+            // Derived themes use a vivid blue→magenta gradient; the text over the
+            // bars picks whichever of black/white contrasts with its midpoint.
+            bar_fg: best_contrast(mix(p.bright_blue, p.bright_magenta, 0.5), p.black, p.bright_white),
             anim: 0,
             animated: false,
-            grad_a: if is_mc { to_rgb(MC_GRAD_A) } else { to_rgb(p.bright_blue) },
-            grad_b: if is_mc { to_rgb(MC_GRAD_B) } else { to_rgb(p.bright_magenta) },
+            grad_a: to_rgb(p.bright_blue),
+            grad_b: to_rgb(p.bright_magenta),
         };
 
-        // The default Midnight Commander theme uses the classic two-tone look:
-        // pulldown menus are bright cyan with white text and a black selection
-        // bar, while dialogs are a light "paper" gray with black text, blue
-        // titles, and teal selection bars / input fields (like the real
-        // program's Configure-options dialog).
-        if p.name == "Midnight Commander" {
-            let cyan = rgb(0x0dcdcd);
-            let paper = rgb(0xc6c6c6);
-            let white = rgb(0xffffff);
-            let black = rgb(0x000000);
-            let blue = rgb(0x0000cc);
-            let teal_sel = Style::default().bg(cyan).fg(black).add_modifier(Modifier::BOLD);
-
-            // Dialogs: light paper background, black text, blue accents.
-            theme.dialog_bg = paper;
-            theme.dialog_fg = black;
-            theme.dialog_title = blue;
-            theme.dialog_selection = teal_sel;
-            theme.input_bg = cyan;
-            theme.input_fg = black;
-            theme.button = Style::default().bg(paper).fg(black);
-            theme.button_focused = teal_sel;
-
-            // Menus: bright cyan with white text and a black selection bar.
-            theme.menu_bg = cyan;
-            theme.menu_fg = white;
-            theme.menu_selection =
-                Style::default().bg(black).fg(white).add_modifier(Modifier::BOLD);
-            // Classic MC paints menu accelerators in vivid yellow.
-            theme.hotkey_fg = rgb(0xffff00);
-
-            // Function-key numbers sit on a black cap (like the real program).
-            theme.fkey_num = Style::default().bg(black).fg(white).add_modifier(Modifier::BOLD);
-        }
-
-        // The dialog frame matches the (possibly overridden) title/interior.
+        // The dialog frame matches the title/interior.
         theme.dialog_border_fg = theme.dialog_title;
         theme.dialog_border_bg = theme.dialog_bg;
         theme
@@ -908,16 +1023,10 @@ fn has_palette(name: &str) -> bool {
 
 /// Curated terminal color schemes (a subset of terminalcolors.com). Each is a
 /// standard 16-ANSI palette; the list is data-driven so more can be appended.
+// The Rat/Midnight Commander themes are defined explicitly (see
+// `rat_commander_spec` and friends), not derived from an ANSI palette, so they
+// are intentionally absent from this list.
 pub static PALETTES: &[Palette] = &[
-    Palette {
-        name: "Midnight Commander",
-        bg: rgb(0x0000cd), fg: rgb(0xc6c6c6),
-        black: rgb(0x000000), red: rgb(0xaa0000), green: rgb(0x00aa00), yellow: rgb(0xaa5500),
-        blue: rgb(0x0000aa), magenta: rgb(0xaa00aa), cyan: MC_TEAL, white: rgb(0xc6c6c6),
-        bright_black: rgb(0x555555), bright_red: rgb(0xff5555), bright_green: rgb(0x55ff55),
-        bright_yellow: rgb(0xffff55), bright_blue: rgb(0x5555ff), bright_magenta: rgb(0xff55ff),
-        bright_cyan: rgb(0x55ffff), bright_white: rgb(0xffffff),
-    },
     Palette {
         name: "Dracula",
         bg: rgb(0x282a36), fg: rgb(0xf8f8f2),
@@ -1091,18 +1200,6 @@ pub static PALETTES: &[Palette] = &[
         bright_yellow: rgb(0xaaffaa), bright_blue: rgb(0x55ff55), bright_magenta: rgb(0x00bb00),
         bright_cyan: rgb(0xaaffcc), bright_white: rgb(0xccffcc),
     },
-    // The classic Midnight Commander look, but with brighter, more saturated
-    // accents. `yellow` is intentionally light so documents render like normal
-    // files (classic MC doesn't tint them); headers/marks use `bright_yellow`.
-    Palette {
-        name: "MidnightCommander Classic",
-        bg: rgb(0x1818d4), fg: rgb(0xe8e8e8),
-        black: rgb(0x000000), red: rgb(0xcc0000), green: rgb(0x00cc00), yellow: rgb(0xe8e8e8),
-        blue: rgb(0x0000cc), magenta: rgb(0xcc44cc), cyan: MC_TEAL, white: rgb(0xffffff),
-        bright_black: rgb(0x808080), bright_red: rgb(0xff6464), bright_green: rgb(0x4cff4c),
-        bright_yellow: rgb(0xffff44), bright_blue: rgb(0x6c6cff), bright_magenta: rgb(0xff55ff),
-        bright_cyan: rgb(0x4cffff), bright_white: rgb(0xffffff),
-    },
     // Rainbow: every ANSI slot is a different hue of the spectrum (red → orange
     // → yellow → green → blue → indigo → violet) over a deep indigo backdrop, so
     // the file list and gradient bars cycle through the full rainbow.
@@ -1179,7 +1276,7 @@ mod tests {
 
     #[test]
     fn editing_one_component_changes_only_that_element() {
-        let mut spec = builtin_specs()[0].clone(); // Midnight Commander
+        let mut spec = builtin_specs()[0].clone(); // Rat Commander (the default)
         let base = Theme::from_spec(&spec, true);
         // Give the dialog a completely different background — directly, no mixing.
         spec.dialog_bg = rgb(0x123456);
@@ -1298,7 +1395,7 @@ mod tests {
 
     #[test]
     fn both_mc_themes_use_signature_teal() {
-        for name in ["Midnight Commander", "MidnightCommander Classic"] {
+        for name in ["Rat Commander", "Midnight Commander Dark"] {
             let t = Theme::by_name(name, true);
             assert_eq!(t.cursor.bg, Some(MC_TEAL), "{name} cursor bg");
             assert_eq!(t.cursor.fg, Some(rgb(0x000000)), "{name} cursor fg");
@@ -1326,7 +1423,7 @@ mod tests {
         // Dialogs: light "paper" background, black text, blue titles.
         assert_eq!(t.dialog_bg, rgb(0xc6c6c6));
         assert_eq!(t.dialog_fg, black);
-        assert_eq!(t.dialog_title, rgb(0x0000cc));
+        assert_eq!(t.dialog_title, rgb(0x0d73cc));
         // Teal selection bars / input fields inside dialogs.
         assert_eq!(t.dialog_selection.bg, Some(cyan));
         assert_eq!(t.button_focused.bg, Some(cyan));
@@ -1379,19 +1476,26 @@ mod tests {
     }
 
     #[test]
-    fn classic_theme_uses_bright_classic_colors() {
-        assert!(has_palette("MidnightCommander Classic"));
-        let t = Theme::by_name("MidnightCommander Classic", true);
-        assert_eq!(t.name, "MidnightCommander Classic");
-        // Signature teal selection bar with black text (classic MC).
+    fn rat_commander_is_default_and_commander_themes_are_registered() {
+        // All three adopted themes are present and build, and the old no-space
+        // "MidnightCommander Classic" is gone (replaced by Rat Commander).
+        for name in ["Rat Commander", "Midnight Commander", "Midnight Commander Dark"] {
+            assert!(has_palette(name), "{name} missing");
+            assert_eq!(Theme::by_name(name, true).name, name);
+        }
+        assert!(!has_palette("MidnightCommander Classic"), "old classic theme should be gone");
+
+        // Rat Commander is the first built-in, hence the default.
+        assert_eq!(builtin_specs()[0].name, "Rat Commander");
+        assert_eq!(Theme::mc().name, "Rat Commander");
+        assert_eq!(crate::config::Config::default().theme, "Rat Commander");
+
+        // Its signature colors: deep-blue panels, teal selection bar, light dialogs.
+        let t = Theme::by_name("Rat Commander", true);
+        assert_eq!(t.panel_bg, rgb(0x0000cd));
         assert_eq!(t.cursor.bg, Some(MC_TEAL));
         assert_eq!(t.cursor.fg, Some(rgb(0x000000)));
-        // Bright, saturated accents.
-        assert_eq!(t.exec_fg, rgb(0x4cff4c));
+        assert_eq!(t.dialog_bg, rgb(0xc6c6c6));
         assert_eq!(t.archive_fg, rgb(0xff55ff));
-        assert_eq!(t.header_fg, rgb(0xffff44));
-        // Documents render like normal files (not tinted) in the classic look.
-        assert_eq!(t.doc_fg, t.panel_fg);
     }
 }
-

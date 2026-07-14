@@ -134,7 +134,7 @@ impl Default for Config {
             confirm_execute: false,
             confirm_unmount: true,
             confirm_exit: true,
-            theme: "Midnight Commander".to_string(),
+            theme: "Rat Commander".to_string(),
             language: None,
             reshape_rtl: true,
             graphics: "auto".to_string(),

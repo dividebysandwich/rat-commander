@@ -781,7 +781,8 @@ mod tests {
 
     #[test]
     fn switching_theme_while_dirty_prompts_and_discard_switches() {
-        let mut ed = ThemeEditor::new("Midnight Commander", true);
+        // Start on the first theme (the default) so moving down targets index 1.
+        let mut ed = ThemeEditor::new("Rat Commander", true);
         ed.handle_key(k(KeyCode::Right));
         ed.handle_key(k(KeyCode::End)); // dirty
         ed.focus = Focus::Picker;
@@ -798,7 +799,7 @@ mod tests {
 
     #[test]
     fn switching_theme_while_dirty_can_save_first() {
-        let mut ed = ThemeEditor::new("Midnight Commander", true);
+        let mut ed = ThemeEditor::new("Rat Commander", true);
         let edited_name = ed.spec.name.clone();
         ed.handle_key(k(KeyCode::Right));
         ed.handle_key(k(KeyCode::End));
@@ -934,7 +935,7 @@ mod tests {
 
     #[test]
     fn mouse_click_picks_a_theme() {
-        let mut ed = ThemeEditor::new("Midnight Commander", true);
+        let mut ed = ThemeEditor::new("Rat Commander", true); // the first theme
         let _t = rendered(&mut ed);
         // Right half of the picker → next theme.
         let p = ed.z_picker;
