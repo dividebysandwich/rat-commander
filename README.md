@@ -63,6 +63,9 @@ The installed executable is named **`rc`** for quick typing.
   directories; copy in/out, delete, and compress a selection.
 - **Remote filesystems** — SFTP, SCP and FTP/FTPS, each mounted into a panel;
   copy/move/delete works transparently across local, remote and archive panels.
+  On an **SFTP/SCP** panel, the command line and **Ctrl-O** run a shell on the
+  **remote host** over the same SSH connection — its output on the same console
+  backdrop, no second login.
 - **Disk explorer** (treemap of disk usage), **process explorer** (btop-style
   system monitor), and a **disk manager** (Linux) to mount/unmount/format/sync
   drives and **flash or image** raw disk images.

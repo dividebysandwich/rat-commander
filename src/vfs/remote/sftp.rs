@@ -8,8 +8,9 @@ use russh_sftp::protocol::{FileAttributes, FileType};
 use std::time::{Duration, UNIX_EPOCH};
 
 pub struct SftpFs {
-    /// Kept alive so the SSH connection task keeps running.
-    _handle: SshHandle,
+    /// Kept alive so the SSH connection task keeps running; also used to open an
+    /// interactive shell channel (`Ctrl-O` on an SFTP panel).
+    handle: SshHandle,
     sftp: SftpSession,
 }
 
@@ -38,7 +39,7 @@ pub async fn connect(creds: &RemoteCreds) -> Result<Connection> {
     let label = format!("sftp://{}@{}", creds.user, creds.host);
     Ok(Connection {
         backend: std::sync::Arc::new(SftpFs {
-            _handle: handle,
+            handle,
             sftp,
         }),
         root,
@@ -85,6 +86,10 @@ fn entry_from(name: String, kind: VfsKind, m: &FileAttributes) -> VfsEntry {
 
 #[async_trait::async_trait]
 impl Vfs for SftpFs {
+    async fn open_shell(&self, rows: u16, cols: u16) -> Result<super::RemoteShellChannel> {
+        super::open_shell_channel(&self.handle, rows, cols).await
+    }
+
     fn scheme(&self) -> &str {
         "sftp"
     }

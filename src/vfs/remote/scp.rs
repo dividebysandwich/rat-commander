@@ -77,6 +77,10 @@ fn entry_from(name: String, p: super::ParsedListing) -> VfsEntry {
 
 #[async_trait::async_trait]
 impl Vfs for ScpFs {
+    async fn open_shell(&self, rows: u16, cols: u16) -> Result<super::RemoteShellChannel> {
+        super::open_shell_channel(&self.handle, rows, cols).await
+    }
+
     fn scheme(&self) -> &str {
         "scp"
     }

@@ -48,6 +48,14 @@ to step back). Colours and cursor motion render faithfully, so it reads like the
 real terminal it is. (Interactive programs and Ctrl-C act on the shell while
 you're in it via `Ctrl-O`.)
 
+**On a remote panel.** When the active panel is on an **SFTP or SCP** connection,
+the command line and `Ctrl-O` run a shell on the **remote host** instead — over
+the *same* SSH connection the file transfers use (no second login). It is its own
+persistent session (one per open server, keyed to that connection), with its own
+backdrop; the backdrop follows whichever shell you last used, local or remote.
+Commands `cd` into the panel's remote directory first, so they run where you are
+browsing. (FTP has no shell, so an FTP panel keeps using the local shell.)
+
 > **Windows note.** The persistent behind-the-panels console is a Unix feature.
 > On Windows the command line and `Ctrl-O` instead run **the classic way**: the
 > panels are suspended while `cmd.exe` runs (a command line runs once and waits
@@ -739,6 +747,10 @@ files over **SFTP** or **SCP** (SSH) or **FTP / FTPS** exactly like local files.
 **Useful for** managing files on a server without a separate client — copy/move/
 delete works transparently between local, remote and archive panels.
 
+**Remote shell.** On an **SFTP/SCP** panel, the command line and **Ctrl-O** run on
+the **remote host** over the same SSH connection — see *The console → On a remote
+panel* above.
+
 **Connecting.** Open the **Drive / connection picker** with **Alt-F1** (left
 panel) or **Alt-F2** (right panel), or pick a protocol from the panel's
 **Left** / **Right** menu. Enter host, port, user, password and an optional
@@ -785,7 +797,9 @@ changes the *active panel* (so the change sticks, unlike `cd` in a subshell);
 
 For interactive work, **Ctrl-O** drops to a **full-screen persistent subshell**
 in the current directory; press **Ctrl-O** again to return to the panels with
-your shell session still alive.
+your shell session still alive. When the active panel is on an **SFTP/SCP**
+server, that shell runs on the **remote host** over the same SSH connection (see
+*The console → On a remote panel*).
 
 On **Windows** this works differently (see the *Windows note* under *The
 console* above): `Ctrl-O` opens a fresh interactive `cmd.exe` that you leave by

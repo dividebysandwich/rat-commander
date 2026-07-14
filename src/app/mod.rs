@@ -82,8 +82,9 @@ async fn run_loop(
     let mut ticker = tokio::time::interval(std::time::Duration::from_millis(100));
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-    // Persistent Ctrl-O subshell, kept alive across toggles.
-    let mut subshell: Option<crate::shell::Subshell> = None;
+    // Persistent Ctrl-O shells, kept alive across toggles: the local subshell plus
+    // one per open SFTP/SCP session (opened on demand).
+    let mut shells = Shells::default();
     // The crossterm event stream is owned here (not by `run`) so the Ctrl-O
     // subshell path can drop it: its background reader thread would otherwise
     // keep competing for stdin while the subshell does its own blocking read,
@@ -124,7 +125,7 @@ async fn run_loop(
                             match state.handle_key(key).await {
                                 Flow::Quit => break,
                                 Flow::RunCommand(cmd) => {
-                                    run_command(term, state, &mut subshell, &cmd).await?
+                                    run_command(term, state, &mut shells, &cmd).await?
                                 }
                                 Flow::RunExternal { program, path } => {
                                     run_external(term, state, &program, &path).await?
@@ -136,7 +137,7 @@ async fn run_loop(
                                     // would otherwise be swallowed by the reader
                                     // thread). A fresh stream is recreated after.
                                     drop(events);
-                                    toggle_subshell(term, state, &mut subshell).await?;
+                                    toggle_subshell(term, state, &mut shells).await?;
                                     events = EventStream::new();
                                 }
                                 Flow::Continue => {}
@@ -147,25 +148,28 @@ async fn run_loop(
                         match state.handle_mouse(me).await {
                             Flow::Quit => break,
                             Flow::RunCommand(cmd) => {
-                                run_command(term, state, &mut subshell, &cmd).await?
+                                run_command(term, state, &mut shells, &cmd).await?
                             }
                             Flow::RunExternal { program, path } => {
                                 run_external(term, state, &program, &path).await?
                             }
                             Flow::SubShell => {
                                 drop(events);
-                                toggle_subshell(term, state, &mut subshell).await?;
+                                toggle_subshell(term, state, &mut shells).await?;
                                 events = EventStream::new();
                             }
                             Flow::Continue => {}
                         }
                     }
                     Some(Ok(Event::Resize(cols, rows))) => {
-                        // Keep the console emulator and the live subshell PTY the
+                        // Keep the console emulator and every live shell PTY the
                         // same size as the terminal, then redraw next iteration.
                         state.console.resize(rows, cols);
-                        if let Some(sh) = subshell.as_ref() {
+                        if let Some(sh) = shells.local.as_ref() {
                             sh.resize(rows, cols);
+                        }
+                        for rsh in shells.remote.values() {
+                            rsh.resize(rows, cols);
                         }
                     }
                     Some(Ok(_)) => {} // other events: redraw next iteration
@@ -313,10 +317,58 @@ fn interactive_shell() -> tokio::process::Command {
 /// commands), running in the active panel's directory. The TUI is *not*
 /// suspended: hide a panel, go half-height, or press `Ctrl-O` to watch the
 /// output. Falls back to a one-shot suspended run only when no PTY can be made.
+/// The persistent Ctrl-O / command-line shells: the single local subshell plus a
+/// remote SSH shell per open SFTP/SCP session (keyed by the session's scheme).
+#[derive(Default)]
+struct Shells {
+    local: Option<crate::shell::Subshell>,
+    remote: std::collections::HashMap<String, crate::shell::RemoteShell>,
+}
+
+/// If the active panel is on an SSH remote (SFTP/SCP), the session scheme to run
+/// the shell / command on. `None` for local, archive, or FTP panels.
+fn active_ssh_remote(state: &AppState) -> Option<String> {
+    let c = &state.panels[state.active].cwd;
+    (c.scheme.starts_with("sftp") || c.scheme.starts_with("scp")).then(|| c.scheme.clone())
+}
+
+/// Ensure a live remote shell exists for session `scheme` (opening a shell
+/// channel on the active panel's SSH backend the first time), make its console
+/// the current backdrop, and `cd` it into the panel's directory. Returns whether
+/// a live remote shell is available.
+async fn ensure_remote_shell(
+    state: &AppState,
+    shells: &mut Shells,
+    scheme: &str,
+    rows: u16,
+    cols: u16,
+) -> bool {
+    if !shells.remote.get(scheme).is_some_and(|s| s.is_alive()) {
+        let backend = state.panels[state.active].backend.clone();
+        let feed = crate::console::ConsoleFeed::new(rows, cols);
+        match backend.open_shell(rows, cols).await {
+            Ok(ch) => {
+                let sh = crate::shell::RemoteShell::spawn(ch, feed, state.event_sender());
+                shells.remote.insert(scheme.to_string(), sh);
+            }
+            Err(_) => return false, // not an SSH backend, or the channel failed
+        }
+    }
+    if let Some(sh) = shells.remote.get_mut(scheme) {
+        state.console.set_current(sh.console());
+        state.console.resize(rows, cols);
+        // Follow the active panel's remote directory.
+        sh.cd_to(&state.panels[state.active].cwd.posix_path());
+        true
+    } else {
+        false
+    }
+}
+
 async fn run_command(
     term: &mut Term,
     state: &mut AppState,
-    subshell: &mut Option<crate::shell::Subshell>,
+    shells: &mut Shells,
     cmd: &str,
 ) -> Result<()> {
     // On Windows the persistent PTY console isn't used (its Unix tty passthrough
@@ -326,6 +378,19 @@ async fn run_command(
         return run_command_fallback(term, state, cmd).await;
     }
     let size = term.size()?;
+
+    // On an SFTP/SCP panel, run the command on the remote host over the session's
+    // SSH connection (its output lands on the same console backdrop).
+    if let Some(scheme) = active_ssh_remote(state)
+        && ensure_remote_shell(state, shells, &scheme, size.height, size.width).await
+        && let Some(sh) = shells.remote.get_mut(&scheme)
+    {
+        sh.send_line(cmd);
+        return Ok(());
+    }
+
+    // The active panel's directory when it's a real local path (the local shell
+    // can't drive a remote/archive panel's cwd).
     // The active panel's directory when it's a real local path (the shell is
     // local, so a remote/archive panel can't drive its cwd — see the prompt,
     // which follows the highlighted directory in Tree view).
@@ -337,11 +402,11 @@ async fn run_command(
         .clone()
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/")));
 
-    if !ensure_subshell(state, subshell, &spawn_cwd, size.height, size.width) {
+    if !ensure_subshell(state, shells, &spawn_cwd, size.height, size.width) {
         // No PTY available — run this one command the old, suspended way.
         return run_command_fallback(term, state, cmd).await;
     }
-    let Some(sh) = subshell.as_mut() else { return Ok(()) };
+    let Some(sh) = shells.local.as_mut() else { return Ok(()) };
 
     // Run in the active panel's directory: cd there first, but only when the
     // shell isn't already sitting in it (its live cwd is read from /proc on
@@ -355,28 +420,29 @@ async fn run_command(
     Ok(())
 }
 
-/// Ensure the persistent console shell is alive, (re)spawning it in `cwd` when
-/// absent or dead. Returns whether a live shell is available afterward; on first
-/// spawn the console emulator is sized to the terminal so its screen matches the
-/// PTY. The shell is shared with `Ctrl-O` (one session).
+/// Ensure the local console subshell is alive, (re)spawning it in `cwd` when
+/// absent or dead, and make its console the current backdrop. Returns whether a
+/// live shell is available. Shared with `Ctrl-O` (one local session).
 fn ensure_subshell(
     state: &AppState,
-    subshell: &mut Option<crate::shell::Subshell>,
+    shells: &mut Shells,
     cwd: &std::path::Path,
     rows: u16,
     cols: u16,
 ) -> bool {
-    if subshell.as_mut().is_some_and(|s| s.is_alive()) {
-        return true;
-    }
-    let (parser, used) = state.console.shared();
-    match crate::shell::Subshell::spawn(cwd, rows, cols, parser, used, state.event_sender()) {
-        Ok(s) => {
-            state.console.resize(rows, cols);
-            *subshell = Some(s);
-            true
+    if !shells.local.as_mut().is_some_and(|s| s.is_alive()) {
+        let feed = crate::console::ConsoleFeed::new(rows, cols);
+        match crate::shell::Subshell::spawn(cwd, rows, cols, feed, state.event_sender()) {
+            Ok(s) => shells.local = Some(s),
+            Err(_) => return false,
         }
-        Err(_) => false,
+    }
+    if let Some(sh) = shells.local.as_ref() {
+        state.console.set_current(sh.console());
+        state.console.resize(rows, cols);
+        true
+    } else {
+        false
     }
 }
 
@@ -429,12 +495,14 @@ async fn run_external(
     resume_tui(term, state).await
 }
 
-/// Ctrl-O: toggle the persistent subshell (Midnight Commander style). The shell
-/// lives in a PTY and keeps its state between visits; Ctrl-O returns here.
+/// Ctrl-O: toggle into the persistent console shell (Midnight Commander style).
+/// On an SFTP/SCP panel this is a shell on the **remote host** (over the session's
+/// SSH connection); otherwise the local subshell. Either keeps its state between
+/// visits; Ctrl-O returns here.
 async fn toggle_subshell(
     term: &mut Term,
     state: &mut AppState,
-    subshell: &mut Option<crate::shell::Subshell>,
+    shells: &mut Shells,
 ) -> Result<()> {
     let cwd = {
         let p = &state.panels[state.active];
@@ -446,54 +514,87 @@ async fn toggle_subshell(
     };
 
     // Windows: the persistent PTY subshell relies on forwarding the real
-    // terminal's raw VT byte stream into the PTY and scanning it for Ctrl-O
-    // (`Subshell::run_until_toggle`). Windows delivers console input as key-event
-    // records, not a VT byte stream, so that model doesn't work — drop into a
-    // one-shot interactive shell instead (state is not preserved between visits,
-    // but it behaves correctly).
+    // terminal's raw VT byte stream and scanning it for Ctrl-O
+    // (`run_until_toggle`). Windows delivers console input as key-event records,
+    // not a VT byte stream, so that model doesn't work — drop into a one-shot
+    // interactive shell instead. (Remote shells share this limitation.)
     if cfg!(windows) {
         return run_oneshot_shell(term, state, &cwd).await;
     }
 
     let size = term.size()?;
 
-    // (Re)create the shared console shell if needed (same session as the command
-    // line). Fall back to a one-shot shell if no PTY can be made.
-    if !ensure_subshell(state, subshell, &cwd, size.height, size.width) {
+    // On an SFTP/SCP panel, drop into a shell on the remote host.
+    if let Some(scheme) = active_ssh_remote(state)
+        && ensure_remote_shell(state, shells, &scheme, size.height, size.width).await
+    {
+        hand_terminal_to_shell(term, state)?;
+        if let Some(sh) = shells.remote.get_mut(&scheme) {
+            sh.resize(size.height, size.width);
+            repaint_console(state);
+            sh.run_until_toggle();
+        }
+        take_terminal_back(term, state)?;
+        // Remote files may have changed; refresh the listings.
+        state.reload_all().await;
+        return Ok(());
+    }
+
+    // Local: (re)create the local subshell; fall back to a one-shot shell if no
+    // PTY can be made.
+    if !ensure_subshell(state, shells, &cwd, size.height, size.width) {
         return run_oneshot_shell(term, state, &cwd).await;
     }
-    let Some(sh) = subshell.as_mut() else {
-        return Ok(());
-    };
-
-    // Hand the terminal to the shell: leave the alternate screen (so the shell
-    // is on the primary screen) and stop capturing the mouse. Raw mode stays on
-    // so keystrokes pass through byte-for-byte; the PTY does its own cooking.
-    {
-        let out = term.backend_mut();
-        // Hand normal keyboard reporting to the shell while it owns the screen.
-        if state.kbd_enhanced {
-            let _ = queue!(out, PopKeyboardEnhancementFlags);
-        }
-        queue!(out, LeaveAlternateScreen, DisableMouseCapture)?;
-        out.flush()?;
+    hand_terminal_to_shell(term, state)?;
+    if let Some(sh) = shells.local.as_mut() {
+        sh.resize(size.height, size.width);
+        repaint_console(state);
+        sh.run_until_toggle();
     }
-    term.show_cursor()?;
-    sh.resize(size.height, size.width);
+    take_terminal_back(term, state)?;
 
-    // Repaint the shell's current screen (from the console emulator) so entering
-    // Ctrl-O shows the live session — including anything run from the command
-    // line — instead of a blank primary screen until the next keystroke.
-    if let Some(parser) = state.console.lock() {
+    // Follow the shell's directory change back into the active panel (Linux).
+    if let Some(dir) = shells.local.as_ref().and_then(|s| s.child_cwd()) {
+        let p = &mut state.panels[state.active];
+        if p.cwd.scheme == "file" && dir != p.cwd.path {
+            p.cwd = crate::vfs::VfsPath::local(dir);
+            p.selection.clear();
+            let _ = p.reload().await;
+        }
+    }
+    state.reload_all().await;
+    Ok(())
+}
+
+/// Hand the terminal to a console shell: leave the alternate screen (so the shell
+/// is on the primary screen) and stop capturing the mouse. Raw mode stays on so
+/// keystrokes pass through byte-for-byte; the PTY does its own cooking.
+fn hand_terminal_to_shell(term: &mut Term, state: &AppState) -> Result<()> {
+    let out = term.backend_mut();
+    if state.kbd_enhanced {
+        let _ = queue!(out, PopKeyboardEnhancementFlags);
+    }
+    queue!(out, LeaveAlternateScreen, DisableMouseCapture)?;
+    out.flush()?;
+    term.show_cursor()?;
+    Ok(())
+}
+
+/// Repaint the current shell's screen (from its console emulator) so entering
+/// Ctrl-O shows the live session — including anything run from the command line —
+/// instead of a blank primary screen until the next keystroke.
+fn repaint_console(state: &AppState) {
+    let parser = state.console.parser();
+    if let Ok(parser) = parser.lock() {
         let mut out = io::stdout();
         let _ = out.write_all(b"\x1b[2J\x1b[H");
         let _ = out.write_all(&parser.screen().contents_formatted());
         let _ = out.flush();
     }
+}
 
-    sh.run_until_toggle();
-
-    // Take the terminal back for the panels.
+/// Take the terminal back for the panels after a shell visit.
+fn take_terminal_back(term: &mut Term, state: &mut AppState) -> Result<()> {
     {
         let out = term.backend_mut();
         queue!(out, EnterAlternateScreen, EnableMouseCapture)?;
@@ -510,19 +611,7 @@ async fn toggle_subshell(
         out.flush()?;
     }
     term.hide_cursor()?;
-    force_full_redraw(term, state)?;
-
-    // Follow the shell's directory change back into the active panel (Linux).
-    if let Some(dir) = sh.child_cwd() {
-        let p = &mut state.panels[state.active];
-        if p.cwd.scheme == "file" && dir != p.cwd.path {
-            p.cwd = crate::vfs::VfsPath::local(dir);
-            p.selection.clear();
-            let _ = p.reload().await;
-        }
-    }
-    state.reload_all().await;
-    Ok(())
+    force_full_redraw(term, state)
 }
 
 /// Fallback when a PTY can't be created: run an interactive shell once.
@@ -643,5 +732,36 @@ mod tests {
             .map(std::ffi::OsString::from)
             .collect();
         assert_eq!(args, expected);
+    }
+
+    #[test]
+    fn active_ssh_remote_matches_sftp_and_scp_only() {
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
+        st.active = 0;
+        let set = |st: &mut AppState, scheme: &str| {
+            st.panels[0].cwd = crate::vfs::VfsPath {
+                scheme: scheme.to_string(),
+                path: "/home/user".into(),
+                container: None,
+            };
+        };
+        // A local panel drives the local subshell.
+        assert!(active_ssh_remote(&st).is_none(), "local → no remote shell");
+        // SFTP / SCP panels drive a remote shell (keyed by the session scheme).
+        set(&mut st, "sftp-0");
+        assert_eq!(active_ssh_remote(&st).as_deref(), Some("sftp-0"));
+        set(&mut st, "scp-2");
+        assert_eq!(active_ssh_remote(&st).as_deref(), Some("scp-2"));
+        // FTP has no shell channel, so it stays on the local shell.
+        set(&mut st, "ftp-1");
+        assert!(active_ssh_remote(&st).is_none(), "ftp → no remote shell");
+    }
+
+    #[tokio::test]
+    async fn local_backend_has_no_remote_shell() {
+        let reg = crate::vfs::registry::Registry::default();
+        let local = reg.local();
+        assert!(local.open_shell(24, 80).await.is_err(), "local fs has no shell channel");
     }
 }

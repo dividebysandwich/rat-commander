@@ -184,4 +184,11 @@ pub trait Vfs: Send + Sync {
     async fn disk_usage(&self, _path: &VfsPath) -> Result<Option<DiskUsage>> {
         Ok(None)
     }
+
+    /// Open an interactive shell (PTY channel) on the backend's remote host, for
+    /// the `Ctrl-O` console and command line. Only the SSH-based backends
+    /// (SFTP/SCP) support it; the rest return `Unsupported`.
+    async fn open_shell(&self, _rows: u16, _cols: u16) -> Result<remote::RemoteShellChannel> {
+        Err(crate::util::Error::Unsupported)
+    }
 }

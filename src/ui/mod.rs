@@ -247,7 +247,8 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
 /// Default colours map to `Color::Reset`, so it matches the real terminal.
 fn render_console(f: &mut Frame, area: Rect, console: &crate::console::Console) {
     use ratatui::style::{Modifier, Style};
-    let Some(parser) = console.lock() else { return };
+    let parser = console.parser();
+    let Ok(parser) = parser.lock() else { return };
     let screen = parser.screen();
     let (rows, cols) = screen.size();
     // Map emulator row -> body row so the cursor line lands on the bottom of the

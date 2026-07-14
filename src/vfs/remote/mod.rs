@@ -179,6 +179,36 @@ impl russh::client::Handler for HostKeyHandler {
 
 pub(crate) type SshHandle = russh::client::Handle<HostKeyHandler>;
 
+/// An opened interactive shell channel on a remote SSH host — a PTY and shell are
+/// already requested, so it is a live bidirectional byte stream. Wraps the russh
+/// channel; the app drives it through [`crate::shell::RemoteShell`]. Only the
+/// SSH-based backends (SFTP/SCP) can produce one.
+pub struct RemoteShellChannel {
+    pub channel: russh::Channel<russh::client::Msg>,
+}
+
+/// Open a session channel on `handle`, request a PTY of the given size and an
+/// interactive shell, returning the ready channel.
+pub(crate) async fn open_shell_channel(
+    handle: &SshHandle,
+    rows: u16,
+    cols: u16,
+) -> Result<RemoteShellChannel> {
+    let channel = handle
+        .channel_open_session()
+        .await
+        .map_err(|e| Error::other(format!("shell channel open failed: {e}")))?;
+    channel
+        .request_pty(false, "xterm-256color", cols as u32, rows as u32, 0, 0, &[])
+        .await
+        .map_err(|e| Error::other(format!("request pty failed: {e}")))?;
+    channel
+        .request_shell(false)
+        .await
+        .map_err(|e| Error::other(format!("request shell failed: {e}")))?;
+    Ok(RemoteShellChannel { channel })
+}
+
 /// Open an SSH connection and authenticate with a password.
 pub(crate) async fn ssh_connect(creds: &RemoteCreds) -> Result<SshHandle> {
     let config = Arc::new(russh::client::Config::default());
