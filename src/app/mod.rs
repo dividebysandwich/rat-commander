@@ -300,16 +300,24 @@ async fn run_command(term: &mut Term, state: &mut AppState, cmd: &str) -> Result
     // Use the console directory only when it's a real local path; otherwise
     // (remote/archive panel) fall back to the process cwd. In Tree view this
     // follows the highlighted directory, matching the command-line prompt.
-    let console = state.console_cwd();
-    let cwd = if console.scheme == "file" {
-        console.path.clone()
+    let console_cwd = state.console_cwd();
+    let cwd = if console_cwd.scheme == "file" {
+        console_cwd.path.clone()
     } else {
         std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"))
     };
+    let cwd_label = cwd.display().to_string();
     println!("$ {cmd}");
     let mut child = command_line_shell(cmd);
     child.current_dir(&cwd);
-    let status = run_foreground(child).await;
+
+    // Echo the command onto the console backdrop, then capture its output there
+    // (see `run_command_forwarded`) so it can be shown behind the panels.
+    state.console.banner(&cwd_label, cmd);
+    let size = term.size()?;
+    let (status, captured) = run_command_forwarded(child, size.height, size.width).await;
+    state.console.feed(&captured);
+
     match status {
         Ok(s) if !s.success() => println!("\n[exit status: {s}]"),
         Err(e) => println!("\n[failed to run: {e}]"),
@@ -321,6 +329,166 @@ async fn run_command(term: &mut Term, state: &mut AppState, cmd: &str) -> Result
     let _ = io::stdin().read_line(&mut line);
 
     resume_tui(term, state).await
+}
+
+/// Run a command-line command through a pseudo-terminal, forwarding the real
+/// terminal to it while capturing its output for the console backdrop.
+///
+/// The child runs on a PTY that is its controlling terminal (`setsid` +
+/// `TIOCSCTTY`), so an interactive `$SHELL -i` initialises job control cleanly
+/// — no "cannot set terminal process group" warning — and keeps expanding the
+/// user's aliases. A pump thread forwards the (raw) real terminal to the PTY and
+/// mirrors the PTY's output back to the screen *and* into a capture buffer, so
+/// the user sees output live, Ctrl-C reaches the child (the raw byte is
+/// delivered by the PTY's line discipline), and the same bytes populate the
+/// backdrop. Returns the exit status and the raw captured bytes.
+#[cfg(unix)]
+async fn run_command_forwarded(
+    mut cmd: tokio::process::Command,
+    rows: u16,
+    cols: u16,
+) -> (std::io::Result<std::process::ExitStatus>, Vec<u8>) {
+    use nix::pty::{Winsize, openpty};
+    use std::io::{Read, Write};
+    use std::os::fd::{FromRawFd, IntoRawFd, RawFd};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let ws = Winsize { ws_row: rows.max(1), ws_col: cols.max(1), ws_xpixel: 0, ws_ypixel: 0 };
+    let pty = match openpty(&ws, None) {
+        Ok(p) => p,
+        // No PTY available: fall back to a plain interactive run (no capture).
+        Err(_) => return (run_foreground(cmd).await, Vec::new()),
+    };
+    let (slave_out, slave_err) = match (pty.slave.try_clone(), pty.slave.try_clone()) {
+        (Ok(o), Ok(e)) => (o, e),
+        _ => return (run_foreground(cmd).await, Vec::new()),
+    };
+    // Child: a new session with the PTY as its controlling terminal (fd 0 is the
+    // slave after stdio dup), and default SIGINT/SIGQUIT so a forwarded Ctrl-C
+    // interrupts it.
+    unsafe {
+        cmd.pre_exec(|| {
+            nix::libc::setsid();
+            nix::libc::ioctl(0, nix::libc::TIOCSCTTY, 0);
+            nix::libc::signal(nix::libc::SIGINT, nix::libc::SIG_DFL);
+            nix::libc::signal(nix::libc::SIGQUIT, nix::libc::SIG_DFL);
+            Ok(())
+        });
+    }
+    cmd.stdin(std::process::Stdio::from(pty.slave));
+    cmd.stdout(std::process::Stdio::from(slave_out));
+    cmd.stderr(std::process::Stdio::from(slave_err));
+
+    // The real terminal goes raw so keystrokes forward byte-for-byte (the PTY
+    // does its own line discipline); the caller left the alternate screen but
+    // reset raw mode, so re-enable it here and drop it again before returning.
+    let raw = enable_raw_mode().is_ok();
+
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            if raw {
+                let _ = disable_raw_mode();
+            }
+            return (Err(e), Vec::new());
+        }
+    };
+
+    // Pump thread: real stdin -> PTY, and PTY -> real stdout + capture. `poll`
+    // with a short timeout lets it observe the `stop` flag, so it ends promptly
+    // even for a command that daemonizes a child holding the slave open (no
+    // natural EOF) — it must never paint over the resumed TUI.
+    let master_fd: RawFd = pty.master.into_raw_fd();
+    let capture = Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
+    let stop = Arc::new(AtomicBool::new(false));
+    let pump = {
+        let capture = Arc::clone(&capture);
+        let stop = Arc::clone(&stop);
+        std::thread::spawn(move || {
+            let mut master = unsafe { std::fs::File::from_raw_fd(master_fd) };
+            let mut buf = [0u8; 8192];
+            let mut out = io::stdout();
+            let mut sink = |bytes: &[u8]| {
+                let _ = out.write_all(bytes);
+                let _ = out.flush();
+                if let Ok(mut c) = capture.lock() {
+                    c.extend_from_slice(bytes);
+                }
+            };
+            loop {
+                let mut fds = [
+                    nix::libc::pollfd { fd: 0, events: nix::libc::POLLIN, revents: 0 },
+                    nix::libc::pollfd { fd: master_fd, events: nix::libc::POLLIN, revents: 0 },
+                ];
+                let n = unsafe { nix::libc::poll(fds.as_mut_ptr(), 2, 50) };
+                if stop.load(Ordering::Relaxed) {
+                    break;
+                }
+                if n < 0 {
+                    if io::Error::last_os_error().kind() == io::ErrorKind::Interrupted {
+                        continue;
+                    }
+                    break;
+                }
+                if n == 0 {
+                    continue; // timeout — re-check the stop flag
+                }
+                // Forward typed input to the PTY.
+                if fds[0].revents & nix::libc::POLLIN != 0 {
+                    let k = unsafe {
+                        nix::libc::read(0, buf.as_mut_ptr() as *mut nix::libc::c_void, buf.len())
+                    };
+                    if k > 0 {
+                        let _ = master.write_all(&buf[..k as usize]);
+                        let _ = master.flush();
+                    }
+                }
+                // Mirror + capture PTY output.
+                if fds[1].revents & nix::libc::POLLIN != 0 {
+                    match master.read(&mut buf) {
+                        Ok(0) => break,
+                        Ok(m) => sink(&buf[..m]),
+                        Err(_) => break,
+                    }
+                }
+                // Slave closed: drain the tail, then stop.
+                if fds[1].revents & (nix::libc::POLLHUP | nix::libc::POLLERR) != 0 {
+                    while let Ok(m) = master.read(&mut buf) {
+                        if m == 0 {
+                            break;
+                        }
+                        sink(&buf[..m]);
+                    }
+                    break;
+                }
+            }
+        })
+    };
+
+    let status = child.wait().await;
+    // A clean command already closed the slave (the pump hit EOF); the stop flag
+    // covers the daemonize case. Either way the pump ends before we resume.
+    stop.store(true, Ordering::Relaxed);
+    let _ = pump.join();
+    if raw {
+        let _ = disable_raw_mode();
+    }
+
+    let captured =
+        Arc::try_unwrap(capture).ok().and_then(|m| m.into_inner().ok()).unwrap_or_default();
+    (status, captured)
+}
+
+/// Non-Unix: no PTY capture — run the command interactively as before, with an
+/// empty capture so the console backdrop simply stays blank.
+#[cfg(not(unix))]
+async fn run_command_forwarded(
+    cmd: tokio::process::Command,
+    _rows: u16,
+    _cols: u16,
+) -> (std::io::Result<std::process::ExitStatus>, Vec<u8>) {
+    (run_foreground(cmd).await, Vec::new())
 }
 
 /// Suspend the TUI and run an external program (editor/viewer) against a file.

@@ -78,6 +78,10 @@ tokio-util = { version = "0.7.18", features = ["rt"] }
 toml = "1.1.2"
 unicode-width = "0.2.2"
 unrar = { version = "0.5.8", optional = true }
+# Headless terminal emulator for the command-line console backdrop: parses the
+# ANSI/VT stream captured from commands into a screen grid we render behind the
+# panels (Norton-Commander style).
+vt100 = "0.16.2"
 walkdir = "2.5.0"
 xz2 = "0.1.7"
 zip = "8.6.0"
@@ -101,7 +105,7 @@ epaint_default_fonts = "0.35.0"
 
 # nix (chmod/chown/uid lookups, process signals) is Unix-only.
 [target.'cfg(unix)'.dependencies]
-nix = { version = "0.31.3", features = ["fs", "user", "signal", "process"] }
+nix = { version = "0.31.3", features = ["fs", "user", "signal", "process", "term"] }
 
 [profile.release]
 strip = true

@@ -30,6 +30,17 @@ The window is divided into four areas, top to bottom:
 Each panel's bottom border shows the volume's **free / total** disk space, and a
 mini status line under the listing shows the full name of the highlighted file.
 
+### The console (behind the panels)
+
+The output of commands you run from the command line is kept on a **console**
+that sits *behind* the panels, exactly like Norton Commander. You normally can't
+see it because the panels cover it — but hide a panel with `Ctrl-F1` / `Ctrl-F2`,
+or shrink both with `Ctrl-F4` (half-height), and the recent shell output shows
+through in the exposed area. Colours are preserved, and each command is prefixed
+with a `directory$ command` prompt line so it reads like a real terminal
+session. (The console captures output on Unix; on other platforms the exposed
+area is simply blank.)
+
 
 ## Getting started — two-panel basics
 
@@ -124,10 +135,11 @@ A quick **Alt** + digit does the same.
 - `Ctrl-X` — Toggle vertical / horizontal split
 - `Ctrl-U` — Swap the two panels
 - `Ctrl-F1` / `Ctrl-F2` — Hide (and show again) the left / right panel,
-  Norton-Commander style: the remaining panel fills the width, and both may be
-  hidden at once. The menu bar and F-key bar always stay on screen
-- `Ctrl-F3` — Toggle **half-height** panels: both panels shrink to the top half
-  of the screen, exposing the area beneath them
+  Norton-Commander style. Each panel keeps its own half; hiding one exposes the
+  **console** underneath (see below), and both may be hidden at once. The menu
+  bar and F-key bar always stay on screen
+- `Ctrl-F4` — Toggle **half-height** panels: both panels shrink to the top half
+  of the screen, exposing the console beneath them
 - `Alt-F1` / `Alt-F2` — Drive / connection picker for the left / right panel
 - `Alt` + a menu letter (`F`/`O`/`C`/`L`/`R`) — Open that top menu (Midnight-
   Commander style); `F9` opens the menu bar too

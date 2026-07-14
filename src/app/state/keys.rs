@@ -299,11 +299,13 @@ impl AppState {
 
         match key.code {
             // -- Panel visibility (Norton-Commander style) --
-            // Ctrl-F1 / Ctrl-F2 hide the left / right panel; Ctrl-F3 toggles the
+            // Ctrl-F1 / Ctrl-F2 hide the left / right panel; Ctrl-F4 toggles the
             // half-height mode. The menu and F-key bars stay on screen throughout.
+            // (Ctrl-F3 is avoided: many terminals encode it as `CSI 1;5 R`, which
+            // collides with the cursor-position report and is swallowed.)
             KeyCode::F(1) if ctrl => self.toggle_panel_hidden(0),
             KeyCode::F(2) if ctrl => self.toggle_panel_hidden(1),
-            KeyCode::F(3) if ctrl => self.half_height = !self.half_height,
+            KeyCode::F(4) if ctrl => self.half_height = !self.half_height,
 
             // -- Quit / function keys --
             KeyCode::F(10) => return self.request_quit(),

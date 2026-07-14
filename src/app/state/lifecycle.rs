@@ -31,6 +31,8 @@ impl AppState {
             split: SplitDir::Vertical,
             panel_hidden: [false, false],
             half_height: false,
+            // Sized to a sane default; resized to the backdrop area on each draw.
+            console: crate::console::Console::new(24, 80),
             cmd,
             dialog: None,
             viewer: None,

@@ -5,6 +5,7 @@
 
 mod app;
 mod config;
+mod console;
 mod details;
 mod diff;
 mod disk;

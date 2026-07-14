@@ -139,15 +139,21 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
     } else {
         rows[1]
     };
-    let (left_area, right_area) = match (!state.panel_hidden[0], !state.panel_hidden[1]) {
-        (true, true) => {
-            let (l, r) = split_body(panels_area, state.split);
-            (Some(l), Some(r))
-        }
-        (true, false) => (Some(panels_area), None),
-        (false, true) => (None, Some(panels_area)),
-        (false, false) => (None, None),
-    };
+    // Each panel keeps its usual half of the split; hiding one simply leaves its
+    // half as exposed backdrop rather than growing the surviving panel.
+    let (l, r) = split_body(panels_area, state.split);
+    let left_area = (!state.panel_hidden[0]).then_some(l);
+    let right_area = (!state.panel_hidden[1]).then_some(r);
+
+    // Paint the command-line console across the whole body first; the panels are
+    // drawn over it, so it only shows through where a panel is hidden or the
+    // half-height mode exposes it (Norton-Commander style). Skipped until a
+    // command has produced output, so the backdrop stays blank until then.
+    state.console.resize(rows[1].height, rows[1].width);
+    if state.console.is_used() {
+        render_console(f, rows[1], &state.console);
+    }
+
     let active = state.active;
     let brief_cols = state.config.brief_columns;
     // The quick search renders as an inline input on the active panel's
@@ -202,6 +208,63 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
         } else {
             f.set_cursor_position(caret);
         }
+    }
+}
+
+/// Paint the console emulator's screen into `area`, cell for cell, as the
+/// backdrop behind the panels. The console is sized to `area` (see the caller),
+/// so columns map 1:1. Rows are anchored to the *bottom*: the cursor line (the
+/// live prompt) lands on the last row of `area`, so the most recent output sits
+/// just above the command line and stays visible even when only the lower part
+/// of the backdrop is exposed (half-height mode). Default colours map to
+/// `Color::Reset`, so the backdrop matches the real terminal's default look.
+fn render_console(f: &mut Frame, area: Rect, console: &crate::console::Console) {
+    use ratatui::style::{Modifier, Style};
+    let screen = console.screen();
+    let (rows, cols) = screen.size();
+    // Shift the emulated screen down so its cursor row aligns with the bottom of
+    // `area`; content above simply scrolls up out of view as it fills.
+    let cursor_row = screen.cursor_position().0;
+    let shift = area.height.saturating_sub(1).saturating_sub(cursor_row);
+    let buf = f.buffer_mut();
+    for r in 0..rows {
+        let ty = r + shift;
+        if ty >= area.height {
+            continue;
+        }
+        for c in 0..area.width.min(cols) {
+            let Some(cell) = screen.cell(r, c) else { continue };
+            let mut style = Style::default()
+                .fg(vt_color(cell.fgcolor()))
+                .bg(vt_color(cell.bgcolor()));
+            if cell.bold() {
+                style = style.add_modifier(Modifier::BOLD);
+            }
+            if cell.italic() {
+                style = style.add_modifier(Modifier::ITALIC);
+            }
+            if cell.underline() {
+                style = style.add_modifier(Modifier::UNDERLINED);
+            }
+            if cell.inverse() {
+                style = style.add_modifier(Modifier::REVERSED);
+            }
+            let contents = cell.contents();
+            let target = &mut buf[(area.x + c, area.y + ty)];
+            target.set_symbol(if contents.is_empty() { " " } else { contents });
+            target.set_style(style);
+        }
+    }
+}
+
+/// Convert a `vt100` colour to a Ratatui one; the terminal default maps to
+/// `Color::Reset` so console output keeps the real terminal's default colours.
+fn vt_color(c: vt100::Color) -> ratatui::style::Color {
+    use ratatui::style::Color;
+    match c {
+        vt100::Color::Default => Color::Reset,
+        vt100::Color::Idx(i) => Color::Indexed(i),
+        vt100::Color::Rgb(r, g, b) => Color::Rgb(r, g, b),
     }
 }
 
@@ -370,7 +433,7 @@ mod feature_tests {
         // Both panels visible by default.
         assert_eq!(panel_count(&drawn(&mut st).await), 2);
 
-        // Ctrl-F1 hides the left panel: one panel remains, filling the width.
+        // Ctrl-F1 hides the left panel: one panel remains (in its own half).
         st.handle_key(key_ctrl(KeyCode::F(1))).await;
         assert!(st.panel_hidden[0] && !st.panel_hidden[1]);
         assert_eq!(panel_count(&drawn(&mut st).await), 1);
@@ -404,12 +467,36 @@ mod feature_tests {
     }
 
     #[tokio::test]
+    async fn console_output_shows_through_a_hidden_panel() {
+        let (tx, _rx) = async_bridge::channel();
+        let mut st = AppState::new(tx);
+        st.init().await;
+
+        // With no console output, hiding a panel leaves a blank backdrop.
+        st.panel_hidden = [true, false];
+        assert!(!text_of(&drawn(&mut st).await).contains("PING_MARKER"));
+
+        // Feed the console some output (as a captured command would): it now
+        // shows through the hidden (left) panel's half, behind the visible one.
+        st.console.feed(b"PING_MARKER output line\r\n");
+        let text = text_of(&drawn(&mut st).await);
+        assert!(text.contains("PING_MARKER"), "console output visible under the hidden panel");
+
+        // Showing both panels again covers the console (they paint opaquely).
+        st.panel_hidden = [false, false];
+        assert!(
+            !text_of(&drawn(&mut st).await).contains("PING_MARKER"),
+            "visible panels occlude the console backdrop"
+        );
+    }
+
+    #[tokio::test]
     async fn half_height_exposes_the_lower_backdrop() {
         let (tx, _rx) = async_bridge::channel();
         let mut st = AppState::new(tx);
         st.init().await;
 
-        st.handle_key(key_ctrl(KeyCode::F(3))).await;
+        st.handle_key(key_ctrl(KeyCode::F(4))).await;
         assert!(st.half_height);
         let t = drawn(&mut st).await;
         // Both panels are still present, only shorter.

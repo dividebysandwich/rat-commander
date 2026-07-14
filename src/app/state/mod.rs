@@ -152,6 +152,10 @@ pub struct AppState {
     /// Half-height mode (Ctrl-F3): both panels shrink to the top half of the
     /// body, exposing the backdrop beneath them. Transient — not persisted.
     pub half_height: bool,
+    /// The command-line console: a headless terminal emulator fed the captured
+    /// output of commands run from the command line, drawn behind the panels so
+    /// hiding a panel or going half-height reveals the shell output underneath.
+    pub console: crate::console::Console,
     pub cmd: CommandLine,
     pub dialog: Option<Dialog>,
     pub viewer: Option<ViewerState>,
