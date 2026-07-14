@@ -59,6 +59,8 @@ code = "ja"
 "&Settings..." = "設定…(&S)"
 "&Confirmations..." = "確認…(&C)"
 "&Edit themes..." = "テーマを編集…(&E)"
+"Edit e&xtensions..." = "拡張子を編集…(&X)"
+"Edit &menu file..." = "メニューファイルを編集…(&M)"
 
 # -- Function-key bar --
 "Help" = "ヘルプ"

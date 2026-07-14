@@ -100,6 +100,21 @@ impl ExtRules {
     }
 }
 
+/// Ensure `rc.ext` exists on disk (writing the default file if it doesn't yet)
+/// and return its path, so Options → Edit extensions can open it in the internal
+/// editor. Mirrors [`crate::ui::theme::ensure_themes_file`]. Returns `None` when
+/// no config directory is available.
+pub fn ensure_ext_file() -> Option<std::path::PathBuf> {
+    let path = paths::ext_file()?;
+    if !path.exists() {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(&path, DEFAULT_EXT);
+    }
+    Some(path)
+}
+
 /// Parse a matcher line (already trimmed). Returns `None` for unsupported
 /// matcher kinds (`type/`, `directory/`, …) or an invalid regex — the caller
 /// then skips that entry's action block.

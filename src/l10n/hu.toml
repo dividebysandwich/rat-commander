@@ -59,6 +59,8 @@ code = "hu"
 "&Settings..." = "Beállítások… (&S)"
 "&Confirmations..." = "Megerősítések… (&C)"
 "&Edit themes..." = "Témák szerkesztése… (&E)"
+"Edit e&xtensions..." = "Kiterjesztések szerkesztése… (&X)"
+"Edit &menu file..." = "Menüfájl szerkesztése… (&M)"
 
 # -- Function-key bar --
 "Help" = "Súgó"

@@ -76,7 +76,10 @@ fn menu_accelerators_are_unique_per_menu_in_every_language() {
             "&Process explorer...", "Disk &explorer...", "Disk &manager...", "Network &connections...",
             "S&wap panels", "&Re-read directories", "&Toggle split V/H",
         ],
-        &["&Settings...", "&Confirmations...", "&Edit themes..."],
+        &[
+            "&Settings...", "&Confirmations...", "&Edit themes...", "Edit e&xtensions...",
+            "Edit &menu file...",
+        ],
         &[
             "&Full view", "&Brief view", "&Details view", "Tree v&iew", "Sort: &Name",
             "Sort: &Extension", "Sort: &Size", "Sort: &Modify time", "Sort: &Unsorted",

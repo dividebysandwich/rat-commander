@@ -65,6 +65,8 @@ code = "de"
 "&Settings..." = "&Einstellungen..."
 "&Confirmations..." = "&Bestätigungen..."
 "&Edit themes..." = "&Themes bearbeiten..."
+"Edit e&xtensions..." = "Er&weiterungen bearbeiten..."
+"Edit &menu file..." = "&Menüdatei bearbeiten..."
 
 # -- Funktionstastenleiste (kurz gehalten, damit es passt) --
 "Help" = "Hilfe"

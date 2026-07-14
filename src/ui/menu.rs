@@ -63,6 +63,10 @@ pub enum MenuAction {
     Confirmations,
     /// Open `themes.toml` in the internal editor.
     EditThemes,
+    /// Open `rc.ext` (file associations) in the internal editor.
+    EditExtensions,
+    /// Open the F2 user `menu` file in the internal editor.
+    EditUserMenu,
     Quit,
 }
 
@@ -238,6 +242,8 @@ impl MenuBarState {
                 item("&Settings...", MenuAction::Settings),
                 item("&Confirmations...", MenuAction::Confirmations),
                 item("&Edit themes...", MenuAction::EditThemes),
+                item("Edit e&xtensions...", MenuAction::EditExtensions),
+                item("Edit &menu file...", MenuAction::EditUserMenu),
             ],
         };
 

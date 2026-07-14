@@ -59,6 +59,8 @@ code = "hi"
 "&Settings..." = "सेटिंग्स… (&S)"
 "&Confirmations..." = "पुष्टिकरण… (&C)"
 "&Edit themes..." = "थीम संपादित करें… (&E)"
+"Edit e&xtensions..." = "एक्सटेंशन संपादित करें… (&X)"
+"Edit &menu file..." = "मेनू फ़ाइल संपादित करें… (&M)"
 
 # -- Function-key bar --
 "Help" = "मदद"

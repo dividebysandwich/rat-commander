@@ -59,6 +59,8 @@ code = "sr"
 "&Settings..." = "Podešavanja… (&S)"
 "&Confirmations..." = "Potvrde… (&C)"
 "&Edit themes..." = "Uredi teme… (&E)"
+"Edit e&xtensions..." = "Uredi ekstenzije… (&X)"
+"Edit &menu file..." = "Uredi datoteku menija… (&M)"
 
 # -- Function-key bar --
 "Help" = "Pomoć"

@@ -330,8 +330,9 @@ impl AppState {
                 } else if let Some(ed) = self.editor.as_mut() {
                     ed.mark_saved();
                 }
-                // Editing themes.toml applies immediately on save.
-                self.reload_themes_if_edited(&path);
+                // Editing a config file (themes.toml, the F2 menu, rc.ext)
+                // applies immediately on save.
+                self.reload_config_if_edited(&path);
             }
             // A failed save (e.g. read-only location, permission denied) drops the
             // user into "Save as" prefilled with the path, so they can redirect it.
@@ -382,7 +383,7 @@ impl AppState {
                     ed.mark_saved();
                     ed.enable_syntax(dark); // re-detect syntax for the new name
                 }
-                self.reload_themes_if_edited(&new_path);
+                self.reload_config_if_edited(&new_path);
                 self.reload_all().await;
             }
             // Still failing: re-prompt with the new error so the user can adjust.
@@ -406,6 +407,51 @@ impl AppState {
         }
     }
 
+    /// Open `rc.ext` (file associations) in the internal editor (Options → Edit
+    /// extensions), creating the default file first if it doesn't exist yet.
+    pub(in crate::app::state) fn open_edit_extensions(&mut self) {
+        let Some(path) = crate::ext::ensure_ext_file() else {
+            return self.show_error("No config directory available");
+        };
+        match std::fs::read_to_string(&path) {
+            Ok(text) => {
+                let mut ed = EditorState::new("rc.ext".to_string(), VfsPath::local(&path), &text);
+                ed.enable_syntax(self.dark_ui());
+                self.editor = Some(ed);
+            }
+            Err(e) => self.show_error(format!("cannot open rc.ext: {e}")),
+        }
+    }
+
+    /// Open the F2 user `menu` file in the internal editor (Options → Edit menu
+    /// file), creating the default file first if it doesn't exist yet.
+    pub(in crate::app::state) fn open_edit_user_menu(&mut self) {
+        let Some(path) = crate::usermenu::ensure_menu_file() else {
+            return self.show_error("No config directory available");
+        };
+        match std::fs::read_to_string(&path) {
+            Ok(text) => {
+                let mut ed = EditorState::new("menu".to_string(), VfsPath::local(&path), &text);
+                ed.enable_syntax(self.dark_ui());
+                self.editor = Some(ed);
+            }
+            Err(e) => self.show_error(format!("cannot open menu: {e}")),
+        }
+    }
+
+    /// After saving in the internal editor, apply the change to live state at
+    /// once when the saved file is one of the user-editable config files —
+    /// `themes.toml`, the F2 user `menu`, or `rc.ext` (file associations) — so the
+    /// user doesn't have to restart. Ordinary files are ignored.
+    fn reload_config_if_edited(&mut self, path: &VfsPath) {
+        if path.scheme != "file" {
+            return;
+        }
+        self.reload_themes_if_edited(path);
+        self.reload_usermenu_if_edited(path);
+        self.reload_ext_if_edited(path);
+    }
+
     /// If the file just saved is `themes.toml`, re-read the palettes and
     /// re-derive the current theme so the change takes effect at once.
     fn reload_themes_if_edited(&mut self, path: &VfsPath) {
@@ -417,6 +463,24 @@ impl AppState {
         match crate::ui::theme::reload_user_themes() {
             Ok(_) => self.theme = Theme::by_name(&self.config.theme, self.truecolor),
             Err(e) => self.show_error(format!("themes.toml: {e}")),
+        }
+    }
+
+    /// If the file just saved is the F2 user `menu`, re-read it so the next F2
+    /// reflects the edit without a restart.
+    fn reload_usermenu_if_edited(&mut self, path: &VfsPath) {
+        let is_menu = crate::config::paths::menu_file().is_some_and(|p| p == path.path);
+        if is_menu {
+            self.user_menu = crate::usermenu::load_or_create();
+        }
+    }
+
+    /// If the file just saved is `rc.ext`, re-read the file associations so the
+    /// new rules apply to the next Open/View/Edit without a restart.
+    fn reload_ext_if_edited(&mut self, path: &VfsPath) {
+        let is_ext = crate::config::paths::ext_file().is_some_and(|p| p == path.path);
+        if is_ext {
+            self.ext_rules = crate::ext::ExtRules::load_or_create();
         }
     }
     /// Compare the two panels' files and mark the differing ones (selection).

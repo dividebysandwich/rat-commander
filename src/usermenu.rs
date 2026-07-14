@@ -36,6 +36,21 @@ pub fn load_or_create() -> Vec<UserMenuEntry> {
     parse(DEFAULT_MENU)
 }
 
+/// Ensure the F2 user `menu` file exists on disk (writing the default if it
+/// doesn't yet) and return its path, so Options → Edit menu file can open it in
+/// the internal editor. Mirrors [`crate::ext::ensure_ext_file`]. Returns `None`
+/// when no config directory is available.
+pub fn ensure_menu_file() -> Option<std::path::PathBuf> {
+    let path = paths::menu_file()?;
+    if !path.exists() {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(&path, DEFAULT_MENU);
+    }
+    Some(path)
+}
+
 /// Parse menu text into entries.
 pub fn parse(text: &str) -> Vec<UserMenuEntry> {
     let mut entries: Vec<UserMenuEntry> = Vec::new();

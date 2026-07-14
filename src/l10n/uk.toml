@@ -59,6 +59,8 @@ code = "uk"
 "&Settings..." = "Налаштування… (&S)"
 "&Confirmations..." = "Підтвердження… (&C)"
 "&Edit themes..." = "Редагувати теми… (&E)"
+"Edit e&xtensions..." = "Редагувати розширення… (&X)"
+"Edit &menu file..." = "Редагувати файл меню… (&M)"
 
 # -- Function-key bar --
 "Help" = "Довід"

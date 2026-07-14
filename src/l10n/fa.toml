@@ -63,6 +63,8 @@ rtl = true
 "&Settings..." = "تنظیمات… (&S)"
 "&Confirmations..." = "تأییدها… (&C)"
 "&Edit themes..." = "ویرایش پوسته‌ها… (&E)"
+"Edit e&xtensions..." = "ویرایش پسوندها… (&X)"
+"Edit &menu file..." = "ویرایش فایل منو… (&M)"
 
 # -- Function-key bar --
 "Help" = "راهنما"

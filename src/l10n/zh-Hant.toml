@@ -59,6 +59,8 @@ code = "zh-Hant"
 "&Settings..." = "設定…(&S)"
 "&Confirmations..." = "確認…(&C)"
 "&Edit themes..." = "編輯佈景主題…(&E)"
+"Edit e&xtensions..." = "編輯副檔名…(&X)"
+"Edit &menu file..." = "編輯選單檔案…(&M)"
 
 # -- Function-key bar --
 "Help" = "說明"

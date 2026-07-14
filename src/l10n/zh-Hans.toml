@@ -59,6 +59,8 @@ code = "zh-Hans"
 "&Settings..." = "设置…(&S)"
 "&Confirmations..." = "确认…(&C)"
 "&Edit themes..." = "编辑主题…(&E)"
+"Edit e&xtensions..." = "编辑扩展名…(&X)"
+"Edit &menu file..." = "编辑菜单文件…(&M)"
 
 # -- Function-key bar --
 "Help" = "帮助"

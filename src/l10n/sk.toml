@@ -59,6 +59,8 @@ code = "sk"
 "&Settings..." = "Nastavenia… (&S)"
 "&Confirmations..." = "Potvrdenia… (&C)"
 "&Edit themes..." = "Upraviť motívy… (&E)"
+"Edit e&xtensions..." = "Upraviť prípony… (&X)"
+"Edit &menu file..." = "Upraviť súbor ponuky… (&M)"
 
 # -- Function-key bar --
 "Help" = "Pomoc"

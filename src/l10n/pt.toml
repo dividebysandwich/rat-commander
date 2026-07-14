@@ -59,6 +59,8 @@ code = "pt"
 "&Settings..." = "Configurações… (&S)"
 "&Confirmations..." = "Confirmações… (&C)"
 "&Edit themes..." = "Editar temas… (&E)"
+"Edit e&xtensions..." = "Editar extensões… (&X)"
+"Edit &menu file..." = "Editar arquivo de menu… (&M)"
 
 # -- Function-key bar --
 "Help" = "Ajuda"

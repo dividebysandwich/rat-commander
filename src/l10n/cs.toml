@@ -59,6 +59,8 @@ code = "cs"
 "&Settings..." = "Nastavení… (&S)"
 "&Confirmations..." = "Potvrzení… (&C)"
 "&Edit themes..." = "Upravit motivy… (&E)"
+"Edit e&xtensions..." = "Upravit přípony… (&X)"
+"Edit &menu file..." = "Upravit soubor nabídky… (&M)"
 
 # -- Function-key bar --
 "Help" = "Nápov"

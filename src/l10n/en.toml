@@ -68,6 +68,8 @@ code = "en"
 "&Settings..." = "&Settings..."
 "&Confirmations..." = "&Confirmations..."
 "&Edit themes..." = "&Edit themes..."
+"Edit e&xtensions..." = "Edit e&xtensions..."
+"Edit &menu file..." = "Edit &menu file..."
 
 # -- Panel function-key bar (kept short to fit the segments) --
 "Help" = "Help"

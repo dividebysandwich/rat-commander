@@ -59,6 +59,8 @@ code = "nl"
 "&Settings..." = "Instellingen… (&S)"
 "&Confirmations..." = "Bevestigingen… (&C)"
 "&Edit themes..." = "Thema's bewerken… (&E)"
+"Edit e&xtensions..." = "Extensies bewerken… (&X)"
+"Edit &menu file..." = "Menubestand bewerken… (&M)"
 
 # -- Function-key bar --
 "Help" = "Hulp"

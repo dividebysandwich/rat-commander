@@ -59,6 +59,8 @@ code = "ru"
 "&Settings..." = "Настройки… (&S)"
 "&Confirmations..." = "Подтверждения… (&C)"
 "&Edit themes..." = "Изменить темы… (&E)"
+"Edit e&xtensions..." = "Изменить расширения… (&X)"
+"Edit &menu file..." = "Изменить файл меню… (&M)"
 
 # -- Function-key bar --
 "Help" = "Помощь"

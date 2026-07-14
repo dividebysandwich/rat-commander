@@ -252,6 +252,8 @@ impl AppState {
             MenuAction::Settings => self.open_settings(),
             MenuAction::Confirmations => self.open_confirmations(),
             MenuAction::EditThemes => self.open_edit_themes(),
+            MenuAction::EditExtensions => self.open_edit_extensions(),
+            MenuAction::EditUserMenu => self.open_edit_user_menu(),
             MenuAction::Quit => return self.request_quit(),
         }
         Flow::Continue
