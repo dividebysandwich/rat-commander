@@ -114,6 +114,11 @@ code = "ja"
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "チェックサム…(&K)"
+# -- Panel navigation (Alt-H / Alt-I / Alt-O) --
+"Directory hi&story..." = "ディレクトリ履歴…(&S)"
+"Sy&nc panels" = "パネルを揃える(&N)"
+"Show directory on other p&anel" = "反対パネルにディレクトリを表示(&A)"
+"Directory History" = "ディレクトリ履歴"
 # -- Directory synchronisation --
 "S&ynchronize directories..." = "ディレクトリを同期…(&Y)"
 "Synchronize" = "同期"

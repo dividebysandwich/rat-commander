@@ -114,6 +114,11 @@ code = "hi"
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "चेकसम… (&K)"
+# -- Panel navigation (Alt-H / Alt-I / Alt-O) --
+"Directory hi&story..." = "डायरेक्टरी इतिहास… (&S)"
+"Sy&nc panels" = "पैनल समान करें (&N)"
+"Show directory on other p&anel" = "दूसरे पैनल में डायरेक्टरी दिखाएँ (&A)"
+"Directory History" = "डायरेक्टरी इतिहास"
 # -- Directory synchronisation --
 "S&ynchronize directories..." = "डायरेक्टरी सिंक करें… (&Y)"
 "Synchronize" = "सिंक करें"

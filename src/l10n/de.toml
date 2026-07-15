@@ -44,6 +44,11 @@ code = "de"
 "&Symlink" = "&Symlink"
 "Com&press..." = "Kom&primieren..."
 "Chec&ksum..." = "Prü&fsumme..."
+# -- Panel navigation (Alt-H / Alt-I / Alt-O) --
+"Directory hi&story..." = "Verzeichnisver&lauf..."
+"Sy&nc panels" = "Panels &angleichen"
+"Show directory on other p&anel" = "Verzeichnis im anderen Panel &zeigen"
+"Directory History" = "Verzeichnisverlauf"
 # -- Directory synchronisation --
 "S&ynchronize directories..." = "Verzeichnisse s&ynchronisieren..."
 "Synchronize" = "Synchronisieren"

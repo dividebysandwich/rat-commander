@@ -123,6 +123,11 @@ code = "en"
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "Chec&ksum..."
+# -- Panel navigation (Alt-H / Alt-I / Alt-O) --
+"Directory hi&story..." = "Directory hi&story..."
+"Sy&nc panels" = "Sy&nc panels"
+"Show directory on other p&anel" = "Show directory on other p&anel"
+"Directory History" = "Directory History"
 # -- Directory synchronisation --
 "S&ynchronize directories..." = "S&ynchronize directories..."
 "Synchronize" = "Synchronize"

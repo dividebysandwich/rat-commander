@@ -15,7 +15,7 @@ use crate::proc::{ProcSignal, ProcView};
 use crate::ui::cmdline::CommandLine;
 use crate::ui::dialog::{
     BackgroundOpsDialog, BgRow, BoolSetting, BusyDialog, ChecksumResultDialog, CommandPaletteDialog,
-    CompareDialog, CompareMode, ConfirmDialog, Dialog, DialogResult, DriveDialog,
+    CompareDialog, CompareMode, ConfirmDialog, Dialog, DialogResult, DirHistoryDialog, DriveDialog,
     DupCriteria, FileBrowserDialog, FindDialog, FindParams, FlashTargetDialog, FormDialog, GitOutputDialog, GotoDialog,
     HotlistDialog, HotlistOutcome, ImageSaveDialog, InputDialog, InputPurpose, MessageDialog,
     MultiRenameDialog, OverwriteDialog, PaletteAction, PaletteCategory, PaletteEntry, ProgressDialog,

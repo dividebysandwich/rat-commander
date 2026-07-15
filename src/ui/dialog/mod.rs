@@ -10,6 +10,7 @@ mod backgroundops;
 mod checksum;
 mod compare;
 mod confirm;
+mod dirhistory;
 mod drive;
 mod find;
 mod flash;
@@ -49,6 +50,7 @@ pub use backgroundops::{BackgroundOpsDialog, BgRow};
 pub use checksum::ChecksumResultDialog;
 pub use compare::CompareDialog;
 pub use confirm::ConfirmDialog;
+pub use dirhistory::DirHistoryDialog;
 pub use drive::DriveDialog;
 pub use find::{FindDialog, FindParams};
 pub use flash::{FileBrowserDialog, FlashTargetDialog, ImageSaveDialog};
@@ -125,6 +127,8 @@ pub enum Dialog {
     GitOutput(GitOutputDialog),
     /// The directory-sync plan, shown before any of it runs.
     SyncPreview(SyncPreviewDialog),
+    /// The Alt-H directory history (the active panel's visited directories).
+    DirHistory(DirHistoryDialog),
 }
 
 /// What the app should do after a dialog handles a key.
@@ -192,6 +196,8 @@ pub enum Submit {
     Confirmations(ConfirmValues),
     /// Compress these (local) sources into an archive of the given name.
     Compress(Vec<VfsPath>, String),
+    /// Jump the active panel to this directory (picked from the Alt-H history).
+    GotoDir(Box<VfsPath>),
     /// Open the sync options dialog (from the Compare-directories dialog).
     OpenSync,
     /// Plan a directory sync in this mode (active panel → other panel); the
@@ -399,6 +405,7 @@ impl Dialog {
             Dialog::SendFile(d) => d.handle_key(key),
             Dialog::GitOutput(d) => d.handle_key(key),
             Dialog::SyncPreview(d) => d.handle_key(key),
+            Dialog::DirHistory(d) => d.handle_key(key),
         }
     }
 
@@ -437,6 +444,7 @@ impl Dialog {
             Dialog::SendFile(d) => d.render(f, area, theme, gfx),
             Dialog::GitOutput(d) => d.render(f, area, theme, gfx),
             Dialog::SyncPreview(d) => d.render(f, area, theme, gfx),
+            Dialog::DirHistory(d) => d.render(f, area, theme),
         }
     }
 
@@ -477,6 +485,7 @@ impl Dialog {
             Dialog::Select(d) => return d.handle_click(area, col, row),
             Dialog::UserMenu(d) => return d.handle_click(area, col, row),
             Dialog::ShellHistory(d) => return d.handle_click(area, col, row),
+            Dialog::DirHistory(d) => return d.handle_click(area, col, row),
             Dialog::CommandPalette(d) => return d.handle_click(area, col, row),
             Dialog::Hotlist(d) => return d.handle_click(area, col, row),
             Dialog::BackgroundOps(d) => return d.handle_click(area, col, row),
@@ -561,6 +570,9 @@ impl Dialog {
                 return d.handle_scroll(delta);
             }
             Dialog::SyncPreview(d) => {
+                return d.handle_scroll(delta);
+            }
+            Dialog::DirHistory(d) => {
                 return d.handle_scroll(delta);
             }
             _ => {}

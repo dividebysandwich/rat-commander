@@ -151,6 +151,7 @@ impl AppState {
                 }
             }
             Submit::Compress(sources, name) => self.start_compress(sources, name),
+            Submit::GotoDir(path) => self.goto_dir(*path).await,
             Submit::OpenSync => self.open_sync(),
             Submit::SyncPlan(mode) => self.start_sync_plan(mode),
             Submit::SyncRun(plan) => self.start_sync(*plan),

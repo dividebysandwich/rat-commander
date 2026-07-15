@@ -114,6 +114,11 @@ code = "sr"
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "Kontrolni zbir… (&K)"
+# -- Panel navigation (Alt-H / Alt-I / Alt-O) --
+"Directory hi&story..." = "Istorija direktorijuma… (&S)"
+"Sy&nc panels" = "Izjednači panele (&N)"
+"Show directory on other p&anel" = "Prikaži direktorijum u drugom panelu (&A)"
+"Directory History" = "Istorija direktorijuma"
 # -- Directory synchronisation --
 "S&ynchronize directories..." = "Sinhronizuj direktorijume… (&Y)"
 "Synchronize" = "Sinhronizuj"

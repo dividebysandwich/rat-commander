@@ -114,6 +114,11 @@ code = "uk"
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "Контрольна сума… (&K)"
+# -- Panel navigation (Alt-H / Alt-I / Alt-O) --
+"Directory hi&story..." = "Історія каталогів… (&S)"
+"Sy&nc panels" = "Зрівняти панелі (&N)"
+"Show directory on other p&anel" = "Показати каталог на іншій панелі (&A)"
+"Directory History" = "Історія каталогів"
 # -- Directory synchronisation --
 "S&ynchronize directories..." = "Синхронізувати каталоги… (&Y)"
 "Synchronize" = "Синхронізація"

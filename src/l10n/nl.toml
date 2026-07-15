@@ -114,6 +114,11 @@ code = "nl"
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "Controlesom… (&K)"
+# -- Panel navigation (Alt-H / Alt-I / Alt-O) --
+"Directory hi&story..." = "Mapgeschiedenis… (&S)"
+"Sy&nc panels" = "Panelen gelijkzetten (&N)"
+"Show directory on other p&anel" = "Map in het andere paneel tonen (&A)"
+"Directory History" = "Mapgeschiedenis"
 # -- Directory synchronisation --
 "S&ynchronize directories..." = "Mappen synchroniseren… (&Y)"
 "Synchronize" = "Synchroniseren"

@@ -66,6 +66,10 @@ impl AppState {
                 // Alt-F is word-forward while editing a non-empty command line;
                 // it only opens the File menu when the line is empty.
                 && (c != 'f' || self.cmd.is_empty())
+                // Alt-O belongs to "show this directory on the other panel"; the
+                // Options menu keeps Alt-Shift-O (and F9), since `menu_title_index`
+                // lower-cases and so still matches the shifted letter.
+                && c != 'o'
             {
                 self.menu = Some(MenuBarState::new(idx, &self.session_list(), self.side_remote()));
                 self.alt_hint = false;
@@ -263,6 +267,9 @@ impl AppState {
             MenuAction::CommandPalette => self.open_command_palette(),
             MenuAction::Hotlist => self.open_hotlist(),
             MenuAction::PanelFilter => self.open_panel_filter(),
+            MenuAction::DirHistory => self.open_dir_history(),
+            MenuAction::SyncPanels => self.sync_other_panel().await,
+            MenuAction::ChdirOther => self.chdir_other_panel().await,
             MenuAction::Connect(side, proto) => {
                 if self.other_panel_is_remote(side) {
                     self.show_error(
@@ -454,24 +461,32 @@ impl AppState {
             KeyCode::Char('x') if ctrl => self.split = self.split.toggle(),
             // Ctrl-P opens the fuzzy command palette (`!alt` so AltGr still types).
             KeyCode::Char('p') if ctrl && !alt => self.open_command_palette(),
-            KeyCode::Char('w') if ctrl => {
-                let side = self.active;
-                let next = self.panels[side].format.toggle();
-                self.set_format(side, next).await;
-            }
             // Command-line history: Alt-P/Alt-N cycle previous/next in place;
-            // Alt-H opens the scrollable Shell History window above it. (`!ctrl`
-            // so AltGr = Ctrl+Alt still composes characters instead.)
+            // Alt-Shift-H opens the scrollable Shell History window above it.
+            // (`!ctrl` so AltGr = Ctrl+Alt still composes characters instead.)
             KeyCode::Char('p') if alt && !ctrl => self.cmd.history_prev(),
             KeyCode::Char('n') if alt && !ctrl => self.cmd.history_next(),
-            KeyCode::Char('h') if alt && !ctrl => self.open_shell_history(),
+            // The two history windows share the letter: Alt-H lists the panel's
+            // directories, Alt-Shift-H the shell's commands.
+            KeyCode::Char('h') if alt && !ctrl => self.open_dir_history(),
+            KeyCode::Char('H') if alt && !ctrl => self.open_shell_history(),
             // Directory history (Midnight Commander keys): Alt-y back, Alt-u fwd.
             KeyCode::Char('y') if alt && !ctrl => self.go_back(self.active).await,
             KeyCode::Char('u') if alt && !ctrl => self.go_forward(self.active).await,
             // Directory hotlist (bookmarks), MC's Ctrl-\.
             KeyCode::Char('\\') if ctrl => self.open_hotlist(),
-            // Persistent listing filter for the active panel.
-            KeyCode::Char('i') if alt && !ctrl => self.open_panel_filter(),
+            // Alt-I points the other panel here; Alt-Shift-I sets this panel's
+            // persistent listing filter (which used to hold the plain Alt-I).
+            KeyCode::Char('i') if alt && !ctrl => self.sync_other_panel().await,
+            KeyCode::Char('I') if alt && !ctrl => self.open_panel_filter(),
+            // Alt-O shows the cursor's directory on the other panel and steps on.
+            KeyCode::Char('o') if alt && !ctrl => self.chdir_other_panel().await,
+            // Alt-T cycles the listing type (full / brief / details / tree).
+            KeyCode::Char('t') if alt && !ctrl => {
+                let side = self.active;
+                let next = self.panels[side].format.toggle();
+                self.set_format(side, next).await;
+            }
             // Git: Ctrl-G stages/unstages, Alt-G opens the Git menu, and Alt-D
             // diffs the file against HEAD (the diff moved off Alt-G when the menu
             // took it; Ctrl-D can't be used — readline claims it to delete a
@@ -802,8 +817,11 @@ pub(in crate::app::state) fn cmdline_edit_wanted(key: KeyEvent, empty: bool) -> 
         // Alt word motions / copy region.
         KeyCode::Char('b' | 'w') if alt && !ctrl => true,
         KeyCode::Backspace if alt => true,
+        // Ctrl-W (kill word back) is unconditional now that the listing-type
+        // toggle it used to share has moved to Alt-T.
+        KeyCode::Char('w') if ctrl && !alt => true,
         // Panel-shortcut conflicts: edit only with text present.
-        KeyCode::Char('e' | 'w') if ctrl && !alt => !empty,
+        KeyCode::Char('e') if ctrl && !alt => !empty,
         KeyCode::Char('f') if alt && !ctrl => !empty,
         _ => false,
     }

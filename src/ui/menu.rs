@@ -97,6 +97,12 @@ pub enum MenuAction {
     Hotlist,
     /// Set the active panel's persistent listing filter.
     PanelFilter,
+    /// Show the active panel's directory history as a pickable list (Alt-H).
+    DirHistory,
+    /// Point the other panel at the active panel's directory (Alt-I).
+    SyncPanels,
+    /// Show the cursor's directory on the other panel and step on (Alt-O).
+    ChdirOther,
     Connect(usize, Protocol),
     Disconnect(usize),
     /// Switch a panel (side) to an already-open remote session by id.
@@ -282,7 +288,10 @@ impl MenuBarState {
         let mut command_items = vec![
             item("C&ommand palette...", MenuAction::CommandPalette),
             item_key("Directory &hotlist...", "Ctrl-\\", MenuAction::Hotlist),
-            item_key("Panel f&ilter...", "Alt-I", MenuAction::PanelFilter),
+            item_key("Directory hi&story...", "Alt-H", MenuAction::DirHistory),
+            item_key("Sy&nc panels", "Alt-I", MenuAction::SyncPanels),
+            item_key("Show directory on other p&anel", "Alt-O", MenuAction::ChdirOther),
+            item_key("Panel f&ilter...", "Alt-Shift-I", MenuAction::PanelFilter),
             sep(),
             item("&Find file...", MenuAction::FindFile),
             item("Find d&uplicates...", MenuAction::FindDuplicates),

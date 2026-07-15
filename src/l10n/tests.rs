@@ -79,7 +79,9 @@ fn menu_accelerators_are_unique_per_menu_in_every_language() {
         // unique among themselves, since it is a menu of its own.
         &git_keys,
         &[
-            "C&ommand palette...", "Directory &hotlist...", "Panel f&ilter...", "&Find file...",
+            "C&ommand palette...", "Directory &hotlist...", "Panel f&ilter...",
+            "Directory hi&story...", "Sy&nc panels", "Show directory on other p&anel",
+            "&Find file...",
             "Find d&uplicates...", "Compare &directories...", "S&ynchronize directories...",
             "Compare fi&les...",
             "&Process explorer...", "Disk &explorer...", "Disk &manager...", "Network &connections...",

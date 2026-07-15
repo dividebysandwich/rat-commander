@@ -114,6 +114,11 @@ code = "ru"
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "Контрольная сумма… (&K)"
+# -- Panel navigation (Alt-H / Alt-I / Alt-O) --
+"Directory hi&story..." = "История каталогов… (&S)"
+"Sy&nc panels" = "Уравнять панели (&N)"
+"Show directory on other p&anel" = "Показать каталог на другой панели (&A)"
+"Directory History" = "История каталогов"
 # -- Directory synchronisation --
 "S&ynchronize directories..." = "Синхронизировать каталоги… (&Y)"
 "Synchronize" = "Синхронизация"

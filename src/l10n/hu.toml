@@ -114,6 +114,11 @@ code = "hu"
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "Ellenőrző összeg… (&K)"
+# -- Panel navigation (Alt-H / Alt-I / Alt-O) --
+"Directory hi&story..." = "Könyvtárelőzmények… (&S)"
+"Sy&nc panels" = "Panelek egyeztetése (&N)"
+"Show directory on other p&anel" = "Könyvtár megjelenítése a másik panelen (&A)"
+"Directory History" = "Könyvtárelőzmények"
 # -- Directory synchronisation --
 "S&ynchronize directories..." = "Könyvtárak szinkronizálása… (&Y)"
 "Synchronize" = "Szinkronizálás"

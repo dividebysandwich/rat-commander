@@ -61,9 +61,12 @@ The installed executable is named **`rc`** for quick typing.
   servers (reconnect); type a few letters and press Enter.
 - **Directory navigation** — a per-panel **back/forward history** (`Alt-←`/`Alt-→`
   or MC's `Alt-y`/`Alt-u`, plus a clickable `◀` at each panel's top-left corner
-  and `▶` at its top-right), a **directory hotlist** of bookmarks (`Ctrl-\`), and
-  a **persistent listing filter** (`Alt-I`, a glob like `*.rs` or plain text) that
-  hides non-matching files until you clear it.
+  and `▶` at its top-right) that `Alt-H` also lists as a **pickable window** to
+  jump straight to any of them; **`Alt-I`** points the other panel at this one and
+  **`Alt-O`** shows the cursor's directory there while stepping down the listing;
+  a **directory hotlist** of bookmarks (`Ctrl-\`), and a **persistent listing
+  filter** (`Alt-Shift-I`, a glob like `*.rs` or plain text) that hides
+  non-matching files until you clear it.
 - **Find file**, **Compare directories**, **Find duplicates**, and a
   side-by-side **Compare files** diff with in-place merging.
 - **Synchronize directories** — mirror one panel's tree onto the other, in
@@ -160,12 +163,16 @@ also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1
 | `Ctrl-P` | Command palette (fuzzy-search every action, setting, bookmark, connection) |
 | `Ctrl-\` | Directory hotlist (bookmarks): jump / add / remove |
 | `Alt-←` / `Alt-→` (or `Alt-y` / `Alt-u`) | Go back / forward through the panel's visited directories |
-| `Alt-I` | Set / clear the panel's persistent listing filter |
+| `Alt-H` | Directory history: pick any visited directory from a list |
+| `Alt-I` | Point the other panel at this panel's directory |
+| `Alt-O` | Show the cursor's directory on the other panel, and step down one entry |
+| `Alt-T` | Cycle view format (full / brief / details / tree) |
+| `Alt-Shift-I` | Set / clear the panel's persistent listing filter |
+| `Alt-Shift-H` | Shell history window (recall a command without running it) |
 | `Alt-G` | Open the **Git menu** (status, log, commit, push/pull, checkout, …) |
 | `Ctrl-G` / `Alt-D` | Git: stage/unstage the selection · diff the file against HEAD |
 | `Ctrl-R` | Re-read the active panel |
 | `Ctrl-S` / `Ctrl-E` | Cycle sort key / toggle reverse |
-| `Ctrl-W` | Cycle view format (full / brief / details / tree) |
 | `Ctrl-X` | Toggle vertical / horizontal split |
 | `Ctrl-U` | Swap the two panels |
 | `Ctrl-F1` / `Ctrl-F2` | Hide / show the left / right panel (reveals the console) |

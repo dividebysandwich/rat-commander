@@ -1004,12 +1004,12 @@ async fn tree_view_enter_navigates_inactive_panel() {
     // The inactive panel starts somewhere else (the process cwd).
     let start_right = st.panels[1].cwd.clone();
 
-    // Ctrl-W: Full → Brief → Details → Tree.
-    let ctrl_w = KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL);
+    // Alt-T: Full → Brief → Details → Tree.
+    let alt_t = KeyEvent::new(KeyCode::Char('t'), KeyModifiers::ALT);
     for _ in 0..3 {
-        st.handle_key(ctrl_w).await;
+        st.handle_key(alt_t).await;
     }
-    assert_eq!(st.panels[0].format, ViewFormat::Tree, "Ctrl-W reaches Tree view");
+    assert_eq!(st.panels[0].format, ViewFormat::Tree, "Alt-T reaches Tree view");
     assert!(st.panels[0].tree.is_some(), "the tree is built on entering Tree view");
     // Entering Tree view doesn't move the console line off the panel's directory.
     assert_eq!(st.console_cwd().path, root, "console starts at the panel's directory");
@@ -1044,8 +1044,8 @@ async fn tree_view_enter_navigates_inactive_panel() {
     // The active (tree) panel did not itself navigate.
     assert_eq!(st.panels[0].cwd, VfsPath::local(&root), "tree panel stays put");
 
-    // Ctrl-W once more leaves Tree view and drops the tree.
-    st.handle_key(ctrl_w).await;
+    // Alt-T once more leaves Tree view and drops the tree.
+    st.handle_key(alt_t).await;
     assert_eq!(st.panels[0].format, ViewFormat::Full, "Tree → Full completes the cycle");
     assert!(st.panels[0].tree.is_none(), "leaving Tree view drops the tree");
     // Back in a normal view the console line tracks the active panel again.
@@ -2085,14 +2085,23 @@ async fn alt_menu_letter_opens_menu_but_alt_s_does_not() {
     let (tx, _rx) = async_bridge::channel();
     let mut st = AppState::new(tx);
     st.init().await;
-    // Alt + a menu letter (F/O/C/L/R) opens that top menu now, even with quick
-    // search enabled — Alt no longer starts a search on its own.
-    for c in ['f', 'o', 'c', 'l', 'r'] {
+    // Alt + a menu letter opens that top menu now, even with quick search
+    // enabled — Alt no longer starts a search on its own. ('o' is missing here:
+    // plain Alt-O shows the cursor's directory on the other panel, so the Options
+    // menu keeps the shifted letter — asserted below.)
+    for c in ['f', 'c', 'l', 'r'] {
         st.handle_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT)).await;
         assert!(st.menu.is_some(), "Alt+{c} opens a menu");
         assert!(st.quick_search.is_none(), "Alt+{c} does not start a search");
         st.menu = None;
     }
+    // Plain Alt-O is the panel action, not the Options menu.
+    st.handle_key(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::ALT)).await;
+    assert!(st.menu.is_none(), "Alt-O no longer opens the Options menu");
+    // Alt-Shift-O still reaches it (the menu lookup lower-cases the letter).
+    st.handle_key(KeyEvent::new(KeyCode::Char('O'), KeyModifiers::ALT | KeyModifiers::SHIFT)).await;
+    assert!(st.menu.is_some(), "Alt-Shift-O opens the Options menu");
+    st.menu = None;
     // Alt-S starts a search, not a menu ('s' isn't a menu letter anyway).
     st.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::ALT)).await;
     assert!(st.menu.is_none());
@@ -2670,9 +2679,13 @@ async fn command_line_history_and_alt_enter() {
     assert_eq!(st.cmd.buffer, "ls");
     st.cmd.clear();
 
-    // Alt-H opens the Shell History window.
-    st.handle_key(alt_c('h')).await;
-    assert!(matches!(st.dialog, Some(Dialog::ShellHistory(_))), "Alt-H opens the history window");
+    // Alt-Shift-H opens the Shell History window (plain Alt-H now lists the
+    // *directory* history — the two windows share the letter).
+    st.handle_key(alt_c('H')).await;
+    assert!(
+        matches!(st.dialog, Some(Dialog::ShellHistory(_))),
+        "Alt-Shift-H opens the shell history window"
+    );
     // Up selects the older entry ("ls"); Enter recalls it without running.
     st.handle_key(plain(KeyCode::Up)).await;
     let flow = st.handle_key(plain(KeyCode::Enter)).await;
@@ -2745,9 +2758,11 @@ async fn command_line_readline_conflicts_respect_empty_line() {
     let alt = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT);
 
     // -- Empty line: the keys keep their panel/menu meaning. --
+    // (C-W is no longer among them: the listing toggle it used to share moved to
+    // Alt-T, so C-W is now unconditionally readline's kill-word-back.)
     let fmt = st.panels[st.active].format;
-    st.handle_key(ctrl('w')).await;
-    assert_ne!(st.panels[st.active].format, fmt, "C-W cycles the view when empty");
+    st.handle_key(alt('t')).await;
+    assert_ne!(st.panels[st.active].format, fmt, "Alt-T cycles the view");
     let rev = st.panels[st.active].sort.reverse;
     st.handle_key(ctrl('e')).await;
     assert_ne!(st.panels[st.active].sort.reverse, rev, "C-E reverses sort when empty");
@@ -2880,12 +2895,13 @@ async fn directory_history_filter_and_hotlist() {
     st.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).await;
     assert!(st.dialog.is_none());
 
-    // -- Alt-I opens the filter prompt --
-    st.handle_key(alt('i')).await;
+    // -- Alt-Shift-I opens the filter prompt (plain Alt-I syncs the panels) --
+    st.handle_key(alt('I')).await;
     assert!(
         matches!(st.dialog, Some(Dialog::Input(_))),
-        "Alt-I opens the filter input"
+        "Alt-Shift-I opens the filter input"
     );
+    st.dialog = None;
 
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -3102,6 +3118,68 @@ async fn sync_plans_previews_and_executes_a_mirror() {
     }
     assert_eq!(std::fs::read(db.join("new.txt")).unwrap(), b"fresh");
     assert!(!db.join("stale.txt").exists(), "the extraneous file was removed");
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The panel-navigation shortcuts: Alt-I (sync the other panel), Alt-O (show the
+/// cursor's directory there and step on), and Alt-H (the directory history list).
+#[tokio::test]
+async fn alt_panel_navigation_shortcuts() {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("rc_altnav_{}_{nanos}", std::process::id()));
+    let sub = root.join("alpha");
+    std::fs::create_dir_all(&sub).unwrap();
+    std::fs::create_dir_all(root.join("beta")).unwrap();
+    std::fs::write(root.join("zz.txt"), b"x").unwrap();
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+    st.panels[1].cwd = VfsPath::local(std::env::temp_dir());
+    st.panels[1].backend = st.registry.local();
+    st.panels[1].reload().await.unwrap();
+    let alt = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT);
+
+    // -- Alt-I: the inactive panel joins the active one --
+    assert_ne!(st.panels[1].cwd, st.panels[0].cwd);
+    st.handle_key(alt('i')).await;
+    assert_eq!(st.panels[1].cwd, VfsPath::local(&root), "Alt-I syncs the other panel");
+
+    // -- Alt-O on a directory: the other panel enters it, the cursor steps on --
+    let idx = st.panels[0].entries.iter().position(|e| e.name == "alpha").unwrap();
+    st.panels[0].cursor = idx;
+    st.handle_key(alt('o')).await;
+    assert_eq!(st.panels[1].cwd, VfsPath::local(&sub), "Alt-O opens the directory there");
+    assert_eq!(st.panels[0].cursor, idx + 1, "and the cursor advances");
+
+    // -- Alt-O on a file: the other panel gets this directory instead --
+    let f = st.panels[0].entries.iter().position(|e| e.name == "zz.txt").unwrap();
+    st.panels[0].cursor = f;
+    st.handle_key(alt('o')).await;
+    assert_eq!(
+        st.panels[1].cwd,
+        VfsPath::local(&root),
+        "Alt-O on a file shows the containing directory"
+    );
+
+    // -- Alt-H lists the directory history and can jump into it --
+    // The left panel has visited nothing yet; give it some history.
+    st.panels[0].cursor = idx;
+    st.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).await; // enter alpha/
+    assert_eq!(st.panels[0].cwd, VfsPath::local(&sub));
+    st.handle_key(alt('h')).await;
+    assert!(matches!(st.dialog, Some(Dialog::DirHistory(_))), "Alt-H lists the history");
+    // The previous directory is one row up; Enter jumps straight back to it.
+    st.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)).await;
+    st.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).await;
+    assert!(st.dialog.is_none(), "the window closes");
+    assert_eq!(st.panels[0].cwd, VfsPath::local(&root), "picking an entry jumps there");
 
     let _ = std::fs::remove_dir_all(&root);
 }

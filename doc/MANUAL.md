@@ -21,7 +21,7 @@ The window is divided into four areas, top to bottom:
   copy/move operations.
 - **Command line** (second from bottom) — type a shell command here and press
   Enter to run it in the active panel's directory. Recently run commands are
-  remembered across sessions: cycle them with `Alt-P` / `Alt-N`, or press `Alt-H`
+  remembered across sessions: cycle them with `Alt-P` / `Alt-N`, or press `Alt-Shift-H`
   to pick one from the **Shell History** window. `Alt-Enter` drops the name under
   the cursor onto the command line.
 - **Function-key bar** (bottom row) — shows what F1–F10 do in the current
@@ -145,9 +145,9 @@ A quick **Alt** + digit does the same.
   and shell-quoted when it contains spaces or special characters)
 - `Alt-P` / `Alt-N` — Recall the previous / next command from history into the
   command line, replacing its contents (press again to keep cycling)
-- `Alt-H` — Open the **Shell History** window just above the command line: move
+- `Alt-Shift-H` — Open the **Shell History** window just above the command line: move
   with `↑`/`↓` (or `Alt-P`/`Alt-N`) and press `Enter` to copy the chosen command
-  into the command line **without running it**; `Esc` or `Alt-H` closes it
+  into the command line **without running it**; `Esc` closes it
 - `Alt-S` / `Ctrl-S` — **Quick search** the active panel: opens an empty search
   box; each letter you type filters, jumping the cursor to the first file whose
   name starts with it (case-insensitive; `Shift` for uppercase works). The box
@@ -163,10 +163,20 @@ A quick **Alt** + digit does the same.
   `◀` (top-left) and `▶` (top-right) arrows on each panel's border do the same
   (and are dimmed when there is nowhere to go that way) — see *Directory history*
   below
+- `Alt-H` — Open the **Directory History** window: the same history the arrows
+  step through, as a pickable list — see *Directory history* below
+- `Alt-I` — Point the **other panel** at this panel's directory, so both show the
+  same place
+- `Alt-O` — Show the directory under the cursor **on the other panel** and step
+  down one entry (with the cursor on a file, the other panel gets *this*
+  directory instead) — so holding `Alt-O` walks a listing while the other panel
+  keeps pace
+- `Alt-T` — Cycle the active panel's **view format** (full → brief → details →
+  tree)
 - `Ctrl-\` — Open the **directory hotlist** (your bookmarked directories): jump
   to one, add the current directory, or remove one — see *The directory hotlist*
   below
-- `Alt-I` — Set or clear the active panel's **persistent listing filter** (a
+- `Alt-Shift-I` — Set or clear the active panel's **persistent listing filter** (a
   shell glob like `*.rs`, or plain text; a blank entry clears it) — distinct from
   the quick-search cursor jump; see *The listing filter* below
 - `Alt-G` — Open the **Git menu** (status, log, commit, fetch/pull/push, checkout,
@@ -177,7 +187,7 @@ A quick **Alt** + digit does the same.
   version** (git) — see *Git-aware panels* below
 - `Ctrl-R` — Re-read (refresh) the active panel
 - `Ctrl-E` — Toggle reverse sort order (choose the sort key from the panel menu)
-- `Ctrl-W` — Cycle the view format (full → brief → details → tree)
+- `Alt-T` — Cycle the view format (full → brief → details → tree)
 - `Ctrl-X` — Toggle vertical / horizontal split
 - `Ctrl-U` — Swap the two panels
 - `Ctrl-F1` / `Ctrl-F2` — Hide (and show again) the left / right panel,
@@ -209,9 +219,10 @@ key bindings:
 - `Ctrl-Y` — Yank (paste) the kill buffer at the cursor
 
 The kill buffer is shared, so text cut in one field can be yanked into another.
-On the **command line only**, `Ctrl-E`, `Ctrl-W` and `Alt-F` keep their panel
-meaning (reverse sort / cycle view / File menu) while the line is empty, and
-switch to editing as soon as it has text.
+On the **command line only**, `Ctrl-E` and `Alt-F` keep their panel meaning
+(reverse sort / File menu) while the line is empty, and switch to editing as soon
+as it has text. `Ctrl-W` is always the editing key — the listing-type toggle it
+used to share now lives on `Alt-T`.
 
 ### Viewer (F3)
 
@@ -1098,6 +1109,36 @@ Each panel remembers the directories it has visited, like a web browser's histor
   `cd`, a bookmark jump, a tree selection, switching drives or servers — is
   recorded. Making a new move after going back discards the forward trail (again,
   like a browser). Each panel keeps its own independent history.
+
+**The history window (`Alt-H`)**, also on *Command menu → Directory history…*,
+shows the whole trail as a list rather than making you step through it:
+
+- Entries are in visit order — everything you can go **back** to, then the
+  current directory (marked **`▶`** and highlighted), then anything you can go
+  **forward** to.
+- Move with `↑`/`↓`/`PgUp`/`PgDn`/`Home`/`End` or the wheel, **Enter** (or a
+  click) to jump straight there, `Esc` to close. Picking the directory you are
+  already in just closes the window.
+- Jumping is an ordinary move, so it is recorded on the history itself.
+
+(The **shell** history window — recent *commands* — is `Alt-Shift-H`; the two
+share the letter.)
+
+
+## Sending a directory to the other panel
+
+Two shortcuts move the *other* panel without leaving this one:
+
+- **`Alt-I`** — point the other panel at **this panel's directory**, so both show
+  the same place. Handy right before a copy, a compare, or a sync.
+- **`Alt-O`** — show the directory **under the cursor** on the other panel, and
+  step the cursor down one entry. Holding `Alt-O` therefore walks down a list of
+  folders while the other panel previews each in turn. With the cursor on a
+  **file** (or in an empty listing) the other panel gets *this* directory
+  instead, which is the useful reading of "show me where I am".
+
+Both are also on the *Command menu*, and both record the move on the other
+panel's history like any navigation.
 
 
 ## The directory hotlist (Ctrl-\)

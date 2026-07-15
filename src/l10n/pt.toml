@@ -114,6 +114,11 @@ code = "pt"
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "Soma de verificação… (&K)"
+# -- Panel navigation (Alt-H / Alt-I / Alt-O) --
+"Directory hi&story..." = "Histórico de diretórios… (&S)"
+"Sy&nc panels" = "Sincronizar painéis (&N)"
+"Show directory on other p&anel" = "Mostrar o diretório no outro painel (&A)"
+"Directory History" = "Histórico de diretórios"
 # -- Directory synchronisation --
 "S&ynchronize directories..." = "Sincronizar diretórios… (&Y)"
 "Synchronize" = "Sincronizar"

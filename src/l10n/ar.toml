@@ -118,6 +118,11 @@ rtl = true
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "المجموع الاختباري… (&K)"
+# -- Panel navigation (Alt-H / Alt-I / Alt-O) --
+"Directory hi&story..." = "سجل المجلدات… (&S)"
+"Sy&nc panels" = "مطابقة اللوحتين (&N)"
+"Show directory on other p&anel" = "عرض المجلد في اللوحة الأخرى (&A)"
+"Directory History" = "سجل المجلدات"
 # -- Directory synchronisation --
 "S&ynchronize directories..." = "مزامنة المجلدات… (&Y)"
 "Synchronize" = "مزامنة"

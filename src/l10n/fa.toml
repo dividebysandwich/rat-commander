@@ -118,6 +118,11 @@ rtl = true
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "چک‌سام… (&K)"
+# -- Panel navigation (Alt-H / Alt-I / Alt-O) --
+"Directory hi&story..." = "تاریخچه پوشه‌ها… (&S)"
+"Sy&nc panels" = "هم‌ترازی پنل‌ها (&N)"
+"Show directory on other p&anel" = "نمایش پوشه در پنل دیگر (&A)"
+"Directory History" = "تاریخچه پوشه‌ها"
 # -- Directory synchronisation --
 "S&ynchronize directories..." = "همگام‌سازی پوشه‌ها… (&Y)"
 "Synchronize" = "همگام‌سازی"

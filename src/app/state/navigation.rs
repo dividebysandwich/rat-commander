@@ -64,6 +64,70 @@ impl AppState {
         true
     }
 
+    /// Alt-H: the active panel's visited directories as a pickable list — the
+    /// same history `Alt-Y` / `Alt-U` step through, but jumpable.
+    pub(in crate::app::state) fn open_dir_history(&mut self) {
+        let p = &self.panels[self.active];
+        self.dialog =
+            Some(Dialog::DirHistory(DirHistoryDialog::new(&p.back, &p.cwd, &p.forward)));
+    }
+
+    /// Jump the active panel to a directory picked from the history list. The
+    /// move is an ordinary navigation, so it lands on the history stacks itself
+    /// (retracing then stays consistent with where you actually went).
+    pub(in crate::app::state) async fn goto_dir(&mut self, target: VfsPath) {
+        let side = self.active;
+        if self.panels[side].cwd == target {
+            return;
+        }
+        self.enter_on(side, target).await;
+    }
+
+    /// Alt-I: point the *other* panel at the active panel's directory, so both
+    /// show the same place (Midnight Commander's "panel sync").
+    pub(in crate::app::state) async fn sync_other_panel(&mut self) {
+        let target = self.panels[self.active].cwd.clone();
+        let other = self.other_index();
+        if self.panels[other].cwd == target {
+            return; // already there: nothing to do, and no history entry
+        }
+        self.enter_on(other, target).await;
+    }
+
+    /// Alt-O: show the cursor's directory on the *other* panel and step down one
+    /// entry, so holding Alt-O walks a directory list while the other panel keeps
+    /// pace. With the cursor on a file, the other panel gets this directory
+    /// instead — the useful reading of "show me where I am".
+    pub(in crate::app::state) async fn chdir_other_panel(&mut self) {
+        let side = self.active;
+        let entry = self.panels[side].current_entry().cloned();
+        let target = match entry {
+            // `..` names the parent, and entering it is what the user means.
+            Some(e) if e.kind == VfsKind::Dir => self.panels[side].cwd.join(&e.name),
+            // A file (or an empty listing): the other panel follows this one.
+            _ => self.panels[side].cwd.clone(),
+        };
+        let other = self.other_index();
+        if self.panels[other].cwd != target {
+            self.enter_on(other, target).await;
+        }
+        // Advance regardless, so repeating the key walks the listing either way.
+        self.panels[side].move_cursor(1);
+    }
+
+    /// Move panel `side` to `target`, resolving its backend and reporting any
+    /// error. The move records history like an ordinary navigation.
+    async fn enter_on(&mut self, side: usize, target: VfsPath) {
+        if !self.history_target_allowed(side, &target) {
+            return;
+        }
+        let backend = match self.registry.resolve(&target) {
+            Ok(b) => b,
+            Err(e) => return self.show_error(e.to_string()),
+        };
+        self.panels[side].try_enter(target, backend, None).await;
+    }
+
     /// If `(col, row)` falls on a panel's `◀`/`▶` history arrow, return
     /// `(side, is_back)`. Used by the mouse handler to run back/forward.
     pub(in crate::app::state) fn history_arrow_at(&self, col: u16, row: u16) -> Option<(usize, bool)> {
