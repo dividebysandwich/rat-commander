@@ -62,7 +62,7 @@ pub use message::MessageDialog;
 pub use multirename::MultiRenameDialog;
 pub use overwrite::OverwriteDialog;
 pub use palette::{BoolSetting, CommandPaletteDialog, PaletteAction, PaletteCategory, PaletteEntry};
-pub use progress::{BusyDialog, ProgressDialog};
+pub use progress::{BusyDialog, ProgressDialog, SpeedChart};
 pub use saveas::SaveAsDialog;
 pub use search::{SearchReplaceDialog, SearchReplaceParams};
 pub use select::SelectDialog;

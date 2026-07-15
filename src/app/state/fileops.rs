@@ -124,7 +124,7 @@ impl AppState {
         let handle = spawn_op(id, req, self.tx.clone());
         self.tasks.insert(id, handle);
         // Track it as a backgroundable transfer (drives the mini bar / list).
-        self.task_progress.insert(id, BgTransfer { verb, update: None, schemes });
+        self.task_progress.insert(id, BgTransfer { verb, update: None, schemes, chart: SpeedChart::default() });
         let mut pd = ProgressDialog::new(id, verb);
         pd.backgroundable = true;
         self.dialog = Some(Dialog::Progress(pd));
@@ -185,8 +185,14 @@ impl AppState {
         let verb = self.task_progress.get(&id).map(|t| t.verb).unwrap_or("Copying");
         let mut d = ProgressDialog::new(id, verb);
         d.backgroundable = true;
-        if let Some(u) = self.task_progress.get(&id).and_then(|t| t.update.as_ref()) {
-            d.update(u);
+        if let Some(t) = self.task_progress.get(&id) {
+            if let Some(u) = t.update.as_ref() {
+                d.update(u);
+            }
+            // Adopt the history the task has been keeping — including whatever it
+            // recorded while running in the background — so the chart picks up
+            // where it left off rather than starting blank.
+            d.chart.clone_from(&t.chart);
         }
         d
     }

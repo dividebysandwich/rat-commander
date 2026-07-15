@@ -2419,7 +2419,7 @@ async fn conflict_foregrounds_a_background_transfer() {
     // A backgrounded transfer with no foreground dialog.
     st.task_progress.insert(
         7,
-        BgTransfer { verb: "Copying", update: Some(progress_update(7, "Copying", 10, 100)), schemes: vec![] },
+        BgTransfer { verb: "Copying", update: Some(progress_update(7, "Copying", 10, 100)), schemes: vec![] , chart: Default::default() },
     );
     assert!(st.dialog.is_none());
 
@@ -2454,7 +2454,7 @@ async fn foreground_task_reopens_progress_dialog() {
     );
     st.task_progress.insert(
         5,
-        BgTransfer { verb: "Moving", update: Some(progress_update(5, "Moving", 40, 80)), schemes: vec![] },
+        BgTransfer { verb: "Moving", update: Some(progress_update(5, "Moving", 40, 80)), schemes: vec![] , chart: Default::default() },
     );
 
     st.handle_submit(Submit::ForegroundTask(5)).await;
@@ -2473,8 +2473,8 @@ fn background_summary_aggregates() {
     let (tx, _rx) = async_bridge::channel();
     let mut st = AppState::new(tx);
     assert!(st.background_summary().is_none(), "nothing running");
-    st.task_progress.insert(1, BgTransfer { verb: "Copying", update: Some(progress_update(1, "Copying", 30, 100)), schemes: vec![] });
-    st.task_progress.insert(2, BgTransfer { verb: "Moving", update: Some(progress_update(2, "Moving", 20, 100)), schemes: vec![] });
+    st.task_progress.insert(1, BgTransfer { verb: "Copying", update: Some(progress_update(1, "Copying", 30, 100)), schemes: vec![] , chart: Default::default() });
+    st.task_progress.insert(2, BgTransfer { verb: "Moving", update: Some(progress_update(2, "Moving", 20, 100)), schemes: vec![] , chart: Default::default() });
     let (done, total, count) = st.background_summary().unwrap();
     assert_eq!((done, total, count), (50, 200, 2));
 }
@@ -2488,7 +2488,7 @@ async fn background_ops_list_updates_live() {
     let mut st = AppState::new(tx);
     let (reply, _r) = tokio::sync::mpsc::channel(1);
     st.tasks.insert(1, crate::ops::TaskHandle { id: 1, cancel: crate::ops::CancelToken::new(), reply });
-    st.task_progress.insert(1, BgTransfer { verb: "Copying", update: Some(progress_update(1, "Copying", 10, 100)), schemes: vec![] });
+    st.task_progress.insert(1, BgTransfer { verb: "Copying", update: Some(progress_update(1, "Copying", 10, 100)), schemes: vec![] , chart: Default::default() });
 
     st.open_background_ops();
     let ratio0 = match &st.dialog {
@@ -3183,4 +3183,73 @@ async fn alt_panel_navigation_shortcuts() {
     assert_eq!(st.panels[0].cwd, VfsPath::local(&root), "picking an entry jumps there");
 
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A transfer sent to the background and pulled back must keep the speed chart it
+/// had built up — the whole run, including what it recorded while away.
+///
+/// The bug this guards: the history used to live only on the progress dialog, so
+/// dismissing it for the background threw the samples away, and the dialog rebuilt
+/// on return started from an empty chart.
+#[tokio::test]
+async fn a_backgrounded_transfer_keeps_its_speed_history() {
+    use crate::app::event::AppEvent;
+    use crate::ui::dialog::Submit;
+    // The chart samples at most ~10×/s, so each recorded point needs a real gap.
+    async fn tick(st: &mut AppState, done: u64) {
+        std::thread::sleep(std::time::Duration::from_millis(110));
+        st.apply_event(AppEvent::Progress(progress_update(1, "Copying", done, 1000))).await;
+    }
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    // A live task, so it can be sent to the background and pulled back.
+    let (reply_tx, _reply_rx) = tokio::sync::mpsc::channel(1);
+    st.tasks.insert(1, TaskHandle { id: 1, cancel: CancelToken::new(), reply: reply_tx });
+    st.task_progress.insert(
+        1,
+        BgTransfer { verb: "Copying", update: None, schemes: vec![], chart: Default::default() },
+    );
+    // Foreground: a couple of updates build some history.
+    st.dialog = Some(Dialog::Progress(st.progress_dialog_for(1)));
+    tick(&mut st, 100).await;
+    tick(&mut st, 200).await;
+    let before = match &st.dialog {
+        Some(Dialog::Progress(p)) => p.chart.samples.len(),
+        _ => panic!("a progress dialog"),
+    };
+    assert!(before > 0, "the foreground dialog charted something");
+
+    // To background: the dialog goes away.
+    st.handle_dialog_result(DialogResult::Background(1)).await;
+    assert!(st.dialog.is_none(), "the progress dialog is dismissed");
+
+    // It keeps transferring — and keeps charting — while nobody is watching.
+    tick(&mut st, 300).await;
+    tick(&mut st, 400).await;
+    let while_away = st.task_progress[&1].chart.samples.len();
+    assert!(while_away > before, "the chart grew while backgrounded: {while_away} vs {before}");
+
+    // Back to the foreground: the whole run is there, not a fresh empty chart.
+    st.handle_submit(Submit::ForegroundTask(1)).await;
+    match &st.dialog {
+        Some(Dialog::Progress(p)) => {
+            assert_eq!(
+                p.chart.samples.len(),
+                while_away,
+                "the restored dialog shows every sample, including the pre-background ones"
+            );
+            assert!(p.chart.peak_speed > 0.0, "the peak survives too");
+        }
+        _ => panic!("the progress dialog is restored"),
+    }
+
+    // And it carries on from there rather than restarting.
+    tick(&mut st, 500).await;
+    match &st.dialog {
+        Some(Dialog::Progress(p)) => {
+            assert!(p.chart.samples.len() > while_away, "charting continues after the restore")
+        }
+        _ => panic!("a progress dialog"),
+    }
 }

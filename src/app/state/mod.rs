@@ -19,7 +19,7 @@ use crate::ui::dialog::{
     DupCriteria, FileBrowserDialog, FindDialog, FindParams, FlashTargetDialog, FormDialog, GitOutputDialog, GotoDialog,
     HotlistDialog, HotlistOutcome, ImageSaveDialog, InputDialog, InputPurpose, MessageDialog,
     MultiRenameDialog, OverwriteDialog, PaletteAction, PaletteCategory, PaletteEntry, ProgressDialog,
-    SaveAsDialog, SearchReplaceDialog, SearchReplaceParams, SelectDialog, SendFileDialog,
+    SaveAsDialog, SearchReplaceDialog, SearchReplaceParams, SelectDialog, SendFileDialog, SpeedChart,
     SyncPreviewDialog,
     ShellHistoryDialog, Submit, UserMenuDialog,
 };
@@ -103,6 +103,11 @@ pub(in crate::app::state) struct BgTransfer {
     pub update: Option<ProgressUpdate>,
     /// Remote backend schemes this op touches (used to decide FTP reconnect).
     pub schemes: Vec<String>,
+    /// The transfer's speed history, kept here rather than on the progress
+    /// dialog so it outlives one: it keeps recording while the transfer runs in
+    /// the background, and a dialog opened later shows the whole run instead of
+    /// starting from an empty chart.
+    pub chart: SpeedChart,
 }
 
 /// How to execute a privileged command on the background task.

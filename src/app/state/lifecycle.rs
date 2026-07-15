@@ -286,10 +286,23 @@ impl AppState {
             // event is enough to trigger the next repaint (loop top redraws).
             AppEvent::ConsoleOutput => {}
             AppEvent::Progress(u) => {
+                // Fold the speed sample into the *task's* history first. It records
+                // whether or not anyone is watching, so a transfer sent to the
+                // background keeps its chart growing and the dialog that picks it
+                // up later shows the whole run — rather than the history dying with
+                // the dismissed dialog.
+                if let Some(t) = self.task_progress.get_mut(&u.id) {
+                    t.chart.record(u.total_done);
+                }
                 if let Some(Dialog::Progress(p)) = &mut self.dialog
                     && p.id == u.id
                 {
                     p.update(&u);
+                    // Draw the task's history. (A modal op — find / checksum /
+                    // archive — has no task entry and keeps its own in `update`.)
+                    if let Some(t) = self.task_progress.get(&u.id) {
+                        p.chart.clone_from(&t.chart);
+                    }
                 }
                 // Keep the background snapshot current even with no visible dialog
                 // (drives the menu-bar mini bar and the Background-operations list).

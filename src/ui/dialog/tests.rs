@@ -349,7 +349,7 @@ fn progress_dialog_estimates_time() {
     p.total_total = 1000;
     p.total_done = 500;
     assert_eq!(p.eta_text(), "--:--", "no speed sample yet");
-    p.samples.push((500.0, 100.0)); // 100 B/s, 500 left → 5 s
+    p.chart.samples.push((500.0, 100.0)); // 100 B/s, 500 left → 5 s
     assert_eq!(p.eta_text(), "00:05");
 }
 

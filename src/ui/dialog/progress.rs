@@ -5,10 +5,63 @@ use super::DialogResult;
 use crate::ops::progress::{ProgressUpdate, TaskId};
 use crate::ui::graphics::{raster, Gfx, Slot};
 use ratatui::style::Color;
+use std::time::Instant;
 
 // ---------------------------------------------------------------------------
 // Progress dialog
 // ---------------------------------------------------------------------------
+
+/// The transfer-speed history behind the progress chart: one
+/// `(bytes-done, bytes/sec)` sample every ~100 ms, plus the peak seen.
+///
+/// This lives apart from [`ProgressDialog`] because it has to **outlive** it. A
+/// transfer sent to the background loses its dialog, and gets a fresh one when
+/// pulled back; keeping the history on the task instead means the chart shows the
+/// whole run rather than restarting empty. The same applies to the rebuild an
+/// overwrite prompt triggers.
+#[derive(Default, Clone)]
+pub struct SpeedChart {
+    /// `(bytes-done, bytes/sec)` pairs, oldest first.
+    pub(crate) samples: Vec<(f64, f64)>,
+    pub(crate) peak_speed: f64,
+    /// Bytes done at the last sample, for the next delta.
+    pub(crate) last_bytes: u64,
+    last_instant: Option<Instant>,
+}
+
+/// Most samples kept; older ones are dropped as the transfer runs on.
+const MAX_SAMPLES: usize = 1024;
+
+impl SpeedChart {
+    /// Fold `total_done` into the history, taking a sample at most ~10×/s. Safe
+    /// to call for every progress update, foreground or not.
+    pub fn record(&mut self, total_done: u64) {
+        let now = Instant::now();
+        let Some(prev) = self.last_instant else {
+            // First update: start the clock, nothing to measure against yet.
+            self.last_instant = Some(now);
+            self.last_bytes = total_done;
+            return;
+        };
+        let dt = now.duration_since(prev).as_secs_f64();
+        if dt < 0.1 {
+            return;
+        }
+        let speed = total_done.saturating_sub(self.last_bytes) as f64 / dt;
+        self.peak_speed = self.peak_speed.max(speed);
+        self.samples.push((total_done as f64, speed));
+        if self.samples.len() > MAX_SAMPLES {
+            self.samples.remove(0);
+        }
+        self.last_instant = Some(now);
+        self.last_bytes = total_done;
+    }
+
+    /// The most recent speed sample (0 until there are two updates to measure).
+    pub(crate) fn speed(&self) -> f64 {
+        self.samples.last().map(|s| s.1).unwrap_or(0.0)
+    }
+}
 
 pub struct ProgressDialog {
     pub id: TaskId,
@@ -24,11 +77,11 @@ pub struct ProgressDialog {
     pub indeterminate: bool,
     /// Noun in the indeterminate "{n} {noun} found" line (e.g. "files").
     pub(crate) noun: &'static str,
-    /// Transfer-speed samples: (bytes-done, bytes/sec) for the chart.
-    pub(crate) samples: Vec<(f64, f64)>,
-    peak_speed: f64,
-    last_bytes: u64,
-    last_instant: Option<std::time::Instant>,
+    /// The speed history this dialog draws. For a backgroundable transfer it is
+    /// refreshed from the task's own copy (which kept recording while the dialog
+    /// was away); a modal op — find / checksum / archive — has no task entry and
+    /// simply accumulates its own here.
+    pub(crate) chart: SpeedChart,
     /// The Abort button's screen rect, recorded so the button can also be clicked
     /// (the indeterminate renderer, and the backgroundable transfer dialog).
     abort_rect: Rect,
@@ -55,10 +108,7 @@ impl ProgressDialog {
             files_total: 0,
             indeterminate: false,
             noun: "files",
-            samples: Vec::new(),
-            peak_speed: 0.0,
-            last_bytes: 0,
-            last_instant: None,
+            chart: SpeedChart::default(),
             abort_rect: Rect::default(),
             bg_rect: Rect::default(),
             backgroundable: false,
@@ -112,26 +162,11 @@ impl ProgressDialog {
         self.files_done = u.files_done;
         self.files_total = u.files_total;
 
-        // Sample transfer speed (~every 100 ms) for the chart.
-        let now = std::time::Instant::now();
-        match self.last_instant {
-            None => {
-                self.last_instant = Some(now);
-                self.last_bytes = u.total_done;
-            }
-            Some(prev) => {
-                let dt = now.duration_since(prev).as_secs_f64();
-                if dt >= 0.1 {
-                    let speed = u.total_done.saturating_sub(self.last_bytes) as f64 / dt;
-                    self.peak_speed = self.peak_speed.max(speed);
-                    self.samples.push((u.total_done as f64, speed));
-                    if self.samples.len() > 1024 {
-                        self.samples.remove(0);
-                    }
-                    self.last_instant = Some(now);
-                    self.last_bytes = u.total_done;
-                }
-            }
+        // A backgroundable transfer's history is kept on the task and copied in
+        // by the caller; sampling here would double-count it, so only a dialog
+        // with no task behind it records its own.
+        if !self.backgroundable {
+            self.chart.record(u.total_done);
         }
     }
 
@@ -166,7 +201,7 @@ impl ProgressDialog {
     /// Estimated time remaining, from the recent transfer speed. `"--:--"` until
     /// there's enough signal (or when the total is unknown).
     pub(crate) fn eta_text(&self) -> String {
-        let speed = self.samples.last().map(|s| s.1).unwrap_or(0.0);
+        let speed = self.chart.speed();
         if self.total_total == 0 || speed < 1.0 {
             return "--:--".to_string();
         }
@@ -255,8 +290,8 @@ impl ProgressDialog {
         f.render_widget(
             Paragraph::new(Line::from(format!(
                 "Speed: {}/s   peak {}/s   ETA {}",
-                human_size(self.samples.last().map(|s| s.1).unwrap_or(0.0) as u64),
-                human_size(self.peak_speed as u64),
+                human_size(self.chart.speed() as u64),
+                human_size(self.chart.peak_speed as u64),
                 self.eta_text(),
             )))
             .style(base),
@@ -310,7 +345,7 @@ impl ProgressDialog {
     /// brightens towards the top of the graph.
     fn render_speed_chart(&self, f: &mut Frame, area: Rect, theme: &Theme, gfx: Option<&mut Gfx>) {
         let base = Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg);
-        if self.samples.len() < 2 {
+        if self.chart.samples.len() < 2 {
             f.render_widget(Paragraph::new(Line::from("  measuring…")).style(base), area);
             return;
         }
@@ -319,7 +354,7 @@ impl ProgressDialog {
             return;
         }
         const BLOCKS: [char; 9] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
-        let y_max = (self.peak_speed * 1.15).max(1.0);
+        let y_max = (self.chart.peak_speed * 1.15).max(1.0);
         let levels = h * 8;
 
         // Pick a bar color that contrasts with the dialog background: the theme
@@ -345,11 +380,11 @@ impl ProgressDialog {
         let x_max = if self.total_total > 0 {
             self.total_total as f64
         } else {
-            (self.last_bytes.max(1)) as f64
+            (self.chart.last_bytes.max(1)) as f64
         };
         let mut bars = vec![0f64; w];
         let mut seen = vec![false; w];
-        for &(bytes, speed) in &self.samples {
+        for &(bytes, speed) in &self.chart.samples {
             let col = ((bytes / x_max) * w as f64).floor().clamp(0.0, (w - 1) as f64) as usize;
             bars[col] = bars[col].max(speed);
             seen[col] = true;

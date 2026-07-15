@@ -126,7 +126,7 @@ impl AppState {
         let handle = spawn_op(id, req, self.tx.clone());
         self.tasks.insert(id, handle);
         self.task_progress
-            .insert(id, BgTransfer { verb: "Synchronizing", update: None, schemes });
+            .insert(id, BgTransfer { verb: "Synchronizing", update: None, schemes, chart: SpeedChart::default() });
         let mut dialog = ProgressDialog::new(id, "Synchronizing");
         dialog.backgroundable = true;
         self.dialog = Some(Dialog::Progress(dialog));
