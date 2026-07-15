@@ -791,7 +791,9 @@ clears the selection (F3 again toggles a block off).
 the same dialog, and the viewer (F3) uses it too:
 
 - **Mode** — **Normal** (literal text), **Regular expression**, **Hex** (byte
-  strings like `48 65 6c`), or **Wildcard** (`*` and `?`).
+  strings like `48 65 6c`), or **Wildcard** (`*` and `?`). In regex mode `^` and
+  `$` anchor to **each line**, so `^fn ` finds every line starting with `fn `;
+  `.` does not cross a line break.
 - **Options** — *Case sensitive*, *Backwards*, *Whole words*, and, when
   replacing, *In selection*.
 - **Buttons** — **OK** finds the next match (pressing Enter from any field does

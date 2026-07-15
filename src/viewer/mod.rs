@@ -1311,6 +1311,14 @@ mod tests {
         v.apply_search(&p);
         assert_eq!(v.top, 2);
 
+        // `^`/`$` anchor per line, exactly as in the editor: the "foo" inside
+        // "xfoo" is skipped for the one that starts a line.
+        let mut v = ViewerState::new("t".into(), b"xfoo\nbar\nfoo end".to_vec());
+        let mut p = sp("^foo");
+        p.regex = true;
+        v.apply_search(&p);
+        assert_eq!(v.top, 2, "the line-initial foo is found, not the one in 'xfoo'");
+
         // Backwards walks up the file.
         let mut v = ViewerState::new("t".into(), b"hit\nx\nhit\ny\nhit".to_vec());
         v.apply_search(&sp("hit"));

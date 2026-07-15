@@ -59,6 +59,16 @@ impl Needle {
             }
             return regex::RegexBuilder::new(&pat)
                 .case_insensitive(!case_sensitive)
+                // Per-line anchors, matching the editor — the two share this
+                // dialog, so `^`/`$` must mean the same thing in both.
+                //
+                // Caveat of scanning in windows: `^` also matches at the start of
+                // whichever window is being searched, which is a byte offset, not
+                // necessarily a line start. So an anchored pattern can over-match
+                // at a window seam on a very large file. It is still strictly
+                // better than anchoring to the window alone, which is all `^`
+                // could ever have matched without this.
+                .multi_line(true)
                 .build()
                 .ok()
                 .map(Needle::Re);
@@ -179,6 +189,20 @@ mod tests {
         assert_eq!(bytes("hit", true, false).find(b"hitting", 0), Some(0));
     }
 
+
+    #[test]
+    fn regex_anchors_are_per_line() {
+        // `^foo` must skip the "foo" inside "xfoo" and match the one starting a
+        // line. Anchored to the haystack alone it could match neither.
+        let n = Needle::build("^foo", true, true, false, false).expect("builds");
+        assert_eq!(n.find(b"xfoo\nfoo bar", 0), Some(5));
+        // `$` likewise ends at a line, not only at the buffer's end.
+        let n = Needle::build("bar$", true, true, false, false).expect("builds");
+        assert_eq!(n.find(b"bar baz\nbar\nx", 0), Some(8));
+        // `.` still stops at a newline, so a pattern cannot swallow lines.
+        let n = Needle::build("a.*b", true, true, false, false).expect("builds");
+        assert_eq!(n.find(b"aa\nbb", 0), None);
+    }
 
     #[test]
     fn regex_and_wildcard_modes() {

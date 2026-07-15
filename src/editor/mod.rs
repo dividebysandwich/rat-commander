@@ -1007,6 +1007,12 @@ impl EditorState {
         }
         regex::RegexBuilder::new(&pat)
             .case_insensitive(!case_sensitive)
+            // The buffer is searched as one string, so without this `^` and `$`
+            // would anchor to the start and end of the whole file — in an editor
+            // they can only sensibly mean "start/end of a line". `.` still stops
+            // at a newline (that would need `dot_matches_new_line`), so a pattern
+            // cannot silently swallow whole lines.
+            .multi_line(true)
             .build()
             .ok()
     }
@@ -1817,6 +1823,79 @@ mod tests {
     }
 
     #[test]
+    fn line_anchors_match_each_line_not_the_whole_buffer() {
+        // `^` / `$` are per-line, which is the only reading that makes sense in an
+        // editor — the buffer is searched as one string, so without multi-line
+        // mode these would only ever match at the very start/end of the file.
+        let mut e = ed("foo one
+bar two
+foo three");
+
+        // "Find next" searches from just past the cursor (so it never re-finds the
+        // match you are sitting on), so from the top `^foo` lands on the *third*
+        // line — a match only a per-line anchor can produce. Anchored to the whole
+        // buffer, `^foo` could only ever match at byte 0.
+        e.apply_search_replace(false, "^foo", "", true, false, false, false, false);
+        assert_eq!(e.cur_line(), 2, "the anchor matches a later line's start");
+        // Searching on wraps back to the first line's anchor.
+        e.apply_search_replace(false, "^foo", "", true, false, false, false, false);
+        assert_eq!((e.cur_line(), e.cur_col()), (0, 0));
+
+        // `$` likewise anchors to each line's end.
+        let mut e = ed("aa x
+bb
+cc x");
+        e.apply_search_replace(false, "x$", "", true, false, false, false, false);
+        assert_eq!(e.cur_line(), 0);
+        e.apply_search_replace(false, "x$", "", true, false, false, false, false);
+        assert_eq!(e.cur_line(), 2);
+
+        // Find all: every line starting with "foo", not just the file's first.
+        let mut e = ed("foo one
+bar two
+foo three");
+        e.apply_search_replace(false, "^foo", "", true, false, false, false, true);
+        assert!(e.line_found(0) && e.line_found(2), "both lines start with foo");
+        assert!(!e.line_found(1));
+
+        // Replace all: anchored replacements apply per line.
+        let mut e = ed("foo 1
+xfoo 2
+foo 3");
+        e.apply_search_replace(true, "^foo", "BAR", true, false, false, false, false);
+        assert_eq!(e.contents(), "BAR 1
+xfoo 2
+BAR 3", "only line-initial foo is replaced");
+    }
+
+    #[test]
+    fn multi_line_mode_leaves_literals_and_dot_alone() {
+        // A literal search is escaped, so `^` is still just a caret.
+        let mut e = ed("a
+b^c
+d");
+        e.apply_search_replace(false, "^", "", false, false, false, false, false);
+        assert_eq!((e.cur_line(), e.cur_col()), (1, 1), "the literal caret is found");
+
+        // `.` still stops at a newline, so a pattern can't swallow whole lines.
+        let mut e = ed("aa
+bb");
+        e.apply_search_replace(true, "a.*b", "X", true, false, false, false, false);
+        assert_eq!(e.contents(), "aa
+bb", "no match spans the newline");
+
+        // An anchored empty-ish pattern still replaces once per line, not once
+        // for the file.
+        let mut e = ed("p
+q
+r");
+        e.apply_search_replace(true, "^", ">", true, false, false, false, false);
+        assert_eq!(e.contents(), ">p
+>q
+>r");
+    }
+
+    #[test]
     fn find_all_highlights_every_matching_line_and_persists() {
         let mut e = ed("alpha hit\nbeta\ngamma HIT\ndelta\nhit again");
         // Case-insensitive by default, so all three lines match.
@@ -1854,13 +1933,11 @@ mod tests {
         // Whole words: "hitting" no longer counts.
         e.apply_search_replace(false, "hit", "", false, true, true, false, true);
         assert!(e.line_found(1) && !e.line_found(2), "whole-words excludes 'hitting'");
-        // Regex works too. (`^`/`$` anchor to the whole buffer rather than each
-        // line — the editor builds its regex without multi-line mode — so this
-        // uses word boundaries instead.)
-        e.apply_search_replace(false, r"\bh.t\b", "", true, true, false, false, true);
-        assert!(e.line_found(1), "the regex matches 'hit'");
+        // Regex works too, with `^`/`$` anchoring per line.
+        e.apply_search_replace(false, "^h.t$", "", true, true, false, false, true);
+        assert!(e.line_found(1), "the regex matches the whole line 'hit'");
         assert!(!e.line_found(0), "and stays case-sensitive");
-        assert!(!e.line_found(2), "'hitting' is not a whole word match");
+        assert!(!e.line_found(2), "'hitting' is longer than the anchored pattern");
     }
 
     #[test]
