@@ -62,16 +62,22 @@ fn set_active_finds_known_and_rejects_unknown_languages() {
 
 #[test]
 fn menu_accelerators_are_unique_per_menu_in_every_language() {
+    // The Git submenu's keys come straight from the menu itself, so the two can
+    // never drift apart.
+    let git_keys: Vec<&str> = crate::ui::menu::GIT_MENU_KEYS.iter().map(|(k, _)| *k).collect();
     // The item label keys of each menu (mirroring `ui::menu`). The `&`
     // accelerator letter must be unique within a menu, in every language.
     let menus: &[&[&str]] = &[
         &[
             "&View", "&Edit", "&Copy", "&Rename/Move", "M&ulti rename", "&Make directory",
             "&Delete", "C&hmod", "Cho&wn", "&Symlink", "Com&press...", "Chec&ksum...",
-            "Send over &LAN...", "St&age/unstage", "Git di&ff vs HEAD",
-            "&Background operations...", "Select &group", "U&nselect group",
+            "Send over &LAN...", "&Git",
+            "&Background operations...", "Select gr&oup", "U&nselect group",
             "&Invert selection", "&Quit",
         ],
+        // The Git submenu (File → Git, or Alt-G). Its accelerators only need to be
+        // unique among themselves, since it is a menu of its own.
+        &git_keys,
         &[
             "C&ommand palette...", "Directory &hotlist...", "Panel f&ilter...", "&Find file...",
             "Find d&uplicates...", "Compare &directories...", "Compare fi&les...",

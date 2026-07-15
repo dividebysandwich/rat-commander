@@ -220,6 +220,37 @@ pub enum FormPurpose {
     FindDuplicates,
     /// Checksum this file (algorithm + optional comparison digest collected here).
     Checksum(VfsPath),
+    /// A guided Git dialog. The form builds its own `git` argv on submit (see
+    /// [`GitForm`]), so every git action reaches the app as one `Submit::GitRun`.
+    Git(GitForm),
+}
+
+/// `git reset` modes, least destructive first, so the dialog opens on the safe
+/// one. The label before the space is passed to git as `--<mode>`.
+pub(crate) const RESET_MODES: [&str; 3] = [
+    "soft   (keep index + working tree)",
+    "mixed  (keep working tree)",
+    "hard   (discard all changes!)",
+];
+
+/// The bare git mode name from a [`RESET_MODES`] label (`"hard  (…)"` → `"hard"`).
+pub(crate) fn reset_mode_name(label: &str) -> &str {
+    label.split_whitespace().next().unwrap_or("mixed")
+}
+
+/// Which guided Git dialog a [`FormPurpose::Git`] form is. Variants carry the
+/// repository facts the argv needs but the fields don't hold (e.g. the branch to
+/// name on a `push`).
+#[derive(Debug, Clone)]
+pub enum GitForm {
+    Commit,
+    Clone,
+    Fetch,
+    Pull,
+    /// `push` names `<remote> <branch>`; the branch comes from the repo, not the user.
+    Push { branch: String },
+    Checkout,
+    Reset,
 }
 
 /// Connect-form history dropdown state (recent servers).
@@ -356,6 +387,108 @@ impl FormDialog {
     /// Build a chmod form for `targets` from the current mode bits. The trailing
     /// "Recurse into directories" checkbox makes the change apply into any
     /// directories in the selection.
+    /// A plain form: a title, its fields, and what to do on submit.
+    fn from_fields(title: &str, fields: Vec<Field>, purpose: FormPurpose) -> Self {
+        FormDialog {
+            title: title.to_string(),
+            form: Form::new(fields),
+            purpose,
+            connect: None,
+        }
+    }
+
+    // --- Guided Git dialogs ------------------------------------------------
+    //
+    // Each collects the options for one git command; `Submit::GitRun` carries the
+    // argv they build (see the `FormPurpose::Git` arm in `handle_key`). Field
+    // order is load-bearing — the argv builders read them positionally.
+
+    /// Commit the index: message, plus the two flags people reach for most.
+    pub fn git_commit() -> Self {
+        FormDialog::from_fields(
+            "Commit",
+            vec![
+                Field::text("Message", ""),
+                Field::check("Stage all tracked changes (-a)", false),
+                Field::check("Amend the last commit", false),
+            ],
+            FormPurpose::Git(GitForm::Commit),
+        )
+    }
+
+    /// Clone a URL into the panel's directory. An empty target lets git name it.
+    pub fn git_clone() -> Self {
+        FormDialog::from_fields(
+            "Clone",
+            vec![Field::text("Repository URL", ""), Field::text("Into directory (optional)", "")],
+            FormPurpose::Git(GitForm::Clone),
+        )
+    }
+
+    pub fn git_fetch(remotes: Vec<String>) -> Self {
+        let all = remotes.len() > 1;
+        FormDialog::from_fields(
+            "Fetch",
+            vec![
+                Field::check("All remotes (--all)", all),
+                Field::check("Prune deleted branches (--prune)", false),
+            ],
+            FormPurpose::Git(GitForm::Fetch),
+        )
+    }
+
+    pub fn git_pull() -> Self {
+        FormDialog::from_fields(
+            "Pull",
+            vec![Field::check("Rebase instead of merge (--rebase)", false)],
+            FormPurpose::Git(GitForm::Pull),
+        )
+    }
+
+    /// Push the current branch. `remotes` populates the dropdown; the force flags
+    /// are off by default and `--force-with-lease` is offered above the raw one.
+    pub fn git_push(remotes: Vec<String>, branch: String) -> Self {
+        let first = remotes.first().cloned().unwrap_or_default();
+        FormDialog::from_fields(
+            "Push",
+            vec![
+                Field::choice("Remote", remotes, &first),
+                Field::check("Set upstream (--set-upstream)", false),
+                Field::check("Force with lease (safer)", false),
+                Field::check("Force (overwrites the remote!)", false),
+            ],
+            FormPurpose::Git(GitForm::Push { branch }),
+        )
+    }
+
+    /// Switch branches. The dropdown lists local then remote-tracking branches
+    /// (current first); filling in the name field creates a new branch instead.
+    pub fn git_checkout(branches: Vec<String>) -> Self {
+        let first = branches.first().cloned().unwrap_or_default();
+        FormDialog::from_fields(
+            "Checkout",
+            vec![
+                Field::choice("Branch", branches, &first),
+                Field::text("…or create a new branch named", ""),
+            ],
+            FormPurpose::Git(GitForm::Checkout),
+        )
+    }
+
+    /// Reset the current branch. Modes are ordered least- to most-destructive so
+    /// the dialog opens on the safe one.
+    pub fn git_reset() -> Self {
+        let modes: Vec<String> = RESET_MODES.iter().map(|s| s.to_string()).collect();
+        FormDialog::from_fields(
+            "Reset",
+            vec![
+                Field::choice("Mode", modes, RESET_MODES[0]),
+                Field::text("Target commit", "HEAD"),
+            ],
+            FormPurpose::Git(GitForm::Reset),
+        )
+    }
+
     pub fn chmod(targets: Vec<VfsPath>, mode: u32) -> Self {
         let bit = |m: u32| mode & m != 0;
         let form = Form::new(vec![
@@ -732,6 +865,74 @@ impl FormDialog {
                 kind: ChecksumKind::from_label(fields[0].as_text()).unwrap_or(ChecksumKind::Sha256),
                 expected: fields[1].as_text().trim().to_string(),
             },
+            // Each guided git form builds its own argv here, so the app just runs
+            // it. Field indices mirror the constructors above.
+            FormPurpose::Git(kind) => {
+                use crate::git::ops;
+                match kind {
+                    GitForm::Commit => {
+                        let msg = fields[0].as_text().trim().to_string();
+                        // Git would reject an empty message anyway; say so here
+                        // rather than opening an output box on a certain failure.
+                        if msg.is_empty() {
+                            return DialogResult::Cancel;
+                        }
+                        Submit::GitRun {
+                            title: "commit".into(),
+                            args: ops::commit_args(&msg, fields[1].as_bool(), fields[2].as_bool()),
+                        }
+                    }
+                    GitForm::Clone => {
+                        let url = fields[0].as_text().trim().to_string();
+                        if url.is_empty() {
+                            return DialogResult::Cancel;
+                        }
+                        Submit::GitRun {
+                            title: "clone".into(),
+                            args: ops::clone_args(&url, fields[1].as_text()),
+                        }
+                    }
+                    GitForm::Fetch => Submit::GitRun {
+                        title: "fetch".into(),
+                        args: ops::fetch_args(fields[0].as_bool(), fields[1].as_bool()),
+                    },
+                    GitForm::Pull => Submit::GitRun {
+                        title: "pull".into(),
+                        args: ops::pull_args(fields[0].as_bool()),
+                    },
+                    GitForm::Push { branch } => Submit::GitRun {
+                        title: "push".into(),
+                        args: ops::push_args(
+                            fields[0].as_text(),
+                            branch,
+                            fields[3].as_bool(),
+                            fields[2].as_bool(),
+                            fields[1].as_bool(),
+                        ),
+                    },
+                    GitForm::Checkout => {
+                        // A typed name creates that branch; otherwise switch to
+                        // the one picked from the dropdown.
+                        let new = fields[1].as_text().trim().to_string();
+                        let (target, create) = if new.is_empty() {
+                            (fields[0].as_text().to_string(), false)
+                        } else {
+                            (new, true)
+                        };
+                        if target.is_empty() {
+                            return DialogResult::Cancel;
+                        }
+                        Submit::GitRun {
+                            title: "checkout".into(),
+                            args: ops::checkout_args(&target, create),
+                        }
+                    }
+                    GitForm::Reset => Submit::GitRun {
+                        title: "reset".into(),
+                        args: ops::reset_args(reset_mode_name(fields[0].as_text()), fields[1].as_text()),
+                    },
+                }
+            }
             FormPurpose::Chmod(paths) => {
                 Submit::Chmod(paths.clone(), self.chmod_mode(), self.recursive())
             }
@@ -969,22 +1170,7 @@ impl FormDialog {
             self.render_dropdown(f, inner, theme);
         }
 
-        // Draw an open Choice field's scrollable dropdown over the fields. The
-        // scroll offset `top` is nudged only when the highlight leaves the
-        // window, so the cursor moves freely within it.
         let choice_open = self.form.fields.iter().any(|f| matches!(f, Field::Choice { open: true, .. }));
-        for (i, field) in self.form.fields.iter_mut().enumerate() {
-            if let Field::Choice { options, sel, top, open: true, .. } = field {
-                let field_y = rows[i].y;
-                let visible = choice_visible_rows(inner, field_y, options.len());
-                if *sel < *top {
-                    *top = *sel;
-                } else if *sel >= *top + visible {
-                    *top = *sel + 1 - visible;
-                }
-                render_choice_dropdown(f, inner, field_y, options, *sel, *top, theme);
-            }
-        }
 
         let hint = Rect {
             y: inner.y + inner.height.saturating_sub(1),
@@ -1041,27 +1227,65 @@ impl FormDialog {
                 theme,
             );
         } else {
+            // Text buttons are laid out exactly like the graphical ones above —
+            // OK against the left edge, Cancel against the right, the hint
+            // centered in the gap. (Rendering them as one left-aligned line
+            // instead would pile all the slack up on the right.)
             let ok_txt = crate::l10n::trd("OK");
             let cancel_txt = crate::l10n::trd("Cancel");
-            let ok = if self.form.on_ok() {
-                Span::styled(format!("[< {ok_txt} >]"), theme.button_focused)
-            } else {
-                Span::styled(format!("[  {ok_txt}  ]"), theme.button)
+            let label = |text: &str, focused: bool| {
+                if focused { format!("[< {text} >]") } else { format!("[  {text}  ]") }
             };
-            let cancel = if self.form.on_cancel() {
-                Span::styled(format!("[< {cancel_txt} >]"), theme.button_focused)
-            } else {
-                Span::styled(format!("[  {cancel_txt}  ]"), theme.button)
+            let ok_label = label(&ok_txt, self.form.on_ok());
+            let cancel_label = label(&cancel_txt, self.form.on_cancel());
+            let ok_w = (ok_label.chars().count() as u16).min(hint.width);
+            let cancel_w =
+                (cancel_label.chars().count() as u16).min(hint.width.saturating_sub(ok_w));
+            let cancel_x = hint.x + hint.width - cancel_w;
+            let styled = |text: String, focused: bool| {
+                let style = if focused { theme.button_focused } else { theme.button };
+                Paragraph::new(Line::from(Span::styled(text, style))).style(base)
             };
             f.render_widget(
-                Paragraph::new(Line::from(vec![
-                    ok,
-                    Span::styled(format!("  Tab/↑↓ move  Space toggle{extra}  "), base),
-                    cancel,
-                ]))
-                .style(base),
-                hint,
+                styled(ok_label, self.form.on_ok()),
+                Rect { x: hint.x, y: hint.y, width: ok_w, height: 1 },
             );
+            f.render_widget(
+                styled(cancel_label, self.form.on_cancel()),
+                Rect { x: cancel_x, y: hint.y, width: cancel_w, height: 1 },
+            );
+            let mid_x = hint.x + ok_w;
+            let mid_w = cancel_x.saturating_sub(mid_x);
+            if mid_w > 0 {
+                f.render_widget(
+                    Paragraph::new(Line::from(Span::styled(
+                        format!("Tab/↑↓ move  Space toggle{extra}"),
+                        base,
+                    )))
+                    .alignment(ratatui::layout::Alignment::Center)
+                    .style(base),
+                    Rect { x: mid_x, y: hint.y, width: mid_w, height: 1 },
+                );
+            }
+        }
+
+        // An open Choice dropdown is drawn last, so it overlays everything it
+        // spills across — the button/hint row and the dialog border included.
+        // (It is sized against the screen, not the dialog, so a long list can
+        // reach well past the box; see `choice_dropdown_geom`.) The scroll offset
+        // `top` is nudged only when the highlight leaves the window, so the cursor
+        // moves freely within it.
+        for (i, field) in self.form.fields.iter_mut().enumerate() {
+            if let Field::Choice { options, sel, top, open: true, .. } = field {
+                let field_y = rows[i].y;
+                let visible = choice_visible_rows(inner, area, field_y, options.len());
+                if *sel < *top {
+                    *top = *sel;
+                } else if *sel >= *top + visible {
+                    *top = *sel + 1 - visible;
+                }
+                render_choice_dropdown(f, inner, area, field_y, options, *sel, *top, theme);
+            }
         }
 
         if let Some(pos) = caret
@@ -1099,7 +1323,7 @@ impl FormDialog {
         {
             let field_y = rows[fi].y;
             if let Some(Field::Choice { options, idx, open, sel, top, .. }) = self.form.fields.get_mut(fi) {
-                let (rect, visible) = choice_dropdown_geom(inner, field_y, options.len());
+                let (rect, visible) = choice_dropdown_geom(inner, area, field_y, options.len());
                 let (list_x, list_y, list_w) = (rect.x + 1, rect.y + 1, rect.width.saturating_sub(2));
                 if row >= list_y
                     && row < list_y + visible as u16
@@ -1257,9 +1481,14 @@ impl FormDialog {
 /// are visible. The dropdown normally drops *below* the field, but opens *above*
 /// it when there isn't enough room below (so the last fields in a tall dialog
 /// still show their list on screen).
-fn choice_dropdown_geom(inner: Rect, field_y: u16, options_len: usize) -> (Rect, usize) {
-    let below = (inner.y + inner.height).saturating_sub(field_y + 1) as usize; // rows under the field
-    let above = field_y.saturating_sub(inner.y) as usize; // rows over the field, within the interior
+///
+/// It is sized against the whole `screen`, not the dialog interior, so a long
+/// list (say, every branch in a repository) is not squeezed into the few rows a
+/// small dialog happens to have — it overlays the dialog's border and whatever is
+/// behind it. Horizontally it stays aligned with `inner`, under its own field.
+fn choice_dropdown_geom(inner: Rect, screen: Rect, field_y: u16, options_len: usize) -> (Rect, usize) {
+    let below = (screen.y + screen.height).saturating_sub(field_y + 1) as usize; // rows under the field
+    let above = field_y.saturating_sub(screen.y) as usize; // rows over the field
     let want = options_len + 2; // options + top/bottom border
     // Prefer dropping down; flip up only when down can't fit and up has more room.
     let open_up = below < want && above > below;
@@ -1271,15 +1500,18 @@ fn choice_dropdown_geom(inner: Rect, field_y: u16, options_len: usize) -> (Rect,
 }
 
 /// Number of option rows visible in a Choice dropdown whose field is at `field_y`.
-fn choice_visible_rows(inner: Rect, field_y: u16, options_len: usize) -> usize {
-    choice_dropdown_geom(inner, field_y, options_len).1
+fn choice_visible_rows(inner: Rect, screen: Rect, field_y: u16, options_len: usize) -> usize {
+    choice_dropdown_geom(inner, screen, field_y, options_len).1
 }
+
 
 /// Draw a Choice field's scrollable dropdown just below its row (at `field_y`),
 /// showing options from `top` with `sel` highlighted.
+#[allow(clippy::too_many_arguments)]
 fn render_choice_dropdown(
     f: &mut Frame,
     inner: Rect,
+    screen: Rect,
     field_y: u16,
     options: &[String],
     sel: usize,
@@ -1289,7 +1521,7 @@ fn render_choice_dropdown(
     if options.is_empty() {
         return;
     }
-    let (rect, visible) = choice_dropdown_geom(inner, field_y, options.len());
+    let (rect, visible) = choice_dropdown_geom(inner, screen, field_y, options.len());
     f.render_widget(Clear, rect);
     let block = Block::default()
         .borders(Borders::ALL)
@@ -1316,3 +1548,47 @@ fn render_choice_dropdown(
     }
 }
 
+#[cfg(test)]
+mod choice_geom_tests {
+    use super::*;
+
+    #[test]
+    fn dropdown_extends_past_the_dialog_onto_the_screen() {
+        // A short dialog (7 rows) near the top of a tall screen, field on row 3.
+        let screen = Rect::new(0, 0, 80, 40);
+        let inner = Rect::new(10, 2, 40, 5);
+        let (rect, visible) = choice_dropdown_geom(inner, screen, 3, 30);
+        // All 30 options fit below the field on this screen, even though the
+        // dialog interior ends at row 7 — the list is not clipped to the box.
+        assert_eq!(visible, 30, "the whole list is shown, not just the dialog's rows");
+        assert!(
+            rect.y + rect.height > inner.y + inner.height,
+            "the dropdown overhangs the dialog interior"
+        );
+        assert!(rect.y + rect.height <= screen.y + screen.height, "but stays on screen");
+        // It stays aligned with its field horizontally.
+        assert_eq!((rect.x, rect.width), (inner.x, inner.width));
+    }
+
+    #[test]
+    fn dropdown_flips_above_the_field_when_below_is_cramped() {
+        // Field near the bottom of the screen: more room above than below.
+        let screen = Rect::new(0, 0, 80, 24);
+        let inner = Rect::new(5, 16, 40, 6);
+        let (rect, visible) = choice_dropdown_geom(inner, screen, 21, 20);
+        assert!(rect.y < 21, "opens upward");
+        assert!(visible >= 1);
+        assert!(rect.y >= screen.y, "stays on screen");
+    }
+
+    #[test]
+    fn dropdown_is_clamped_to_the_screen_not_the_dialog() {
+        // A huge list on a short screen: bounded by the screen's rows.
+        let screen = Rect::new(0, 0, 80, 12);
+        let inner = Rect::new(0, 1, 30, 4);
+        let (rect, visible) = choice_dropdown_geom(inner, screen, 2, 500);
+        assert!(visible < 500, "clamped");
+        assert!(rect.y + rect.height <= screen.y + screen.height, "never runs off screen");
+        assert!(visible >= 1, "always shows at least one option");
+    }
+}

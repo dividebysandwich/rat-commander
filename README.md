@@ -45,7 +45,16 @@ The installed executable is named **`rc`** for quick typing.
   state (`>` modified, `+` staged, `?` untracked, `!` conflict) in colour, the
   current **branch + ahead/behind** shows on the panel border, and one-key actions
   **stage/unstage** (`Ctrl-G`) or open a side-by-side **diff against HEAD**
-  (`Alt-G`). Status is gathered in the background, so large repos stay responsive.
+  (`Alt-D`). Status is gathered in the background, so large repos stay responsive.
+- **Git menu (`Alt-G`, or File → Git)** — the everyday porcelain without leaving
+  the panels: **status**, **log**, **add**, **unstage**, **rm**, **restore**,
+  **commit**, **fetch**, **pull**, **push** (with `--force-with-lease` or
+  `--force`), **sync** (pull + push), **checkout**, **reset**, **init** and
+  **clone**. Each one is a guided dialog rather than a memorised flag — checkout
+  lists your local *and* remote branches in a dropdown (or creates a new one),
+  push offers its remote and force options, reset spells out what each mode
+  throws away — and destructive actions confirm first. Whatever git prints comes
+  back verbatim in a scrollable output box.
 - **Command palette (Ctrl-P)** — one fuzzy-search box over every menu action,
   every setting (switch theme/language/graphics or flip a toggle in place), your
   directory **bookmarks**, the open remote connections, and your saved remote
@@ -142,7 +151,8 @@ also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1
 | `Ctrl-\` | Directory hotlist (bookmarks): jump / add / remove |
 | `Alt-←` / `Alt-→` (or `Alt-y` / `Alt-u`) | Go back / forward through the panel's visited directories |
 | `Alt-I` | Set / clear the panel's persistent listing filter |
-| `Ctrl-G` / `Alt-G` | Git: stage/unstage the selection · diff the file against HEAD |
+| `Alt-G` | Open the **Git menu** (status, log, commit, push/pull, checkout, …) |
+| `Ctrl-G` / `Alt-D` | Git: stage/unstage the selection · diff the file against HEAD |
 | `Ctrl-R` | Re-read the active panel |
 | `Ctrl-S` / `Ctrl-E` | Cycle sort key / toggle reverse |
 | `Ctrl-W` | Cycle view format (full / brief / details / tree) |

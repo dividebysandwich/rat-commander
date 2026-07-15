@@ -3010,3 +3010,27 @@ async fn f3_opens_image_viewer_and_falls_back_to_text() {
 
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// The command line's readline editor runs *before* the panel shortcuts, so a
+/// panel binding on a chord it always claims (Ctrl-A/B/F/D/K/Y/H, …) would never
+/// fire. This guards the Git bindings against that trap — `Ctrl-D` was chosen
+/// once and silently did nothing, because readline uses it to delete a character.
+#[test]
+fn git_shortcuts_are_not_swallowed_by_the_command_line() {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let ctrl = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL);
+    let alt = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT);
+
+    // The Git panel bindings must reach the panel handler on an empty *and* a
+    // non-empty command line.
+    for empty in [true, false] {
+        assert!(!super::keys::cmdline_edit_wanted(ctrl('g'), empty), "Ctrl-G (stage) must reach the panel");
+        assert!(!super::keys::cmdline_edit_wanted(alt('g'), empty), "Alt-G (git menu) must reach the panel");
+        assert!(!super::keys::cmdline_edit_wanted(alt('d'), empty), "Alt-D (diff) must reach the panel");
+    }
+    // ...and the chord we deliberately avoided really is claimed by readline.
+    assert!(
+        super::keys::cmdline_edit_wanted(ctrl('d'), true),
+        "Ctrl-D is readline's delete-char, which is why the diff is on Alt-D"
+    );
+}

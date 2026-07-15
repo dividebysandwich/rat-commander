@@ -16,7 +16,7 @@ use crate::ui::cmdline::CommandLine;
 use crate::ui::dialog::{
     BackgroundOpsDialog, BgRow, BoolSetting, BusyDialog, ChecksumResultDialog, CommandPaletteDialog,
     CompareDialog, CompareMode, ConfirmDialog, Dialog, DialogResult, DriveDialog,
-    DupCriteria, FileBrowserDialog, FindDialog, FindParams, FlashTargetDialog, FormDialog, GotoDialog,
+    DupCriteria, FileBrowserDialog, FindDialog, FindParams, FlashTargetDialog, FormDialog, GitOutputDialog, GotoDialog,
     HotlistDialog, HotlistOutcome, ImageSaveDialog, InputDialog, InputPurpose, MessageDialog,
     MultiRenameDialog, OverwriteDialog, PaletteAction, PaletteCategory, PaletteEntry, ProgressDialog,
     SaveAsDialog, SearchReplaceDialog, SearchReplaceParams, SelectDialog, SendFileDialog,

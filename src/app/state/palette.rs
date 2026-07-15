@@ -34,13 +34,22 @@ impl AppState {
             cmd("Com&press...", MenuAction::Compress),
             cmd("Chec&ksum...", MenuAction::Checksum),
             cmd("Send over &LAN...", MenuAction::SendFile),
-            cmd("St&age/unstage", MenuAction::GitStage),
-            cmd("Git di&ff vs HEAD", MenuAction::GitDiff),
             cmd("&Background operations...", MenuAction::BackgroundOps),
-            cmd("Select &group", MenuAction::SelectGroup),
+            cmd("Select gr&oup", MenuAction::SelectGroup),
             cmd("U&nselect group", MenuAction::UnselectGroup),
             cmd("&Invert selection", MenuAction::Invert),
             cmd("&Find file...", MenuAction::FindFile),
+        ]);
+        // Every Git-submenu action, prefixed so typing "git" surfaces them all.
+        entries.extend(crate::ui::menu::GIT_MENU_KEYS.iter().map(|(key, action)| {
+            let label: String = crate::l10n::tr(key).chars().filter(|&c| c != '&').collect();
+            PaletteEntry::new(
+                format!("Git: {label}"),
+                PaletteCategory::Command,
+                PaletteAction::Menu(*action),
+            )
+        }));
+        entries.extend([
             cmd("Find d&uplicates...", MenuAction::FindDuplicates),
             cmd("Compare &directories...", MenuAction::CompareDirs),
             cmd("Compare fi&les...", MenuAction::CompareFiles),

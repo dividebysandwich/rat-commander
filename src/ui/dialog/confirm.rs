@@ -14,6 +14,14 @@ pub(crate) struct ConfirmButton {
     action: Option<Submit>,
 }
 
+/// Name a set of files for a prompt: the single name in quotes, else a count.
+fn describe(names: &[String]) -> String {
+    match names {
+        [one] => format!("\"{one}\""),
+        _ => format!("{} selected items", names.len()),
+    }
+}
+
 pub struct ConfirmDialog {
     pub title: String,
     pub message: String,
@@ -71,6 +79,56 @@ impl ConfirmDialog {
             format!("Delete {} selected items?", targets.len())
         };
         Self::yes_no("Delete", message, Submit::Delete(targets), "Yes", "No", None)
+    }
+
+    /// `git rm` — the files leave the index *and* the working tree, so this is a
+    /// real deletion and is flagged as dangerous.
+    pub fn git_remove(names: &[String], args: Vec<String>) -> Self {
+        let message = format!(
+            "Remove {} from the repository and delete {} on disk?",
+            describe(names),
+            if names.len() == 1 { "it" } else { "them" }
+        );
+        let mut d = Self::yes_no(
+            "git rm",
+            message,
+            Submit::GitRun { title: "rm".into(), args },
+            "Remove",
+            "Cancel",
+            None,
+        );
+        d.danger = true;
+        d
+    }
+
+    /// `git restore` — throws away uncommitted edits, which git cannot undo.
+    pub fn git_restore(names: &[String], args: Vec<String>) -> Self {
+        let message = format!(
+            "Discard all uncommitted changes to {}?\nThis cannot be undone.",
+            describe(names)
+        );
+        let mut d = Self::yes_no(
+            "git restore",
+            message,
+            Submit::GitRun { title: "restore".into(), args },
+            "Discard",
+            "Cancel",
+            None,
+        );
+        d.danger = true;
+        d
+    }
+
+    /// `git init` in a directory that isn't a repository yet.
+    pub fn git_init(dir: &str) -> Self {
+        Self::yes_no(
+            "git init",
+            format!("Create a new Git repository in\n{dir}?"),
+            Submit::GitRun { title: "init".into(), args: crate::git::ops::init_args() },
+            "Create",
+            "Cancel",
+            None,
+        )
     }
 
     pub fn quit() -> Self {

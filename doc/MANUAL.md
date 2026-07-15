@@ -169,9 +169,11 @@ A quick **Alt** + digit does the same.
 - `Alt-I` — Set or clear the active panel's **persistent listing filter** (a
   shell glob like `*.rs`, or plain text; a blank entry clears it) — distinct from
   the quick-search cursor jump; see *The listing filter* below
+- `Alt-G` — Open the **Git menu** (status, log, commit, fetch/pull/push, checkout,
+  reset, init, clone …) — see *The Git menu* below
 - `Ctrl-G` — **Stage / unstage** the file(s) under the cursor (git) — see
   *Git-aware panels* below
-- `Alt-G` — Open a side-by-side **diff of the file against its committed (`HEAD`)
+- `Alt-D` — Open a side-by-side **diff of the file against its committed (`HEAD`)
   version** (git) — see *Git-aware panels* below
 - `Ctrl-R` — Re-read (refresh) the active panel
 - `Ctrl-E` — Toggle reverse sort order (choose the sort key from the panel menu)
@@ -915,17 +917,87 @@ files if any):
 
 - **`Ctrl-G`** — **stage / unstage**. A staged file is unstaged; anything else is
   staged (`git add` / `git restore --staged`). The glyphs refresh immediately.
-- **`Alt-G`** — open a **side-by-side diff against `HEAD`** — the committed
+- **`Alt-D`** — open a **side-by-side diff against `HEAD`** — the committed
   version on the left, your working copy on the right — in the same
   [Compare files](#compare-files-side-by-side-diff) view. Use `Ctrl-←` to bring a
   hunk over from `HEAD` (discarding a change) and **F2** to write the working file
   back. An untracked file diffs against an empty left side. (The `HEAD` side is
   read-only, so it can't be written back over anything.)
 
-Both actions are also on the **File menu** and the command palette. Git
-integration shells out to the `git` command; if `git` isn't installed, or the
+Everything else lives in the [Git menu](#the-git-menu) below.
+
+Git integration shells out to the `git` command; if `git` isn't installed, or the
 directory isn't a repository, panels simply show no VCS info. Remote and archive
 panels never show git status.
+
+
+## The Git menu
+
+**`Alt-G`**, or *File menu → Git* (it opens as a submenu; `→`/`Enter` opens it,
+`←`/`Esc` steps back out). Every entry is also in the command palette — type
+`git` to see them all.
+
+The point is to cover the everyday git round trip without dropping to a shell,
+and to *guide* rather than assume you remember the flags. Long-running commands
+(fetch/pull/push/clone) run in the background, so the UI never freezes.
+
+**Seeing what's going on.**
+
+- **Status** (`S`) — `git status`, shown in a scrollable output box.
+- **Log** (`L`) — the last 200 commits as a decorated graph, one line each.
+- **Diff vs HEAD** (`D`, or **`Alt-D`**) — the side-by-side diff described above.
+
+**Staging and committing** (these act on the tagged files, or the cursor file):
+
+- **Add (stage)** (`A`) — `git add`.
+- **Stage/unstage** (`G`, or **`Ctrl-G`**) — the toggle.
+- **Unstage** (`U`) — `git restore --staged`.
+- **Remove…** (`M`) — `git rm`: drops the files from the index **and deletes them
+  on disk**, so it asks first.
+- **Restore (discard)…** (`T`) — `git restore`: throws away uncommitted edits.
+  Git cannot undo this, so it asks first.
+- **Commit…** (`C`) — a message field plus *stage all tracked changes* (`-a`) and
+  *amend the last commit*. An empty message cancels rather than letting git
+  reject it.
+
+**Exchanging with the remote.**
+
+- **Fetch…** (`F`) — with *all remotes* and *prune* options (*all* is pre-ticked
+  when the repo has more than one remote).
+- **Pull…** (`P`) — with a *rebase instead of merge* option.
+- **Push…** (`H`) — pick the **remote** from a dropdown, and optionally *set
+  upstream*, *force with lease*, or *force*. **Force with lease** is the safer of
+  the two (it refuses to clobber work that reached the remote after your last
+  fetch) and wins if you tick both.
+- **Sync** (`Y`) — pull then push in one step. A failed pull skips the push.
+
+**Moving around and undoing.**
+
+- **Checkout…** (`K`) — the **branch dropdown** lists your local branches (the
+  current one first) followed by the remote-tracking ones; picking `origin/x`
+  checks out `x` as a tracking branch rather than detaching HEAD. Type a name in
+  the second field instead to **create** that branch.
+- **Reset…** (`R`) — pick the **mode** (*soft* keeps the index and working tree,
+  *mixed* keeps the working tree, *hard* discards everything) and the target
+  commit (default `HEAD`).
+
+**Starting a repository.**
+
+- **Init repository…** (`I`) — `git init` in the panel's directory (confirmed).
+  Offered only when the directory isn't already in a work tree.
+- **Clone…** (`N`) — a URL, and optionally the directory name to clone into
+  (blank lets git derive it from the URL). Clones into the panel's directory.
+
+**Output.** Anything git prints — a push summary, a merge conflict, an error —
+appears verbatim in a large scrollable box: `↑`/`↓`/`PgUp`/`PgDn`/`Home`/`End`
+and the mouse wheel scroll, `←`/`→` pan sideways (long `log --graph` lines are
+not wrapped), and **Close** / `Esc` / `Enter` dismiss it. A command that
+succeeds silently (like `add`) shows no box at all; a failure is titled as such
+and coloured. Afterwards the panels and the status glyphs are re-read
+automatically.
+
+All of these need the active panel to be on a **local** directory — a remote or
+in-archive panel has no work tree to act on.
 
 
 ## Directory history (back / forward)

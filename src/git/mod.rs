@@ -7,6 +7,8 @@
 //! The parsing of `git status --porcelain` output is factored into pure functions
 //! ([`parse_branch`], [`parse_status_z`]) so it can be unit-tested without a repo.
 
+pub mod ops;
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 

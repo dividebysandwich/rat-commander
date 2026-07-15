@@ -16,6 +16,15 @@ pub enum FetchKind {
     Edit,
 }
 
+/// Which guided Git dialog to open once the repository's branches/remotes have
+/// been read in the background (see [`AppEvent::GitInfo`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GitInfoForm {
+    Checkout,
+    Push,
+    Fetch,
+}
+
 #[derive(Debug, Clone)]
 pub enum AppEvent {
     /// The persistent console subshell produced output; a coalesced signal to
@@ -128,6 +137,19 @@ pub enum AppEvent {
     /// A device fully downloaded the shared file from the LAN send server; the
     /// open Send dialog bumps its download counter.
     FileSent,
+    /// A Git command finished; `title` names it (e.g. `"push"`). The handler shows
+    /// the output (or closes quietly when a successful command said nothing) and
+    /// refreshes the panels' VCS state.
+    GitDone {
+        title: String,
+        out: crate::git::ops::GitOutput,
+    },
+    /// The branches/remotes behind a guided Git dialog were read; open `form`
+    /// populated with them.
+    GitInfo {
+        form: GitInfoForm,
+        info: Box<crate::git::ops::RepoInfo>,
+    },
     /// A view/edit fetch streamed a (remote/archive) file to a local temp file;
     /// the handler opens it (paged viewer, or editor targeting `orig_path`).
     FileFetched {

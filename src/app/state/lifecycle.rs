@@ -448,6 +448,12 @@ impl AppState {
             AppEvent::FileSent => {
                 self.on_file_sent();
             }
+            AppEvent::GitDone { title, out } => {
+                self.on_git_done(title, out).await;
+            }
+            AppEvent::GitInfo { form, info } => {
+                self.on_git_info(form, *info);
+            }
             AppEvent::FileFetched { id, kind, name, orig_path, temp } => {
                 self.tasks.remove(&id);
                 if let Some(Dialog::Progress(p)) = &self.dialog

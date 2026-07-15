@@ -151,6 +151,11 @@ impl AppState {
                 }
             }
             Submit::Compress(sources, name) => self.start_compress(sources, name),
+            // Every guided Git dialog lands here with a ready-built argv.
+            Submit::GitRun { title, args } => match self.git_run_dir() {
+                Some(dir) => self.spawn_git(title, dir, args),
+                None => self.show_error("Git actions need a local directory"),
+            },
             Submit::ForegroundTask(id) => {
                 // Re-open the progress dialog for a backgrounded transfer.
                 if self.tasks.contains_key(&id) {

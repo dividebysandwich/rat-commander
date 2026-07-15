@@ -420,7 +420,10 @@ fn choice_dropdown_cursor_moves_freely() {
     use ratatui::backend::TestBackend;
     let theme = crate::ui::theme::Theme::mc();
     let mut d = FormDialog::format("/dev/sdb1".into()); // 8 filesystem options
-    let mut t = Terminal::new(TestBackend::new(60, 24)).unwrap();
+    // A short screen, so the 8 options cannot all fit and the window must scroll.
+    // (On a tall screen the dropdown simply overflows the dialog and shows them
+    // all — see `choice_dropdown_overflows_the_dialog_on_a_tall_screen`.)
+    let mut t = Terminal::new(TestBackend::new(60, 9)).unwrap();
     macro_rules! render {
         () => {
             t.draw(|f| d.render(f, f.area(), &theme, None)).unwrap();
@@ -444,6 +447,113 @@ fn choice_dropdown_cursor_moves_freely() {
     let (sel_up, top_up) = d.open_choice_state().unwrap();
     assert_eq!(sel_up, 6, "the highlight moved up one");
     assert_eq!(top_up, top_hi, "the window did not scroll — the cursor moved freely");
+}
+
+#[test]
+fn choice_dropdown_overflows_the_dialog_on_a_tall_screen() {
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    let theme = crate::ui::theme::Theme::mc();
+    // The Format dialog is only a handful of rows tall, but its 8-option list is
+    // sized against the screen, so nothing is clipped to the dialog's border and
+    // no scrolling is needed.
+    let mut d = FormDialog::format("/dev/sdb1".into());
+    let mut t = Terminal::new(TestBackend::new(60, 30)).unwrap();
+    d.handle_key(key(KeyCode::Enter)); // open the dropdown
+    t.draw(|f| d.render(f, f.area(), &theme, None)).unwrap();
+    // Walking to the last option never scrolls the window: every option is shown.
+    for _ in 0..7 {
+        d.handle_key(key(KeyCode::Down));
+        t.draw(|f| d.render(f, f.area(), &theme, None)).unwrap();
+    }
+    assert_eq!(
+        d.open_choice_state(),
+        Some((7, 0)),
+        "all options fit on a tall screen, so the list never scrolls"
+    );
+    // The last option is really on screen, below where the small dialog ends.
+    let buf = t.backend().buffer();
+    let mut s = String::new();
+    for y in 0..buf.area.height {
+        for x in 0..buf.area.width {
+            s.push_str(buf[(x, y)].symbol());
+        }
+        s.push('\n');
+    }
+    let last = crate::mount::FsType::ALL.last().unwrap().label();
+    assert!(s.contains(last), "the whole option list is drawn (looking for {last}): {s}");
+}
+
+#[test]
+fn text_buttons_sit_at_both_edges_of_the_button_row() {
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    let theme = crate::ui::theme::Theme::mc();
+    // Without graphics the buttons are drawn as text; they must still be pinned
+    // to the left and right edges (like the graphical ones) rather than packed
+    // to the left with all the slack trailing off the right.
+    let cfg = crate::config::Config::default();
+    let mut d = FormDialog::settings(&cfg, true);
+    let area = Rect::new(0, 0, 80, 24);
+    let mut t = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    t.draw(|f| d.render(f, area, &theme, None)).unwrap();
+    let buf = t.backend().buffer();
+    let row_text = |y: u16| (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect::<String>();
+
+    let y = (0..buf.area.height).find(|&y| row_text(y).contains("OK")).expect("a button row");
+    // Scan by cell, not by byte: the box-drawing border is multi-byte, so
+    // `str::find` would report a byte offset rather than a column.
+    let at = |x: u16| buf[(x, y)].symbol().to_string();
+    let ok_at = (0..buf.area.width).find(|&x| at(x) == "[").expect("the OK button is bracketed");
+    let cancel_at = (0..buf.area.width).rfind(|&x| at(x) == "]").expect("Cancel is bracketed");
+
+    // The dialog's own interior bounds on this row (inside its border).
+    let rect = d.outer_rect(area);
+    let (left, right) = (rect.x + 1, rect.x + rect.width - 2);
+    assert_eq!(ok_at, left, "OK starts at the interior's left edge");
+    assert_eq!(cancel_at, right, "Cancel ends at the interior's right edge");
+    // The row is balanced: the gaps at either end match within a cell.
+    let (lead, trail) = (ok_at - left, right - cancel_at);
+    assert!(
+        lead.abs_diff(trail) <= 1,
+        "button row is lopsided: {lead} vs {trail} — {}",
+        row_text(y)
+    );
+}
+
+#[test]
+fn open_choice_dropdown_is_drawn_over_the_button_row() {
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    let theme = crate::ui::theme::Theme::mc();
+    // The dropdown spills past the dialog interior, so it crosses the OK/Cancel
+    // row. As a popup it must win: the buttons are drawn first, the list last.
+    let mut d = FormDialog::format("/dev/sdb1".into());
+    let mut t = Terminal::new(TestBackend::new(60, 30)).unwrap();
+    d.handle_key(key(KeyCode::Enter)); // open the dropdown
+    t.draw(|f| d.render(f, f.area(), &theme, None)).unwrap();
+    let buf = t.backend().buffer();
+    let row_text = |y: u16| {
+        (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect::<String>()
+    };
+    // Find the row holding an option that sits below the dialog's own button row.
+    let opt = crate::mount::FsType::ALL.last().unwrap().label();
+    let opt_row = (0..buf.area.height)
+        .find(|&y| row_text(y).contains(opt))
+        .expect("the last option is drawn somewhere");
+    // No button text may share a row with the list — that would mean it painted
+    // through the dropdown (the bug this guards).
+    for y in 0..buf.area.height {
+        let line = row_text(y);
+        let has_option = crate::mount::FsType::ALL.iter().any(|f| line.contains(f.label()));
+        if has_option {
+            assert!(
+                !line.contains("Tab/") && !line.contains("Cancel"),
+                "the button/hint row bled through the dropdown on row {y}: {line}"
+            );
+        }
+    }
+    let _ = opt_row;
 }
 
 #[test]

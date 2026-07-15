@@ -14,6 +14,7 @@ mod drive;
 mod find;
 mod flash;
 mod form;
+mod gitout;
 mod goto;
 mod history;
 mod hotlist;
@@ -51,6 +52,7 @@ pub use drive::DriveDialog;
 pub use find::{FindDialog, FindParams};
 pub use flash::{FileBrowserDialog, FlashTargetDialog, ImageSaveDialog};
 pub use form::FormDialog;
+pub use gitout::GitOutputDialog;
 pub use goto::GotoDialog;
 pub use history::ShellHistoryDialog;
 pub use hotlist::{HotlistDialog, HotlistOutcome};
@@ -117,6 +119,8 @@ pub enum Dialog {
     Hotlist(HotlistDialog),
     /// The "Send file over LAN" QR-code sharing dialog.
     SendFile(SendFileDialog),
+    /// Raw `git` command output (scrollable, with a Close button).
+    GitOutput(GitOutputDialog),
 }
 
 /// What the app should do after a dialog handles a key.
@@ -184,6 +188,11 @@ pub enum Submit {
     Confirmations(ConfirmValues),
     /// Compress these (local) sources into an archive of the given name.
     Compress(Vec<VfsPath>, String),
+    /// Run `git <args>` in the active panel's directory and show its output.
+    /// Every guided Git dialog funnels into this one variant, having already
+    /// built its argument list (see [`form::GitForm`]). `title` names the command
+    /// in the output box (e.g. `"push"`).
+    GitRun { title: String, args: Vec<String> },
     /// Open a remote connection on the given panel side.
     Connect(usize, RemoteCreds),
     /// Run a user-menu (F2) command template (macros expanded by the app).
@@ -377,6 +386,7 @@ impl Dialog {
             Dialog::CommandPalette(d) => d.handle_key(key),
             Dialog::Hotlist(d) => d.handle_key(key),
             Dialog::SendFile(d) => d.handle_key(key),
+            Dialog::GitOutput(d) => d.handle_key(key),
         }
     }
 
@@ -413,6 +423,7 @@ impl Dialog {
             Dialog::CommandPalette(d) => d.render(f, area, theme),
             Dialog::Hotlist(d) => d.render(f, area, theme),
             Dialog::SendFile(d) => d.render(f, area, theme, gfx),
+            Dialog::GitOutput(d) => d.render(f, area, theme, gfx),
         }
     }
 
@@ -422,6 +433,7 @@ impl Dialog {
     pub fn handle_click(&mut self, area: Rect, col: u16, row: u16) -> DialogResult {
         match self {
             // Precise per-button hit-testing.
+            Dialog::GitOutput(d) => return d.handle_click(col, row),
             Dialog::Overwrite(d) => return d.handle_click(col, row),
             Dialog::Compare(d) => return d.handle_click(col, row),
             Dialog::ChecksumResult(d) => return d.handle_click(col, row),
@@ -529,6 +541,9 @@ impl Dialog {
                 d.scroll_choice(delta);
             }
             Dialog::CommandPalette(d) => {
+                return d.handle_scroll(delta);
+            }
+            Dialog::GitOutput(d) => {
                 return d.handle_scroll(delta);
             }
             _ => {}

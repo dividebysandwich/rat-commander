@@ -213,8 +213,26 @@ impl AppState {
             MenuAction::Compress => self.open_compress(),
             MenuAction::Checksum => self.open_checksum(),
             MenuAction::SendFile => self.send_file(),
-            MenuAction::GitStage => self.git_stage_toggle().await,
-            MenuAction::GitDiff => self.open_git_diff().await,
+            // The Git submenu's parent never acts on its own — opening it is
+            // handled inside the menu bar.
+            MenuAction::GitMenu => {}
+            MenuAction::GitStatus
+            | MenuAction::GitLog
+            | MenuAction::GitDiff
+            | MenuAction::GitStage
+            | MenuAction::GitAdd
+            | MenuAction::GitUnstage
+            | MenuAction::GitRemove
+            | MenuAction::GitRestore
+            | MenuAction::GitCommit
+            | MenuAction::GitFetch
+            | MenuAction::GitPull
+            | MenuAction::GitPush
+            | MenuAction::GitSync
+            | MenuAction::GitCheckout
+            | MenuAction::GitReset
+            | MenuAction::GitInit
+            | MenuAction::GitClone => self.git_action(action).await,
             MenuAction::BackgroundOps => self.open_background_ops(),
             MenuAction::SelectGroup => self.open_select_group(true),
             MenuAction::UnselectGroup => self.open_select_group(false),
@@ -453,9 +471,13 @@ impl AppState {
             KeyCode::Char('\\') if ctrl => self.open_hotlist(),
             // Persistent listing filter for the active panel.
             KeyCode::Char('i') if alt && !ctrl => self.open_panel_filter(),
-            // Git: Ctrl-G stages/unstages, Alt-G diffs the file against HEAD.
+            // Git: Ctrl-G stages/unstages, Alt-G opens the Git menu, and Alt-D
+            // diffs the file against HEAD (the diff moved off Alt-G when the menu
+            // took it; Ctrl-D can't be used — readline claims it to delete a
+            // character on the command line, see `cmdline_edit_wanted`).
             KeyCode::Char('g') if ctrl && !alt => self.git_stage_toggle().await,
-            KeyCode::Char('g') if alt && !ctrl => self.open_git_diff().await,
+            KeyCode::Char('g') if alt && !ctrl => self.open_git_menu(),
+            KeyCode::Char('d') if alt && !ctrl => self.open_git_diff().await,
             KeyCode::Char('e') if ctrl => {
                 let p = self.active_panel();
                 p.sort.reverse = !p.sort.reverse;
@@ -764,7 +786,10 @@ impl AppState {
 /// empty they fall through to their panel meaning. Plain characters, Backspace,
 /// Delete and the arrows are left to the main match (which has its own
 /// empty-line special cases), so they are deliberately excluded here.
-fn cmdline_edit_wanted(key: KeyEvent, empty: bool) -> bool {
+/// Whether the command line's readline editor claims `key` before the panel
+/// shortcuts get a look in. Any panel binding must avoid these chords, or it
+/// would be dead code (see the `git_shortcuts_are_not_swallowed` test).
+pub(in crate::app::state) fn cmdline_edit_wanted(key: KeyEvent, empty: bool) -> bool {
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
     let alt = key.modifiers.contains(KeyModifiers::ALT);
     match key.code {
