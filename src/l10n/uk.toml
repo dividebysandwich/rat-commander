@@ -114,6 +114,7 @@ code = "uk"
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "Контрольна сума… (&K)"
+"Find all" = "Знайти все"
 # -- Panel navigation (Alt-H / Alt-I / Alt-O) --
 "Directory hi&story..." = "Історія каталогів… (&S)"
 "Sy&nc panels" = "Зрівняти панелі (&N)"

@@ -118,6 +118,7 @@ rtl = true
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "چک‌سام… (&K)"
+"Find all" = "یافتن همه"
 # -- Panel navigation (Alt-H / Alt-I / Alt-O) --
 "Directory hi&story..." = "تاریخچه پوشه‌ها… (&S)"
 "Sy&nc panels" = "هم‌ترازی پنل‌ها (&N)"

@@ -857,6 +857,7 @@ async fn editor_search_terms_persist_app_wide() {
         whole_words: false,
         backwards: false,
         hex,
+        find_all: false,
     };
 
     let (tx, _rx) = async_bridge::channel();

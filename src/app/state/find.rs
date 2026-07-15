@@ -10,16 +10,18 @@ impl AppState {
         self.dialog = Some(Dialog::Find(FindDialog::new(start)));
     }
 
-    /// Build the editor's search/replace dialog, prefilled (and marked) with the
-    /// app-wide remembered search and replacement terms — in Hex mode when the
-    /// editor is in hex mode.
-    pub(in crate::app::state) fn editor_search_dialog(&self, replace: bool) -> SearchReplaceDialog {
+    /// Build the search/replace dialog, prefilled (and marked) with the app-wide
+    /// remembered terms — in Hex mode when whichever view is open is showing a
+    /// hex dump. Shared by the editor (F7/F4) and the viewer (F7), so both offer
+    /// the same modes and options.
+    pub(in crate::app::state) fn search_dialog(&self, replace: bool) -> SearchReplaceDialog {
         let m = &self.search_memory;
-        match self.editor.as_ref() {
-            Some(ed) if ed.is_hex() => {
-                SearchReplaceDialog::new_hex(replace, m.hex_search.clone(), m.replacement.clone())
-            }
-            _ => SearchReplaceDialog::new(replace, m.search.clone(), m.replacement.clone()),
+        let hex = self.editor.as_ref().is_some_and(|e| e.is_hex())
+            || self.viewer.as_ref().is_some_and(|v| v.is_hex());
+        if hex {
+            SearchReplaceDialog::new_hex(replace, m.hex_search.clone(), m.replacement.clone())
+        } else {
+            SearchReplaceDialog::new(replace, m.search.clone(), m.replacement.clone())
         }
     }
 
@@ -34,6 +36,11 @@ impl AppState {
         if p.replace {
             self.search_memory.replacement = p.replacement.clone();
         }
+        // The viewer shares the dialog; it only ever searches (never replaces).
+        if let Some(v) = self.viewer.as_mut() {
+            v.apply_search(&p);
+            return;
+        }
         if let Some(ed) = self.editor.as_mut() {
             if ed.is_hex() {
                 ed.apply_hex_search_replace(p.replace, &p.search, &p.replacement, p.hex, p.backwards);
@@ -47,6 +54,7 @@ impl AppState {
                 p.case_sensitive,
                 p.whole_words,
                 p.backwards,
+                p.find_all,
             );
         }
     }

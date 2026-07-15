@@ -63,6 +63,11 @@ pub struct EditorState {
     block: Option<(usize, usize)>,
     clipboard: String,
     last_search: LastSearch,
+    /// Lines holding a match, from the search dialog's "Find all". Highlighted
+    /// until the next Find all replaces the set — or until the editor closes,
+    /// which drops it with the rest of this state. A plain "find next" leaves it
+    /// alone, so the hits stay visible while you work through them.
+    found_lines: std::collections::HashSet<usize>,
     status: String,
     view_rows: usize,
     view_cols: usize,
@@ -137,6 +142,7 @@ impl EditorState {
             block: None,
             clipboard: String::new(),
             last_search: LastSearch::default(),
+            found_lines: std::collections::HashSet::new(),
             status: String::new(),
             view_rows: 1,
             view_cols: 1,
@@ -924,6 +930,7 @@ impl EditorState {
         case_sensitive: bool,
         whole_words: bool,
         backwards: bool,
+        find_all: bool,
     ) {
         self.last_search = LastSearch {
             pattern: search.to_string(),
@@ -935,9 +942,52 @@ impl EditorState {
         if replace {
             let n = self.replace_all(search, replacement, regex, case_sensitive, whole_words);
             self.status = format!("Replaced {n} occurrence(s)");
+        } else if find_all {
+            let n = self.find_all();
+            self.status = if n == 0 {
+                format!("Not found: {search}")
+            } else {
+                format!("{n} line(s) highlighted")
+            };
+            // Land on the first hit too, so the highlight isn't off-screen.
+            if n > 0 {
+                self.cursor = 0;
+                self.search_next();
+            }
         } else {
             self.search_next();
         }
+    }
+
+    /// Whether `line` holds a "Find all" match (the renderer tints it).
+    pub(crate) fn line_found(&self, line: usize) -> bool {
+        self.found_lines.contains(&line)
+    }
+
+    /// Highlight every line holding a match of the remembered search, replacing
+    /// any previous set. Returns the number of lines marked.
+    fn find_all(&mut self) -> usize {
+        let ls = self.last_search.clone();
+        self.found_lines.clear();
+        if ls.pattern.is_empty() {
+            return 0;
+        }
+        let Some(re) = Self::build_regex(&ls.pattern, ls.regex, ls.case_sensitive, ls.whole_words)
+        else {
+            self.status = "Invalid search pattern".to_string();
+            return 0;
+        };
+        let text = self.buf.text();
+        // Walk the matches in order, carrying a running line count, so the whole
+        // pass stays linear rather than re-counting from the top for each hit.
+        let (mut line, mut scanned) = (0usize, 0usize);
+        for m in re.find_iter(&text) {
+            line += text[scanned..m.start()].bytes().filter(|&b| b == b'\n').count();
+            scanned = m.start();
+            // A match spanning newlines is attributed to the line it starts on.
+            self.found_lines.insert(line);
+        }
+        self.found_lines.len()
     }
 
     /// Build a regex from the given options.
@@ -1755,21 +1805,68 @@ mod tests {
     #[test]
     fn literal_replace_all() {
         let mut e = ed("a b a b");
-        e.apply_search_replace(true, "a", "X", false, false, false, false);
+        e.apply_search_replace(true, "a", "X", false, false, false, false, false);
         assert_eq!(e.contents(), "X b X b");
     }
 
     #[test]
     fn regex_replace_with_groups() {
         let mut e = ed("name: bob");
-        e.apply_search_replace(true, r"(\w+): (\w+)", "$2=$1", true, true, false, false);
+        e.apply_search_replace(true, r"(\w+): (\w+)", "$2=$1", true, true, false, false, false);
         assert_eq!(e.contents(), "bob=name");
+    }
+
+    #[test]
+    fn find_all_highlights_every_matching_line_and_persists() {
+        let mut e = ed("alpha hit\nbeta\ngamma HIT\ndelta\nhit again");
+        // Case-insensitive by default, so all three lines match.
+        e.apply_search_replace(false, "hit", "", false, false, false, false, true);
+        for line in [0, 2, 4] {
+            assert!(e.line_found(line), "line {line} holds a match");
+        }
+        for line in [1, 3] {
+            assert!(!e.line_found(line), "line {line} has no match");
+        }
+        assert!(e.status.contains('3'), "the count is reported: {}", e.status);
+
+        // A plain "find next" afterwards leaves the highlight alone — the whole
+        // point is to keep the hits visible while stepping through them.
+        e.apply_search_replace(false, "beta", "", false, false, false, false, false);
+        assert!(e.line_found(0) && e.line_found(2), "a later search keeps the highlight");
+
+        // The next Find all replaces the set rather than adding to it.
+        e.apply_search_replace(false, "beta", "", false, false, false, false, true);
+        assert!(e.line_found(1), "the new term's line is highlighted");
+        assert!(!e.line_found(0) && !e.line_found(2), "the previous highlight is gone");
+
+        // A term that matches nothing clears the highlight and says so.
+        e.apply_search_replace(false, "nothing here", "", false, false, false, false, true);
+        assert!((0..5).all(|l| !e.line_found(l)), "no line stays highlighted");
+        assert!(e.status.contains("Not found"), "status: {}", e.status);
+    }
+
+    #[test]
+    fn find_all_honours_the_search_options() {
+        let mut e = ed("Hit\nhit\nhitting");
+        // Case-sensitive: only the exact-case line matches.
+        e.apply_search_replace(false, "hit", "", false, true, false, false, true);
+        assert!(!e.line_found(0) && e.line_found(1) && e.line_found(2));
+        // Whole words: "hitting" no longer counts.
+        e.apply_search_replace(false, "hit", "", false, true, true, false, true);
+        assert!(e.line_found(1) && !e.line_found(2), "whole-words excludes 'hitting'");
+        // Regex works too. (`^`/`$` anchor to the whole buffer rather than each
+        // line — the editor builds its regex without multi-line mode — so this
+        // uses word boundaries instead.)
+        e.apply_search_replace(false, r"\bh.t\b", "", true, true, false, false, true);
+        assert!(e.line_found(1), "the regex matches 'hit'");
+        assert!(!e.line_found(0), "and stays case-sensitive");
+        assert!(!e.line_found(2), "'hitting' is not a whole word match");
     }
 
     #[test]
     fn case_insensitive_search_moves_cursor() {
         let mut e = ed("one TWO three");
-        e.apply_search_replace(false, "two", "", false, false, false, false);
+        e.apply_search_replace(false, "two", "", false, false, false, false, false);
         // Cursor should land on "TWO" (char index 4).
         assert_eq!(e.cur_line(), 0);
         assert_eq!(e.cur_col(), 4);

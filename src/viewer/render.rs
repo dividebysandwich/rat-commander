@@ -275,6 +275,9 @@ fn render_header(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
 fn render_text(f: &mut Frame, area: Rect, v: &mut ViewerState, theme: &Theme) {
     let default = theme.text_fg;
     let bg = theme.panel_bg;
+    // A "Find all" hit tints the whole line, reusing the theme's inactive-cursor
+    // bar exactly as the editor does.
+    let found_bg = theme.cursor_inactive.bg.unwrap_or(bg);
     let width = area.width as usize;
     let rows = area.height as usize;
     let highlighted = v.has_syntax();
@@ -313,20 +316,22 @@ fn render_text(f: &mut Frame, area: Rect, v: &mut ViewerState, theme: &Theme) {
             }
         }
 
+        // Every visual row of a matched line carries the tint.
+        let row_bg = if v.line_found(line_idx) { found_bg } else { bg };
         if v.wrap {
             if chars.is_empty() {
-                lines.push(build_spans(&[], 0, &fg, default, bg));
+                lines.push(build_spans(&[], 0, &fg, default, row_bg));
             } else {
                 let mut start = 0;
                 while start < chars.len() && lines.len() < rows {
                     let end = (start + width.max(1)).min(chars.len());
-                    lines.push(build_spans(&chars[start..end], start, &fg, default, bg));
+                    lines.push(build_spans(&chars[start..end], start, &fg, default, row_bg));
                     start = end;
                 }
             }
         } else {
             let from = v.h_offset.min(chars.len());
-            lines.push(build_spans(&chars[from..], from, &fg, default, bg));
+            lines.push(build_spans(&chars[from..], from, &fg, default, row_bg));
         }
         line_idx += 1;
     }
@@ -511,24 +516,6 @@ fn render_hex(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
 }
 
 fn render_footer(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
-    if let Some(q) = v.search_input.as_ref() {
-        // Highlight the whole query while it is still marked (pre-filled), so it
-        // reads as "type to replace" — like the copy/rename input field.
-        let text_style = if v.search_selected && !q.is_empty() {
-            Style::default().fg(theme.panel_bg).bg(theme.header_fg)
-        } else {
-            Style::default()
-        };
-        let line = Line::from(vec![
-            Span::styled("Search: ", Style::default().fg(theme.header_fg)),
-            Span::styled(q.clone(), text_style),
-        ]);
-        f.render_widget(Paragraph::new(line), area);
-        let cx = area.x + 8 + v.search_cursor.min(q.chars().count()) as u16;
-        f.set_cursor_position(ratatui::layout::Position::new(cx, area.y));
-        return;
-    }
-
     // Same full-width, number+label styling as the main program, translated.
     let labels = v.footer_labels().map(crate::l10n::trd);
     crate::ui::fkeys::render(f, area, &labels, theme);

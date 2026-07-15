@@ -114,6 +114,7 @@ code = "nl"
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "Controlesom… (&K)"
+"Find all" = "Alles zoeken"
 # -- Panel navigation (Alt-H / Alt-I / Alt-O) --
 "Directory hi&story..." = "Mapgeschiedenis… (&S)"
 "Sy&nc panels" = "Panelen gelijkzetten (&N)"

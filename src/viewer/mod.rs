@@ -7,6 +7,7 @@
 //! Scrolling is by logical line (text) or 16-byte row (hex).
 
 pub mod markdown;
+mod search;
 pub mod render;
 
 use crate::syntax::{ColorRun, Highlighter};
@@ -22,6 +23,11 @@ use std::path::{Path, PathBuf};
 /// Maximum bytes read into an *in-memory* viewer (larger in-memory buffers are
 /// truncated with a note). File-backed sources are paged and never truncated.
 pub const MAX_VIEW_BYTES: usize = 64 * 1024 * 1024;
+
+/// Most lines a single "Find all" will mark in the viewer. It pages files far
+/// larger than the editor ever opens, so the sweep is bounded rather than
+/// promising to mark every hit in a multi-gigabyte log.
+const FOUND_LINES_MAX: usize = 50_000;
 
 /// Where the viewer reads bytes from.
 enum Source {
@@ -100,11 +106,26 @@ pub enum GotoMode {
 }
 
 /// Result of handling a key: whether the viewer should stay open.
+/// A search as the dialog set it up. Repeating an identical one resumes from the
+/// last hit; changing any field restarts from the top.
+#[derive(Default, Clone, PartialEq, Eq)]
+struct ViewSearch {
+    query: String,
+    regex: bool,
+    case_sensitive: bool,
+    whole_words: bool,
+    backwards: bool,
+    hex: bool,
+}
+
 pub enum ViewerSignal {
     Stay,
     Close,
     /// Ask the app to open the modal "Goto" dialog (F5).
     OpenGoto,
+    /// Ask the app to open the modal search dialog (F7) — the same one the
+    /// editor uses, so the viewer offers the same modes and options.
+    OpenSearch,
 }
 
 pub struct ViewerState {
@@ -134,18 +155,16 @@ pub struct ViewerState {
     top: usize,
     /// Horizontal scroll (text, non-wrap).
     h_offset: usize,
-    /// Current search query (drives "find next" during this session).
-    query: String,
-    /// Term the F7 prompt opens pre-filled with — the last committed search,
+    /// The search being repeated, exactly as the dialog set it up. `find_next`
+    /// resumes from `last_match` while this is unchanged, so pressing F7-Enter on
+    /// the same term walks the file; changing any option restarts from the top.
+    search: ViewSearch,
+    /// Term the search dialog opens pre-filled with — the last committed search,
     /// seeded from the app-wide memory so it survives across files/reopenings.
     search_seed: String,
-    /// When `Some`, the F7 search prompt is capturing input.
-    search_input: Option<String>,
-    /// Caret position within `search_input` (char index).
-    search_cursor: usize,
-    /// The pre-filled search text is fully marked: the next keystroke replaces it
-    /// (mirrors the copy/rename input); cleared by any cursor move.
-    search_selected: bool,
+    /// Lines holding a match, from the dialog's "Find all" (the same button the
+    /// editor has). Kept until the next Find all or until the viewer closes.
+    found_lines: std::collections::HashSet<usize>,
     /// Byte offset of the last match (for "find next").
     last_match: Option<usize>,
     /// Viewport size, updated by the renderer each frame.
@@ -197,11 +216,9 @@ impl ViewerState {
             wrap: false,
             top: 0,
             h_offset: 0,
-            query: String::new(),
+            search: ViewSearch::default(),
             search_seed: String::new(),
-            search_input: None,
-            search_cursor: 0,
-            search_selected: false,
+            found_lines: std::collections::HashSet::new(),
             last_match: None,
             view_rows: 1,
             view_cols: 1,
@@ -243,11 +260,9 @@ impl ViewerState {
             wrap: false,
             top: 0,
             h_offset: 0,
-            query: String::new(),
+            search: ViewSearch::default(),
             search_seed: String::new(),
-            search_input: None,
-            search_cursor: 0,
-            search_selected: false,
+            found_lines: std::collections::HashSet::new(),
             last_match: None,
             view_rows: 1,
             view_cols: 1,
@@ -317,9 +332,6 @@ impl ViewerState {
         self.src.len()
     }
 
-    pub fn is_searching(&self) -> bool {
-        self.search_input.is_some()
-    }
 
     fn line_count(&self) -> usize {
         self.line_starts.len()
@@ -387,17 +399,18 @@ impl ViewerState {
         self.search_seed = seed;
     }
 
+    /// Whether the viewer is showing the hex dump (F4), so the shared search
+    /// dialog opens in Hex mode — matching what the editor does.
+    pub fn is_hex(&self) -> bool {
+        self.mode == ViewMode::Hex
+    }
+
     /// The last search term (for writing back to the app-wide search memory).
     pub fn search_seed(&self) -> &str {
         &self.search_seed
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> ViewerSignal {
-        // Search prompt captures input first.
-        if self.search_input.is_some() {
-            self.handle_search_key(key);
-            return ViewerSignal::Stay;
-        }
         // While the outline navigator is open it captures navigation keys.
         if self.outline_open {
             return self.handle_outline_key(key);
@@ -427,13 +440,7 @@ impl ViewerState {
             KeyCode::F(8) if self.is_markdown && self.mode == ViewMode::Text => {
                 self.markdown_render = !self.markdown_render;
             }
-            KeyCode::F(7) => {
-                // Reopen pre-filled with the remembered term, fully marked so a
-                // keystroke replaces it (same as the copy/rename input).
-                self.search_input = Some(self.search_seed.clone());
-                self.search_cursor = self.search_seed.chars().count();
-                self.search_selected = !self.search_seed.is_empty();
-            }
+            KeyCode::F(7) => return ViewerSignal::OpenSearch,
             KeyCode::Char('n') => self.find_next(),
             KeyCode::Down => self.scroll(1),
             KeyCode::Up => self.scroll(-1),
@@ -466,11 +473,8 @@ impl ViewerState {
             return self.handle_outline_mouse(ev);
         }
 
-        // F-key bar clicks (when not capturing a search query).
-        if matches!(ev.kind, MouseEventKind::Down(MouseButton::Left))
-            && row == self.footer_area.y
-            && self.search_input.is_none()
-        {
+        // F-key bar clicks.
+        if matches!(ev.kind, MouseEventKind::Down(MouseButton::Left)) && row == self.footer_area.y {
             let labels = self.footer_labels();
             return match crate::ui::fkeys::index_at(self.footer_area, &labels, col, row) {
                 Some(i) => self.activate_fkey(i),
@@ -665,31 +669,6 @@ impl ViewerState {
         self.h_offset = 0;
     }
 
-    fn handle_search_key(&mut self, key: KeyEvent) {
-        match key.code {
-            KeyCode::Esc => self.search_input = None,
-            KeyCode::Enter => {
-                if let Some(q) = self.search_input.take() {
-                    self.search_seed = q.clone();
-                    self.query = q;
-                    self.last_match = None;
-                    self.find_next();
-                }
-            }
-            // Full line editing (cursor, Home/End, and select-all-on-open) via the
-            // shared helper, matching the copy/rename input dialog.
-            _ => {
-                if let Some(q) = self.search_input.as_mut() {
-                    crate::ui::dialog::edit_text_marked(
-                        q,
-                        &mut self.search_cursor,
-                        &mut self.search_selected,
-                        key,
-                    );
-                }
-            }
-        }
-    }
 
     fn scroll(&mut self, delta: isize) {
         let target = (self.top as isize + delta).max(0) as usize;
@@ -758,56 +737,133 @@ impl ViewerState {
     }
 
     /// Find the next occurrence of the query after the last match.
-    fn find_next(&mut self) {
-        if self.query.is_empty() {
-            return;
+    /// Apply the search dialog's result. An identical repeat continues from the
+    /// last hit — which is what makes pressing F7-Enter again walk the file —
+    /// while any change of term or option restarts from the top.
+    pub fn apply_search(&mut self, p: &crate::ui::dialog::SearchReplaceParams) {
+        let want = ViewSearch {
+            query: p.search.clone(),
+            regex: p.regex,
+            case_sensitive: p.case_sensitive,
+            whole_words: p.whole_words,
+            backwards: p.backwards,
+            hex: p.hex,
+        };
+        if want != self.search {
+            self.search = want;
+            self.last_match = None;
         }
-        let start = self.last_match.map(|m| m + 1).unwrap_or(0);
-        let found = self.find_from(start).or_else(|| self.find_from(0));
+        self.search_seed = p.search.clone();
+        if p.find_all { self.find_all() } else { self.find_next() }
+    }
+
+    /// Compile the current search, or `None` when it is unusable (bad regex, bad
+    /// hex, empty term).
+    fn needle(&self) -> Option<search::Needle> {
+        let s = &self.search;
+        search::Needle::build(&s.query, s.regex, s.case_sensitive, s.whole_words, s.hex)
+    }
+
+    /// Whether `line` holds a "Find all" match (the renderer tints it).
+    pub(crate) fn line_found(&self, line: usize) -> bool {
+        self.found_lines.contains(&line)
+    }
+
+    /// Number of lines the last "Find all" marked.
+    pub fn found_count(&self) -> usize {
+        self.found_lines.len()
+    }
+
+    fn find_next(&mut self) {
+        let Some(needle) = self.needle() else { return };
+        let found = if self.search.backwards {
+            // Wrap to the end when there is nothing before the current hit.
+            let before = self.last_match.unwrap_or(0);
+            self.scan_back(&needle, before).or_else(|| self.scan_back(&needle, self.data_len()))
+        } else {
+            let start = self.last_match.map(|m| m + 1).unwrap_or(0);
+            self.scan(&needle, start).or_else(|| self.scan(&needle, 0))
+        };
         if let Some(off) = found {
             self.last_match = Some(off);
-            match self.mode {
-                ViewMode::Text => {
-                    // The match may lie beyond the indexed region; index up to it.
-                    self.extend_to_byte(off + 1);
-                    self.top = self.byte_to_line(off);
-                }
-                ViewMode::Hex => self.top = off / 16,
-            }
+            self.reveal(off);
         }
     }
 
-    /// Case-insensitive search from byte `start`, reading the source in
-    /// overlapping windows so file-backed sources never load fully into memory.
-    fn find_from(&self, start: usize) -> Option<usize> {
-        let ql: Vec<u8> = self.query.bytes().map(|b| b.to_ascii_lowercase()).collect();
-        let len = self.data_len();
-        if ql.is_empty() || ql.len() > len {
-            return None;
+    /// Scroll so the byte at `off` is on screen.
+    fn reveal(&mut self, off: usize) {
+        match self.mode {
+            ViewMode::Text => {
+                // The match may lie beyond the indexed region; index up to it.
+                self.extend_to_byte(off + 1);
+                self.top = self.byte_to_line(off);
+            }
+            ViewMode::Hex => self.top = off / 16,
         }
+    }
+
+    /// Highlight every line holding a match, replacing any previous set, and jump
+    /// to the first. Capped at [`FOUND_LINES_MAX`]: the viewer pages files far too
+    /// big to mark exhaustively, and a bounded set keeps this from turning into an
+    /// unbounded scan of a multi-gigabyte log.
+    fn find_all(&mut self) {
+        self.found_lines.clear();
+        let Some(needle) = self.needle() else { return };
+        let mut at = 0usize;
+        let mut first = None;
+        while let Some(off) = self.scan(&needle, at) {
+            if first.is_none() {
+                first = Some(off);
+            }
+            self.extend_to_byte(off + 1);
+            self.found_lines.insert(self.byte_to_line(off));
+            if self.found_lines.len() >= FOUND_LINES_MAX {
+                break;
+            }
+            at = off + 1;
+        }
+        if let Some(off) = first {
+            self.last_match = Some(off);
+            self.reveal(off);
+        }
+    }
+
+    /// First match at or after `start`, reading the source in overlapping windows
+    /// so a file-backed source is never loaded whole.
+    fn scan(&self, needle: &search::Needle, start: usize) -> Option<usize> {
         const WINDOW: usize = 256 * 1024;
-        let overlap = ql.len() - 1;
+        let len = self.data_len();
+        let overlap = needle.overlap();
         let mut pos = start.min(len);
-        while pos + ql.len() <= len {
-            let end = (pos + WINDOW).min(len);
+        while pos + needle.min_len() <= len {
+            let end = (pos + WINDOW.max(overlap + 1)).min(len);
             let buf = self.src.read_range(pos, end);
-            if buf.len() >= ql.len() {
-                let last = buf.len() - ql.len();
-                if let Some(i) = (0..=last).find(|&i| {
-                    buf[i..i + ql.len()]
-                        .iter()
-                        .zip(&ql)
-                        .all(|(a, b)| a.to_ascii_lowercase() == *b)
-                }) {
-                    return Some(pos + i);
-                }
+            if let Some(i) = needle.find(&buf, 0) {
+                return Some(pos + i);
             }
             if end == len {
                 break;
             }
-            pos = end - overlap; // overlap so matches spanning a window boundary are found
+            // Rewind so a match straddling the seam is still seen.
+            pos = end - overlap;
         }
         None
+    }
+
+    /// Last match starting strictly before `before`. Scans forward keeping the
+    /// most recent hit: a backwards search is the rarer path, and this reuses the
+    /// same windowing rather than needing a second, reversed reader.
+    fn scan_back(&self, needle: &search::Needle, before: usize) -> Option<usize> {
+        let mut best = None;
+        let mut at = 0usize;
+        while let Some(off) = self.scan(needle, at) {
+            if off >= before {
+                break;
+            }
+            best = Some(off);
+            at = off + 1;
+        }
+        best
     }
 
     fn byte_to_line(&self, off: usize) -> usize {
@@ -1176,40 +1232,129 @@ mod tests {
         assert_eq!(v.top, 4);
     }
 
-    #[test]
-    fn f7_reopens_prefilled_marked_and_typing_replaces() {
-        let mut v = ViewerState::new("t".into(), b"alpha beta gamma".to_vec());
-        let press = |v: &mut ViewerState, c: KeyCode| {
-            v.handle_key(KeyEvent::new(c, KeyModifiers::NONE));
-        };
-
-        // First search commits a query.
-        press(&mut v, KeyCode::F(7));
-        for c in "beta".chars() {
-            press(&mut v, KeyCode::Char(c));
+    /// The dialog's params for a plain (case-insensitive, literal) search.
+    fn sp(term: &str) -> crate::ui::dialog::SearchReplaceParams {
+        crate::ui::dialog::SearchReplaceParams {
+            replace: false,
+            search: term.into(),
+            replacement: String::new(),
+            regex: false,
+            case_sensitive: false,
+            whole_words: false,
+            backwards: false,
+            hex: false,
+            find_all: false,
         }
-        press(&mut v, KeyCode::Enter);
-        assert_eq!(v.query, "beta");
-
-        // Reopening pre-fills the remembered query, fully marked.
-        press(&mut v, KeyCode::F(7));
-        assert_eq!(v.search_input.as_deref(), Some("beta"));
-        assert!(v.search_selected, "the pre-filled term is marked");
-
-        // Typing without moving the cursor replaces the whole marked term.
-        press(&mut v, KeyCode::Char('x'));
-        assert_eq!(v.search_input.as_deref(), Some("x"));
-        assert!(!v.search_selected);
-
-        // Reopen, then an arrow drops the mark so typing appends instead.
-        press(&mut v, KeyCode::Enter); // commit "x"
-        press(&mut v, KeyCode::F(7));
-        assert!(v.search_selected);
-        press(&mut v, KeyCode::Home); // clears mark, cursor to start
-        assert!(!v.search_selected);
-        press(&mut v, KeyCode::Char('y'));
-        assert_eq!(v.search_input.as_deref(), Some("yx"), "appends after clearing the mark");
     }
+
+    #[test]
+    fn f7_asks_the_app_for_the_shared_search_dialog() {
+        // The viewer no longer owns an inline prompt: F7 hands off to the same
+        // modal dialog the editor uses, so both offer the same options.
+        let mut v = ViewerState::new("t".into(), b"alpha beta".to_vec());
+        let sig = v.handle_key(KeyEvent::new(KeyCode::F(7), KeyModifiers::NONE));
+        assert!(matches!(sig, ViewerSignal::OpenSearch));
+        // In hex mode the app opens that dialog in Hex mode (see `search_dialog`).
+        assert!(!v.is_hex());
+        v.mode = ViewMode::Hex;
+        assert!(v.is_hex());
+    }
+
+    #[test]
+    fn repeating_a_search_advances_to_the_next_occurrence() {
+        // The bug this guards: re-submitting the same term used to reset the
+        // cursor and keep re-finding the first hit.
+        let mut v = ViewerState::new("t".into(), b"two\nx\ntwo\ny\ntwo".to_vec());
+        v.apply_search(&sp("two"));
+        assert_eq!(v.top, 0, "first hit");
+        v.apply_search(&sp("two"));
+        assert_eq!(v.top, 2, "the same term again moves on");
+        v.apply_search(&sp("two"));
+        assert_eq!(v.top, 4);
+        // Past the last hit it wraps back to the top.
+        v.apply_search(&sp("two"));
+        assert_eq!(v.top, 0, "wraps around");
+
+        // The `n` key repeats the same search without reopening the dialog.
+        v.handle_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
+        assert_eq!(v.top, 2, "'n' advances too");
+
+        // Re-running the same term keeps advancing (we are on line 2, so on to 4).
+        v.apply_search(&sp("two"));
+        assert_eq!(v.top, 4);
+        // A *different* term restarts from the top rather than resuming.
+        v.apply_search(&sp("y"));
+        assert_eq!(v.top, 3, "a new term searches from the start");
+    }
+
+    #[test]
+    fn search_honours_the_dialog_options() {
+        let mut v = ViewerState::new("t".into(), b"Hit\nhit\nhitting".to_vec());
+        // Case-sensitive skips the capitalised line.
+        let mut p = sp("hit");
+        p.case_sensitive = true;
+        v.apply_search(&p);
+        assert_eq!(v.top, 1);
+        // Whole words skips "hitting" — the next hit wraps back to line 1.
+        let mut p = sp("hit");
+        p.case_sensitive = true;
+        p.whole_words = true;
+        v.apply_search(&p);
+        assert_eq!(v.top, 1);
+        v.apply_search(&p);
+        assert_eq!(v.top, 1, "'hitting' is not a whole word, so it wraps to the only hit");
+
+        // Regex.
+        let mut v = ViewerState::new("t".into(), b"aaa\nbbb\nabc".to_vec());
+        let mut p = sp("a.c");
+        p.regex = true;
+        v.apply_search(&p);
+        assert_eq!(v.top, 2);
+
+        // Backwards walks up the file.
+        let mut v = ViewerState::new("t".into(), b"hit\nx\nhit\ny\nhit".to_vec());
+        v.apply_search(&sp("hit"));
+        assert_eq!(v.top, 0);
+        let mut p = sp("hit");
+        p.backwards = true;
+        v.apply_search(&p);
+        assert_eq!(v.top, 4, "backwards from the first hit wraps to the last");
+        v.apply_search(&p);
+        assert_eq!(v.top, 2);
+    }
+
+    #[test]
+    fn hex_mode_search_matches_raw_bytes() {
+        let mut v = ViewerState::new("t".into(), b"one\nHello".to_vec());
+        let mut p = sp("48 65"); // "He"
+        p.hex = true;
+        v.apply_search(&p);
+        assert_eq!(v.top, 1, "the hex bytes are found on the second line");
+    }
+
+    #[test]
+    fn find_all_highlights_matching_lines_until_the_next_one() {
+        let mut v = ViewerState::new("t".into(), b"hit\nmiss\nHIT\nmiss\nhit".to_vec());
+        let mut p = sp("hit");
+        p.find_all = true;
+        v.apply_search(&p);
+        assert_eq!(v.found_count(), 3);
+        for l in [0, 2, 4] {
+            assert!(v.line_found(l), "line {l} is highlighted");
+        }
+        assert!(!v.line_found(1) && !v.line_found(3));
+
+        // A plain search leaves the highlight alone...
+        v.apply_search(&sp("miss"));
+        assert!(v.line_found(0), "an ordinary search keeps the highlight");
+        // ...and the next Find all replaces it.
+        let mut p = sp("miss");
+        p.find_all = true;
+        v.apply_search(&p);
+        assert_eq!(v.found_count(), 2);
+        assert!(v.line_found(1) && !v.line_found(0));
+    }
+
 
     #[test]
     fn line_indexing_and_content() {
@@ -1223,12 +1368,11 @@ mod tests {
     #[test]
     fn search_finds_and_maps_to_line() {
         let mut v = ViewerState::new("t".into(), b"one\ntwo\nthree\nTWO".to_vec());
-        v.query = "two".into();
-        v.find_next();
+        v.apply_search(&sp("two"));
         // Case-insensitive: first match is on line 1 ("two").
         assert_eq!(v.top, 1);
-        // Next wraps forward to the uppercase TWO on line 3.
-        v.find_next();
+        // Repeating moves on to the uppercase TWO on line 3.
+        v.apply_search(&sp("two"));
         assert_eq!(v.top, 3);
     }
 
@@ -1441,8 +1585,7 @@ mod tests {
         assert!(matches!(v.src, Source::File { .. }), "uses a paged file source");
 
         // Search reads through the file (windowed), not a memory copy.
-        v.query = "needle".into();
-        v.find_next();
+        v.apply_search(&sp("needle"));
         assert_eq!(v.top, 2, "case-insensitive match maps to its line");
 
         // Hex row reads the requested 16-byte window on demand.

@@ -19,6 +19,9 @@ pub struct SearchReplaceParams {
     pub backwards: bool,
     /// Hex mode was selected: search/replacement are hex byte strings.
     pub hex: bool,
+    /// "Find all" was pressed rather than OK: highlight every matching line
+    /// instead of jumping to the next match.
+    pub find_all: bool,
 }
 
 pub struct SearchReplaceDialog {
@@ -46,6 +49,18 @@ enum SrFocus {
     Repl,
     Mode(usize),
     Check(usize),
+    /// A bottom-row button, indexed into [`SearchReplaceDialog::buttons`].
+    Button(usize),
+}
+
+/// What a bottom-row button does when activated.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum SrButton {
+    /// Find the next match (the plain Enter action).
+    Ok,
+    /// Highlight every line holding the term, and keep it highlighted.
+    FindAll,
+    Cancel,
 }
 
 impl SearchReplaceDialog {
@@ -86,7 +101,64 @@ impl SearchReplaceDialog {
         }
         v.extend([SrFocus::Mode(0), SrFocus::Mode(1), SrFocus::Mode(2), SrFocus::Mode(3)]);
         v.extend((0..5).map(SrFocus::Check));
+        v.extend((0..self.buttons().len()).map(SrFocus::Button));
         v
+    }
+
+    /// The bottom-row buttons. "Find all" is offered on the plain Search dialog
+    /// only: highlighting every match says nothing useful next to a Replace,
+    /// which reports its own count.
+    fn buttons(&self) -> Vec<(SrButton, &'static str)> {
+        let mut v = vec![(SrButton::Ok, "OK")];
+        if !self.replace {
+            v.push((SrButton::FindAll, "Find all"));
+        }
+        v.push((SrButton::Cancel, "Cancel"));
+        v
+    }
+
+    /// Run a button. An empty term has nothing to look for, so it just closes.
+    fn activate(&self, b: SrButton) -> DialogResult {
+        if b == SrButton::Cancel || self.search.trim().is_empty() {
+            return DialogResult::Cancel;
+        }
+        let mut p = self.params();
+        p.find_all = b == SrButton::FindAll;
+        DialogResult::Submit(Submit::SearchReplace(p))
+    }
+
+    /// `(action, label, rect)` for each bottom-row button, centred as a group.
+    /// Shared by `render` and `click_field` so the two can't disagree.
+    fn buttons_at(&self, area: Rect) -> Vec<(SrButton, String, Rect)> {
+        let height = if self.replace { 14 } else { 12 };
+        let rect = centered(area, 64u16.min(area.width.saturating_sub(2)), height);
+        let row = Rect {
+            x: rect.x + 1,
+            y: rect.y + rect.height - 2,
+            width: rect.width.saturating_sub(2),
+            height: 1,
+        };
+        let items = self.buttons();
+        let labels: Vec<String> = items.iter().map(|(_, l)| crate::l10n::trd(l)).collect();
+        let widths: Vec<u16> = labels.iter().map(|l| l.chars().count() as u16 + 4).collect();
+        let gaps = 2 * (items.len() as u16 - 1);
+        let total: u16 = widths.iter().sum::<u16>() + gaps;
+        let mut x = row.x + row.width.saturating_sub(total) / 2;
+        let mut out = Vec::with_capacity(items.len());
+        for (i, (action, _)) in items.iter().enumerate() {
+            let r = Rect { x, y: row.y, width: widths[i], height: 1 };
+            out.push((*action, labels[i].clone(), r));
+            x += widths[i] + 2;
+        }
+        out
+    }
+
+    /// Index of the focused bottom-row button, if focus is on one.
+    fn focused_button(&self) -> Option<usize> {
+        match self.cur() {
+            SrFocus::Button(i) => Some(i),
+            _ => None,
+        }
     }
 
     fn cur(&self) -> SrFocus {
@@ -98,11 +170,13 @@ impl SearchReplaceDialog {
         let len = self.items().len();
         match key.code {
             KeyCode::Esc => return DialogResult::Cancel,
+            // Enter runs the focused button; from a field it means "find".
             KeyCode::Enter => {
-                if self.search.trim().is_empty() {
-                    return DialogResult::Cancel;
-                }
-                return DialogResult::Submit(Submit::SearchReplace(self.params()));
+                let action = match self.cur() {
+                    SrFocus::Button(i) => self.buttons()[i].0,
+                    _ => SrButton::Ok,
+                };
+                return self.activate(action);
             }
             KeyCode::Tab | KeyCode::Down => self.focus = (self.focus + 1) % len,
             KeyCode::BackTab | KeyCode::Up => self.focus = (self.focus + len - 1) % len,
@@ -110,6 +184,7 @@ impl SearchReplaceDialog {
                 match self.cur() {
                     SrFocus::Mode(m) => self.mode = m,
                     SrFocus::Check(c) => self.toggle_check(c),
+                    SrFocus::Button(i) => return self.activate(self.buttons()[i].0),
                     _ => {}
                 }
             }
@@ -162,6 +237,14 @@ impl SearchReplaceDialog {
             self.repl_cursor = caret_at(&self.replacement);
             return Some(DialogResult::None);
         }
+        // The bottom-row buttons (this dialog has three, so the generic
+        // half-and-half OK/Cancel hit-test in `Dialog::handle_click` won't do).
+        for (i, (action, _, r)) in self.buttons_at(area).into_iter().enumerate() {
+            if row == r.y && col >= r.x && col < r.x + r.width {
+                self.focus = self.items().len() - self.buttons().len() + i;
+                return Some(self.activate(action));
+            }
+        }
         // Options block: radios (left half) + checkboxes (right half).
         let opt_y = inner.y + if self.replace { 5 } else { 3 };
         if row >= opt_y && row < opt_y + 5 {
@@ -208,6 +291,8 @@ impl SearchReplaceDialog {
             whole_words: self.whole_words,
             backwards: self.backwards,
             hex: self.mode == 2,
+            // Set by `activate` for the "Find all" button; a plain OK leaves it off.
+            find_all: false,
         }
     }
 
@@ -285,14 +370,19 @@ impl SearchReplaceDialog {
             );
         }
 
-        let by = inner.y + inner.height - 1;
-        if !draw_ok_cancel(f, gfx, line_at(by), theme) {
-            f.render_widget(
-                Paragraph::new(ok_cancel_line(true, theme))
-                    .alignment(ratatui::layout::Alignment::Center)
-                    .style(base),
-                line_at(by),
-            );
+        // The button row is drawn here rather than via the shared OK/Cancel
+        // helper: the Search dialog carries a third button ("Find all").
+        let mut gfx = gfx;
+        let focused = self.focused_button();
+        for (i, (_, label, r)) in self.buttons_at(area).into_iter().enumerate() {
+            // Enter from a field means "find", so OK reads as focused until the
+            // ring actually lands on a button.
+            let hot = focused.map(|f| f == i).unwrap_or(i == 0);
+            if !gfx_button(f, gfx.as_deref_mut(), Slot::Button(i as u16), r, &label, hot, theme) {
+                let style = if hot { theme.button_focused } else { theme.button };
+                let text = if hot { format!("[< {label} >]") } else { format!("[  {label}  ]") };
+                f.render_widget(Paragraph::new(Line::from(Span::styled(text, style))).style(base), r);
+            }
         }
 
         if let Some(p) = caret {

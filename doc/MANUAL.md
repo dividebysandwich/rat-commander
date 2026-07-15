@@ -728,8 +728,14 @@ loading it into an editor.
   as an image, the viewer just opens it as raw text/hex as usual.
 - **Text / Hex** — **F4** toggles. Hex mode shows an offset / hex / ASCII dump.
 - **Line wrap** — **F2** toggles soft wrapping.
-- **Search** — **F7** searches; **`n`** repeats. Search streams the file, so it
-  works on huge files too.
+- **Search** — **F7** opens the **same search dialog the editor uses** (see
+  *Search and replace* under the editor): Normal / Regular expression / Hex /
+  Wildcard modes, with *Case sensitive*, *Backwards* and *Whole words*, plus the
+  **Find all** button, which tints every line holding the term. **`n`** repeats
+  the last search, and so does re-running the same one from the dialog — each
+  repeat moves to the **next** occurrence and wraps at the end. Changing the term
+  or any option starts again from the top. Search streams the file in windows, so
+  it works on huge files without loading them.
 - **Goto** — **F5** jumps to a line number, a percentage through the file, or a
   decimal/hex byte offset (in hex mode the line number is a 16-byte row).
 - **Syntax highlighting** colors recognized source files, using a bundled theme
@@ -781,8 +787,24 @@ clears the selection (F3 again toggles a block off).
 - **F8** — delete the block.
 - **Ctrl-C** / **Ctrl-V** — copy the block to the clipboard / paste it.
 
-**Search and replace.** **F7** searches; **F4** opens search & replace, which
-can be a literal or a regular expression.
+**Search and replace.** **F7** searches; **F4** opens search & replace. Both use
+the same dialog, and the viewer (F3) uses it too:
+
+- **Mode** — **Normal** (literal text), **Regular expression**, **Hex** (byte
+  strings like `48 65 6c`), or **Wildcard** (`*` and `?`).
+- **Options** — *Case sensitive*, *Backwards*, *Whole words*, and, when
+  replacing, *In selection*.
+- **Buttons** — **OK** finds the next match (pressing Enter from any field does
+  the same), **Cancel** closes, and **Find all** — between them — highlights
+  **every line holding the term** at once.
+
+**Find all** is for reading rather than jumping: the matching lines stay tinted
+(in the theme's inactive-cursor shade) while you scroll, edit and search onward,
+so you can see where the hits are without stepping through them. The highlight
+survives ordinary searches and is replaced only by the **next Find all** — or
+dropped when the editor closes. It honours the mode and options, so you can
+highlight, say, every whole-word `foo` case-sensitively. The status line reports
+how many lines were marked, and the cursor lands on the first of them.
 
 **Saving.** **F2** writes the file in place. **Save as** (**Shift-F2** or
 **Ctrl-F2**) opens a browser — navigate directories and type a file name,

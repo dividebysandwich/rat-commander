@@ -114,6 +114,7 @@ code = "ru"
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "Контрольная сумма… (&K)"
+"Find all" = "Найти все"
 # -- Panel navigation (Alt-H / Alt-I / Alt-O) --
 "Directory hi&story..." = "История каталогов… (&S)"
 "Sy&nc panels" = "Уравнять панели (&N)"

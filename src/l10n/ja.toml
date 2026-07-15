@@ -114,6 +114,7 @@ code = "ja"
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "チェックサム…(&K)"
+"Find all" = "すべて検索"
 # -- Panel navigation (Alt-H / Alt-I / Alt-O) --
 "Directory hi&story..." = "ディレクトリ履歴…(&S)"
 "Sy&nc panels" = "パネルを揃える(&N)"

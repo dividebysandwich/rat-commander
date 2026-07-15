@@ -302,8 +302,17 @@ fn render_status(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) {
 }
 
 /// Render the text body. Returns the hardware cursor position, if on screen.
+/// Background for a line matched by the search dialog's "Find all": the theme's
+/// inactive-cursor bar, i.e. the shade the panels already use for "highlighted,
+/// but not where you are". Reusing it means every theme — including a user's own
+/// — gets a sensible colour without a new field to define.
+fn found_line_bg(theme: &Theme) -> ratatui::style::Color {
+    theme.cursor_inactive.bg.unwrap_or(theme.panel_bg)
+}
+
 fn render_text(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) -> Option<Position> {
     let normal = Style::default().fg(theme.text_fg).bg(theme.panel_bg);
+    let found_bg = found_line_bg(theme);
     // The selected block follows the theme's selection bar (like the panel
     // cursor) rather than a hardcoded colour.
     let block_style = theme.cursor;
@@ -318,6 +327,9 @@ fn render_text(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) -> Op
             continue;
         }
         let line_start = ed.buf.line_to_char(li);
+        // A "Find all" hit tints the whole line, using the theme's inactive-cursor
+        // bar — the same "highlighted, but not where you are" shade the panels use.
+        let line_bg = if ed.line_found(li) { found_bg } else { theme.panel_bg };
         let chars: Vec<char> = ed.buf.line_text(li).chars().collect();
         // Syntax foreground per character (None ⇒ all `text_fg`).
         let mut fg = ed.line_fg(li, chars.len(), theme.text_fg);
@@ -346,10 +358,12 @@ fn render_text(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) -> Op
                     (chars[ci], block_style)
                 } else {
                     let color = fg.as_ref().map(|v| v[ci]).unwrap_or(theme.text_fg);
-                    (chars[ci], Style::default().fg(color).bg(theme.panel_bg))
+                    (chars[ci], Style::default().fg(color).bg(line_bg))
                 }
             } else {
-                (' ', normal)
+                // Pad to the full width in the line's own colour, so a highlighted
+                // line reads as one bar rather than stopping at its last character.
+                (' ', Style::default().fg(theme.text_fg).bg(line_bg))
             };
             if style != run_style && !run.is_empty() {
                 spans.push(Span::styled(std::mem::take(&mut run), run_style));
@@ -434,6 +448,7 @@ fn ensure_visible_wrapped(ed: &mut EditorState) {
 /// hardware cursor position, if on screen.
 fn render_text_wrapped(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) -> Option<Position> {
     let normal = Style::default().fg(theme.text_fg).bg(theme.panel_bg);
+    let found_bg = found_line_bg(theme);
     // The selected block follows the theme's selection bar (like the panel
     // cursor) rather than a hardcoded colour.
     let block_style = theme.cursor;
@@ -458,6 +473,8 @@ fn render_text_wrapped(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Them
         let end = breaks.get(sub + 1).copied().unwrap_or(ed.buf.line_len(line));
         let has_marker = sub + 1 < breaks.len();
         let line_start = ed.buf.line_to_char(line);
+        // A "Find all" hit tints every visual row of the wrapped line.
+        let line_bg = if ed.line_found(line) { found_bg } else { theme.panel_bg };
         let chars: Vec<char> = ed.buf.line_text(line).chars().collect();
         let mut fg = ed.line_fg(line, chars.len(), theme.text_fg);
         let hashes = crate::ui::hexcolor::hex_color_hashes(&chars);
@@ -491,7 +508,7 @@ fn render_text_wrapped(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Them
                     (chars[ci], block_style)
                 } else {
                     let color = fg.as_ref().map(|v| v[ci]).unwrap_or(theme.text_fg);
-                    (chars[ci], Style::default().fg(color).bg(theme.panel_bg))
+                    (chars[ci], Style::default().fg(color).bg(line_bg))
                 }
             } else {
                 (' ', normal)

@@ -114,6 +114,7 @@ code = "sr"
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "Kontrolni zbir… (&K)"
+"Find all" = "Nađi sve"
 # -- Panel navigation (Alt-H / Alt-I / Alt-O) --
 "Directory hi&story..." = "Istorija direktorijuma… (&S)"
 "Sy&nc panels" = "Izjednači panele (&N)"

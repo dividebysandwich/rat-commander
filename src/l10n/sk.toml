@@ -114,6 +114,7 @@ code = "sk"
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "Kontrolný súčet… (&K)"
+"Find all" = "Nájsť všetko"
 # -- Panel navigation (Alt-H / Alt-I / Alt-O) --
 "Directory hi&story..." = "História adresárov… (&S)"
 "Sy&nc panels" = "Zrovnať panely (&N)"

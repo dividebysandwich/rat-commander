@@ -28,19 +28,23 @@ The installed executable is named **`rc`** for quick typing.
 - **File operations** — copy / move / delete with a progress window and
   transfer-speed chart, rich overwrite handling, chmod / chown / symlink (with
   recursion), and make-directory.
-- **Built-in viewer (F3)** — text and hex modes, search, goto, line wrap, syntax
+- **Built-in viewer (F3)** — text and hex modes, goto, line wrap, syntax
   highlighting, a **rendered Markdown** mode for `.md` files, and hex-color
   swatches. Pages huge files straight from disk. Opens **images** fullscreen —
   true-pixel where the terminal supports graphics, half-block art otherwise
   (F8 toggles to the raw bytes).
 - **Built-in editor (F4)** — `mcedit`-style block copy/move/delete, clipboard,
-  search & replace (literal or regex), undo/redo, syntax highlighting, and an
+  search & replace, undo/redo, syntax highlighting, and an
   in-place **hex editor** for arbitrarily large files. Launch straight into it
   with **`rc /edit <file>`** (or the installed **`rcedit <file>`** shortcut), or
   **`rc /edit`** with no file for a blank buffer that prompts for a name on the
   first save; closing the editor then exits.
 - **Multi rename** — batch-rename selected files with a masked, live two-column
   preview, counter, case transform and search-and-replace.
+- **Search** — one dialog for the editor (F7/F4) *and* the viewer (F7): literal,
+  **regex**, **hex** or **wildcard**, with case / whole-word / backwards options.
+  **Find all** highlights every line holding the term and keeps it highlighted
+  while you work; repeating a search steps to the next occurrence and wraps.
 - **Git-aware panels** — inside a git work tree each file is tagged with its VCS
   state (`>` modified, `+` staged, `?` untracked, `!` conflict) in colour, the
   current **branch + ahead/behind** shows on the panel border, and one-key actions

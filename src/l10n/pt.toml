@@ -114,6 +114,7 @@ code = "pt"
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "Soma de verificação… (&K)"
+"Find all" = "Localizar tudo"
 # -- Panel navigation (Alt-H / Alt-I / Alt-O) --
 "Directory hi&story..." = "Histórico de diretórios… (&S)"
 "Sy&nc panels" = "Sincronizar painéis (&N)"

@@ -44,6 +44,7 @@ code = "de"
 "&Symlink" = "&Symlink"
 "Com&press..." = "Kom&primieren..."
 "Chec&ksum..." = "Prü&fsumme..."
+"Find all" = "Alle finden"
 # -- Panel navigation (Alt-H / Alt-I / Alt-O) --
 "Directory hi&story..." = "Verzeichnisver&lauf..."
 "Sy&nc panels" = "Panels &angleichen"

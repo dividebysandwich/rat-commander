@@ -56,10 +56,10 @@ impl AppState {
                 self.dialog = Some(Dialog::Confirm(ConfirmDialog::editor_quit(&name)));
             }
             EditorSignal::OpenSearch => {
-                self.dialog = Some(Dialog::SearchReplace(self.editor_search_dialog(false)));
+                self.dialog = Some(Dialog::SearchReplace(self.search_dialog(false)));
             }
             EditorSignal::OpenReplace => {
-                self.dialog = Some(Dialog::SearchReplace(self.editor_search_dialog(true)));
+                self.dialog = Some(Dialog::SearchReplace(self.search_dialog(true)));
             }
         }
     }
@@ -71,6 +71,11 @@ impl AppState {
             ViewerSignal::Close => self.viewer = None,
             ViewerSignal::OpenGoto => {
                 self.dialog = Some(Dialog::Goto(GotoDialog::new()));
+            }
+            // The viewer uses the editor's search dialog, so both offer the same
+            // modes and options (Replace is meaningless on a read-only view).
+            ViewerSignal::OpenSearch => {
+                self.dialog = Some(Dialog::SearchReplace(self.search_dialog(false)));
             }
         }
     }
