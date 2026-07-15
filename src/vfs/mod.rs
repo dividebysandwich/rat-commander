@@ -170,6 +170,19 @@ pub trait Vfs: Send + Sync {
     async fn set_permissions(&self, _path: &VfsPath, _mode: u32) -> Result<()> {
         Err(crate::util::Error::Unsupported)
     }
+    /// Stamp `path` with a modification time, if the backend can.
+    ///
+    /// Directory sync uses this to give a copied file the *source's* timestamp,
+    /// which is what makes a mirror converge: without it the destination would be
+    /// stamped "now", look newer than its source on the next run, and be copied
+    /// again forever (and a two-way sync would ping-pong the file between the two
+    /// sides). A backend that can't oblige returns [`Unsupported`] and sync simply
+    /// falls back to re-copying that file when it next runs.
+    ///
+    /// [`Unsupported`]: crate::util::Error::Unsupported
+    async fn set_mtime(&self, _path: &VfsPath, _mtime: SystemTime) -> Result<()> {
+        Err(crate::util::Error::Unsupported)
+    }
     async fn set_owner(&self, _path: &VfsPath, _uid: Option<u32>, _gid: Option<u32>) -> Result<()> {
         Err(crate::util::Error::Unsupported)
     }

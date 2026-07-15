@@ -118,6 +118,11 @@ rtl = true
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "المجموع الاختباري… (&K)"
+# -- Directory synchronisation --
+"S&ynchronize directories..." = "مزامنة المجلدات… (&Y)"
+"Synchronize" = "مزامنة"
+"Synchronize..." = "مزامنة…"
+"Mode" = "الوضع"
 # -- Git menu (File → Git, or Alt-G) --
 "&Git" = "Git (&G)"
 "&Status..." = "الحالة… (&S)"

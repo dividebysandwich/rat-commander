@@ -123,6 +123,11 @@ code = "en"
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "Chec&ksum..."
+# -- Directory synchronisation --
+"S&ynchronize directories..." = "S&ynchronize directories..."
+"Synchronize" = "Synchronize"
+"Synchronize..." = "Synchronize..."
+"Mode" = "Mode"
 # -- Git menu (File → Git, or Alt-G) --
 "&Git" = "&Git"
 "&Status..." = "&Status..."

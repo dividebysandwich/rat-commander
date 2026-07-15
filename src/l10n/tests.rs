@@ -80,7 +80,8 @@ fn menu_accelerators_are_unique_per_menu_in_every_language() {
         &git_keys,
         &[
             "C&ommand palette...", "Directory &hotlist...", "Panel f&ilter...", "&Find file...",
-            "Find d&uplicates...", "Compare &directories...", "Compare fi&les...",
+            "Find d&uplicates...", "Compare &directories...", "S&ynchronize directories...",
+            "Compare fi&les...",
             "&Process explorer...", "Disk &explorer...", "Disk &manager...", "Network &connections...",
             "S&wap panels", "&Re-read directories", "&Toggle split V/H",
         ],

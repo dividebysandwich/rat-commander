@@ -114,6 +114,11 @@ code = "sr"
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "Kontrolni zbir… (&K)"
+# -- Directory synchronisation --
+"S&ynchronize directories..." = "Sinhronizuj direktorijume… (&Y)"
+"Synchronize" = "Sinhronizuj"
+"Synchronize..." = "Sinhronizuj…"
+"Mode" = "Režim"
 # -- Git menu (File → Git, or Alt-G) --
 "&Git" = "Git (&G)"
 "&Status..." = "Status… (&S)"

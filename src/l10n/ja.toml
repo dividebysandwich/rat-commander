@@ -114,6 +114,11 @@ code = "ja"
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "チェックサム…(&K)"
+# -- Directory synchronisation --
+"S&ynchronize directories..." = "ディレクトリを同期…(&Y)"
+"Synchronize" = "同期"
+"Synchronize..." = "同期…"
+"Mode" = "モード"
 # -- Git menu (File → Git, or Alt-G) --
 "&Git" = "Git(&G)"
 "&Status..." = "状態…(&S)"

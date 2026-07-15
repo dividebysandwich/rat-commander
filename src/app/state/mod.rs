@@ -20,6 +20,7 @@ use crate::ui::dialog::{
     HotlistDialog, HotlistOutcome, ImageSaveDialog, InputDialog, InputPurpose, MessageDialog,
     MultiRenameDialog, OverwriteDialog, PaletteAction, PaletteCategory, PaletteEntry, ProgressDialog,
     SaveAsDialog, SearchReplaceDialog, SearchReplaceParams, SelectDialog, SendFileDialog,
+    SyncPreviewDialog,
     ShellHistoryDialog, Submit, UserMenuDialog,
 };
 use crate::usermenu::{self, UserMenuEntry};
@@ -510,6 +511,7 @@ mod palette;
 mod navigation;
 mod git;
 mod sendfile;
+mod syncdirs;
 
 /// Read a file fully into memory (capped just above the viewer limit).
 async fn load_file(backend: &std::sync::Arc<dyn Vfs>, path: &VfsPath) -> crate::util::Result<Vec<u8>> {

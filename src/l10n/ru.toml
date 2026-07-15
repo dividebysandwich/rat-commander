@@ -114,6 +114,11 @@ code = "ru"
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "Контрольная сумма… (&K)"
+# -- Directory synchronisation --
+"S&ynchronize directories..." = "Синхронизировать каталоги… (&Y)"
+"Synchronize" = "Синхронизация"
+"Synchronize..." = "Синхронизировать…"
+"Mode" = "Режим"
 # -- Git menu (File → Git, or Alt-G) --
 "&Git" = "Git (&G)"
 "&Status..." = "Состояние… (&S)"

@@ -515,6 +515,89 @@ missing on one side.
   in size.
 - **Content** — tag both files whenever their bytes differ.
 
+The comparison only *looks* at the top level of each directory and only tags
+what it finds. To act on the differences — including inside subdirectories —
+press **Synchronize…** in the same dialog (see below).
+
+
+## Synchronize directories (mirror)
+
+*Command menu → Synchronize directories…*, or the **Synchronize…** button in the
+Compare-directories dialog.
+
+Makes one directory tree match another, **recursively**. The active panel is
+always the **source** and the other panel the **destination** — the same
+direction as F5/F6 — and both dialogs spell the two paths out so there is no
+doubt which way round it runs.
+
+**Useful for** keeping a backup, a USB stick, or a server copy up to date:
+*"mirror this folder to my SFTP server"* is this dialog.
+
+**Remote and archive panels.** The sync runs over the same filesystem layer as
+copy/move, so either side can be a remote connection — but what a backend can
+report and store differs, and that changes what sync can do:
+
+| Panel | Sync support |
+| --- | --- |
+| **Local** | Full — compares size + time, and stamps copies with the source's time. |
+| **SFTP** | Full, exactly as local (SFTP reports *and* can set file times). |
+| **FTP / SCP** | These report no file times, so files are compared **by size only** and each run re-copies nothing it doesn't have to. A same-size edit is not noticed. **Two-way is refused** — "newer wins" can't be decided without times. |
+| **Archive** | May be the **source**, never the destination: an archive is rebuilt as a whole rather than written file by file, so syncing *into* one is refused up front. |
+
+**Modes.**
+
+- **One-way: copy new and changed files** — anything missing from or different on
+  the destination is copied over. Nothing is ever removed. The safe default.
+- **One-way mirror: also delete extraneous files** — as above, plus **anything
+  the source doesn't have is deleted from the destination**, so it ends up an
+  exact copy. This throws data away; the preview is flagged in red and opens on
+  Cancel.
+- **Two-way: newer file wins** — a file on only one side is copied to the other;
+  a file on both sides is replaced by whichever copy is newer. Nothing is ever
+  deleted. If the two have the same time but different contents, the **source**
+  (active panel) wins rather than the choice being arbitrary.
+
+**How files are compared.** By **size and modification time** — a file counts as
+changed when either differs. Times within **two seconds** are treated as equal,
+since filesystems disagree about resolution (FAT rounds to 2 s, some remotes
+report whole seconds) and without that slack an untouched file would be copied on
+every run. A backend that reports no timestamp at all falls back to size alone.
+
+**The preview.** Nothing is touched until you approve it. Comparing the trees runs
+in the background (it can take a moment over a slow link), then the plan is shown
+in full:
+
+- Each line is one step: `→ file` copies to the destination, `← file` copies back
+  (two-way only), `✗ delete file` removes one, and `mkdir dir/` creates a
+  directory. Deletions are red.
+- A summary gives the totals — how many files to copy, how many bytes, how many
+  to delete.
+- Scroll with `↑`/`↓`/`PgUp`/`PgDn`/`Home`/`End` or the wheel; `Tab` moves between
+  **Execute** and **Cancel**; `Esc` cancels. If the trees already match, it says
+  so and offers only Cancel.
+
+**Execution.** Execute hands the plan to the ordinary file-transfer engine, so a
+sync behaves like any copy: a progress window with a speed chart, **Abort**, and
+**To background** — which is what makes the "mirror to my server while I carry on
+working" case practical. It shows up in *Background operations* like any other
+transfer.
+
+**Notes.**
+
+- A copied file is stamped with its **source's** modification time, so a second
+  run has nothing to do rather than re-copying the tree. (Local and SFTP
+  destinations can do this; see the table above for the rest.)
+- The order is deliberate: directories are created first, copies next, and
+  extraneous deletions **last** — so a failed transfer never costs you data that
+  was only about to be replaced.
+- An extraneous *directory* is removed in one recursive step rather than listed
+  file by file.
+- If one side has a file where the other has a directory, only the deleting
+  mirror mode resolves it (by removing and replacing). The other modes leave that
+  path alone rather than guess.
+- Search-result (panelized) listings can't be synchronized — they aren't
+  directories.
+
 
 ## Find duplicates
 

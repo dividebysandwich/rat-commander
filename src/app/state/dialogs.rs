@@ -151,6 +151,9 @@ impl AppState {
                 }
             }
             Submit::Compress(sources, name) => self.start_compress(sources, name),
+            Submit::OpenSync => self.open_sync(),
+            Submit::SyncPlan(mode) => self.start_sync_plan(mode),
+            Submit::SyncRun(plan) => self.start_sync(*plan),
             // Every guided Git dialog lands here with a ready-built argv.
             Submit::GitRun { title, args } => match self.git_run_dir() {
                 Some(dir) => self.spawn_git(title, dir, args),
@@ -471,7 +474,9 @@ impl AppState {
         let (title, purpose) = match kind {
             OpKind::Copy => ("Copy", InputPurpose::CopyDest(sources)),
             OpKind::Move => ("Move", InputPurpose::MoveDest(sources)),
-            OpKind::Delete => unreachable!(),
+            // Delete has its own confirm dialog and Sync its own planner, so
+            // neither reaches this destination prompt.
+            OpKind::Delete | OpKind::Sync => unreachable!("no destination prompt"),
         };
         let prompt = format!("{title} to:");
         self.dialog = Some(Dialog::Input(InputDialog::new(title, prompt, dest, purpose)));

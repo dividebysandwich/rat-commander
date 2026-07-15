@@ -114,6 +114,11 @@ code = "fr"
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "Somme de contrôle… (&K)"
+# -- Directory synchronisation --
+"S&ynchronize directories..." = "Synchroniser les dossiers… (&Y)"
+"Synchronize" = "Synchroniser"
+"Synchronize..." = "Synchroniser…"
+"Mode" = "Mode"
 # -- Git menu (File → Git, or Alt-G) --
 "&Git" = "Git (&G)"
 "&Status..." = "État… (&S)"

@@ -96,6 +96,7 @@ impl AppState {
             OpKind::Copy => "Copying",
             OpKind::Move => "Moving",
             OpKind::Delete => "Deleting",
+            OpKind::Sync => "Synchronizing",
         };
         // Remote backend schemes this op touches, so a later "To background" can
         // reopen a browsing connection for FTP (which blocks while transferring).
@@ -118,6 +119,7 @@ impl AppState {
             dst_dir,
             dst_name,
             overwrite_all: !self.config.confirm_overwrite,
+            steps: Vec::new(), // only OpKind::Sync carries a plan
         };
         let handle = spawn_op(id, req, self.tx.clone());
         self.tasks.insert(id, handle);

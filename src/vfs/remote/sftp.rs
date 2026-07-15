@@ -191,6 +191,24 @@ impl Vfs for SftpFs {
             .map_err(|e| Error::other(e.to_string()))
     }
 
+    async fn set_mtime(&self, path: &VfsPath, mtime: std::time::SystemTime) -> Result<()> {
+        // SFTP stores whole seconds since the epoch. `atime` must be set with it
+        // (the protocol's ACMODTIME flag covers both), so mirror the value.
+        let secs = mtime
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| Error::other(e.to_string()))?
+            .as_secs() as u32;
+        let attrs = FileAttributes {
+            mtime: Some(secs),
+            atime: Some(secs),
+            ..Default::default()
+        };
+        self.sftp
+            .set_metadata(path_str(path), attrs)
+            .await
+            .map_err(|e| Error::other(e.to_string()))
+    }
+
     async fn symlink(&self, target: &str, link: &VfsPath) -> Result<()> {
         self.sftp
             .symlink(path_str(link), target)

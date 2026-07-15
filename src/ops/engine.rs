@@ -5,6 +5,7 @@ use super::cancel::CancelToken;
 use super::progress::{
     ConflictInfo, CopyAction, OverwriteDecision, OverwriteRule, ProgressUpdate, TaskId, TaskOutcome,
 };
+use super::sync::SyncStep;
 use super::{OpKind, OpRequest};
 use crate::util::async_bridge::AppSender;
 use crate::util::{Error, Result};
@@ -31,6 +32,7 @@ pub async fn run(
         OpKind::Copy => "Copying",
         OpKind::Move => "Moving",
         OpKind::Delete => "Deleting",
+        OpKind::Sync => "Synchronizing",
     };
     let mut engine = Engine {
         id,
@@ -82,6 +84,11 @@ struct Engine {
 
 impl Engine {
     async fn execute(&mut self, req: &OpRequest) -> Result<()> {
+        // A sync plan already knows its sizes, so it needs no pre-scan walk —
+        // the totals come straight off the steps.
+        if req.kind == OpKind::Sync {
+            return self.execute_sync(req).await;
+        }
         // Pre-scan to compute totals for the progress bars.
         for src in &req.sources {
             self.scan(&req.src_fs, src).await?;
@@ -89,6 +96,8 @@ impl Engine {
         self.emit(true);
 
         match req.kind {
+            // Handled above; kept exhaustive so a new kind must be considered.
+            OpKind::Sync => unreachable!("dispatched before the pre-scan"),
             OpKind::Delete => {
                 for src in &req.sources {
                     self.check_cancel()?;
@@ -155,6 +164,74 @@ impl Engine {
             }
         }
 
+        self.emit(true);
+        Ok(())
+    }
+
+    /// Run a directory-sync plan. Each step names its own source and destination
+    /// and the side it acts on, so a two-way plan copies in both directions
+    /// within this one task — one progress bar, one Abort, one "To background".
+    ///
+    /// The steps arrive already ordered (clash-deletes, mkdirs, copies, then
+    /// extraneous deletes — see [`sync::plan`](super::sync::plan)), so this just
+    /// walks them in order and reuses the ordinary copy/delete paths, which brings
+    /// the overwrite policy, cancellation and progress with them.
+    async fn execute_sync(&mut self, req: &OpRequest) -> Result<()> {
+        let dst_fs = req
+            .dst_fs
+            .clone()
+            .ok_or_else(|| Error::other("destination backend missing"))?;
+        // Side 0 is the source panel's backend, side 1 the destination's.
+        let fs_of = |side: usize| if side == 0 { req.src_fs.clone() } else { dst_fs.clone() };
+
+        // Totals come from the plan: copies contribute their bytes, and a delete
+        // contributes the files it will remove (`delete_tree` counts those as it
+        // goes, so they must be in the total for the bar to reach 100%).
+        for step in &req.steps {
+            match step {
+                SyncStep::Copy { size, .. } => {
+                    self.files_total += 1;
+                    self.total_total += size;
+                }
+                SyncStep::Delete { files, .. } => self.files_total += files,
+                SyncStep::MkDir { .. } => {}
+            }
+        }
+        self.emit(true);
+
+        for step in &req.steps {
+            self.check_cancel()?;
+            match step {
+                SyncStep::MkDir { side, path, .. } => {
+                    // Best-effort: an existing directory is exactly what we want.
+                    let _ = fs_of(*side).mkdir(path).await;
+                }
+                SyncStep::Copy { from, src, dst, rel, .. } => {
+                    let (src_fs, dst_fs) = (fs_of(*from), fs_of(1 - *from));
+                    self.current_name = rel.clone();
+                    // The plan creates directories it knows about, but a parent
+                    // can still be missing when the destination changed under us.
+                    if let Some(parent) = dst.parent() {
+                        let _ = dst_fs.mkdir(&parent).await;
+                    }
+                    let copied =
+                        self.copy_tree(&src_fs, src.clone(), &dst_fs, dst.clone()).await?;
+                    // Give the copy its source's timestamp, so the next run sees
+                    // the two as identical instead of copying it again forever
+                    // (and, two-way, bouncing it back). Best-effort: a backend
+                    // that can't set times just gets re-synced next time.
+                    if copied
+                        && let Ok(meta) = src_fs.stat(src).await
+                        && let Some(mtime) = meta.mtime
+                    {
+                        let _ = dst_fs.set_mtime(dst, mtime).await;
+                    }
+                }
+                SyncStep::Delete { side, path, .. } => {
+                    self.delete_tree(&fs_of(*side), path.clone()).await?;
+                }
+            }
+        }
         self.emit(true);
         Ok(())
     }
@@ -491,6 +568,7 @@ mod tests {
             dst_dir: Some(VfsPath::local(&dst_dir)),
             dst_name: None,
             overwrite_all: false,
+            steps: Vec::new(),
         };
         // The app would create dst_dir first; mirror that here.
         std::fs::create_dir_all(&dst_dir).unwrap();
@@ -508,6 +586,124 @@ mod tests {
             5000
         );
 
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// A full mirror round trip: walk both trees, plan, and execute the plan
+    /// through the engine. Exercises every step kind against a real filesystem.
+    #[tokio::test]
+    async fn sync_mirrors_a_tree_and_prunes_extraneous_files() {
+        use crate::ops::sync::{self, SyncMode};
+        let root = unique_dir("sync");
+        let a = root.join("a");
+        let b = root.join("b");
+        // Source: a changed file, a new nested file, and an empty directory.
+        std::fs::create_dir_all(a.join("sub")).unwrap();
+        std::fs::create_dir_all(a.join("empty")).unwrap();
+        std::fs::write(a.join("same.txt"), b"same").unwrap();
+        std::fs::write(a.join("changed.txt"), b"NEW CONTENT").unwrap();
+        std::fs::write(a.join("sub/new.bin"), vec![3u8; 4096]).unwrap();
+        // Backdate the sources well beyond the mtime tolerance. This is what makes
+        // the idempotency check below meaningful: freshly-written files would be
+        // "unchanged" simply because everything happened within a second, hiding a
+        // mirror that re-copies its whole tree on every run.
+        let old = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_600_000_000);
+        for f in ["same.txt", "changed.txt", "sub/new.bin"] {
+            std::fs::OpenOptions::new()
+                .write(true)
+                .open(a.join(f))
+                .unwrap()
+                .set_modified(old)
+                .unwrap();
+        }
+        // Destination: one identical file, one stale, plus junk to be removed.
+        std::fs::create_dir_all(b.join("junkdir")).unwrap();
+        std::fs::write(b.join("same.txt"), b"same").unwrap();
+        std::fs::write(b.join("changed.txt"), b"old").unwrap();
+        std::fs::write(b.join("extra.txt"), b"remove me").unwrap();
+        std::fs::write(b.join("junkdir/deep.txt"), b"also gone").unwrap();
+
+        let fs: Arc<dyn Vfs> = Arc::new(LocalFs::new());
+        let (pa, pb) = (VfsPath::local(&a), VfsPath::local(&b));
+        let ta = sync::walk(&fs, &pa).await.unwrap();
+        let tb = sync::walk(&fs, &pb).await.unwrap();
+        let steps = sync::plan(&ta, &tb, [&pa, &pb], SyncMode::OneWay { delete_extraneous: true });
+        assert!(!steps.is_empty(), "the trees differ, so there is work to do");
+
+        let (tx, _rx) = async_bridge::channel();
+        let req = OpRequest {
+            kind: OpKind::Sync,
+            src_fs: fs.clone(),
+            sources: Vec::new(),
+            dst_fs: Some(fs.clone()),
+            dst_dir: None,
+            dst_name: None,
+            overwrite_all: true, // a mirror overwrites by definition
+            steps,
+        };
+        let (_reply_tx, reply_rx) = mpsc::channel(1);
+        let outcome = run(11, req, tx, CancelToken::new(), reply_rx).await;
+        assert!(matches!(outcome, TaskOutcome::Done), "outcome: {outcome:?}");
+
+        // The destination now matches the source exactly.
+        assert_eq!(std::fs::read(b.join("changed.txt")).unwrap(), b"NEW CONTENT");
+        assert_eq!(std::fs::read(b.join("sub/new.bin")).unwrap().len(), 4096);
+        assert_eq!(std::fs::read(b.join("same.txt")).unwrap(), b"same");
+        assert!(b.join("empty").is_dir(), "an empty source directory is mirrored");
+        assert!(!b.join("extra.txt").exists(), "the extraneous file is gone");
+        assert!(!b.join("junkdir").exists(), "the extraneous directory is gone");
+
+        // The copies carry their source's timestamp, which is what lets the mirror
+        // converge rather than re-copying everything next time.
+        assert_eq!(
+            std::fs::metadata(b.join("changed.txt")).unwrap().modified().unwrap(),
+            old,
+            "a copied file keeps the source's mtime"
+        );
+        // Re-planning the now-identical trees finds nothing left to do.
+        let ta = sync::walk(&fs, &pa).await.unwrap();
+        let tb = sync::walk(&fs, &pb).await.unwrap();
+        let again = sync::plan(&ta, &tb, [&pa, &pb], SyncMode::OneWay { delete_extraneous: true });
+        assert!(again.is_empty(), "a second run is a no-op: {again:?}");
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[tokio::test]
+    async fn two_way_sync_moves_each_file_to_the_side_that_lacks_it() {
+        use crate::ops::sync::{self, SyncMode};
+        let root = unique_dir("sync2");
+        let (a, b) = (root.join("a"), root.join("b"));
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+        std::fs::write(a.join("from_a.txt"), b"AAA").unwrap();
+        std::fs::write(b.join("from_b.txt"), b"BBB").unwrap();
+
+        let fs: Arc<dyn Vfs> = Arc::new(LocalFs::new());
+        let (pa, pb) = (VfsPath::local(&a), VfsPath::local(&b));
+        let ta = sync::walk(&fs, &pa).await.unwrap();
+        let tb = sync::walk(&fs, &pb).await.unwrap();
+        let steps = sync::plan(&ta, &tb, [&pa, &pb], SyncMode::TwoWay);
+
+        let (tx, _rx) = async_bridge::channel();
+        let req = OpRequest {
+            kind: OpKind::Sync,
+            src_fs: fs.clone(),
+            sources: Vec::new(),
+            dst_fs: Some(fs.clone()),
+            dst_dir: None,
+            dst_name: None,
+            overwrite_all: true,
+            steps,
+        };
+        let (_reply_tx, reply_rx) = mpsc::channel(1);
+        let outcome = run(12, req, tx, CancelToken::new(), reply_rx).await;
+        assert!(matches!(outcome, TaskOutcome::Done), "outcome: {outcome:?}");
+
+        // Both sides now hold both files — copied in opposite directions by the
+        // one task, and nothing was deleted.
+        assert_eq!(std::fs::read(b.join("from_a.txt")).unwrap(), b"AAA");
+        assert_eq!(std::fs::read(a.join("from_b.txt")).unwrap(), b"BBB");
         std::fs::remove_dir_all(&root).ok();
     }
 
@@ -533,6 +729,7 @@ mod tests {
             dst_dir: Some(VfsPath::local(&dst_dir)),
             dst_name: None,
             overwrite_all: false,
+            steps: Vec::new(),
         };
         let handle = tokio::spawn(run(7, req, tx, CancelToken::new(), reply_rx));
 
@@ -592,6 +789,7 @@ mod tests {
                 dst_dir: Some(VfsPath::local(&root)),
             dst_name: None,
                 overwrite_all: false,
+                steps: Vec::new(),
             };
             let outcome = run(9, req, tx, CancelToken::new(), reply_rx).await;
             assert!(matches!(outcome, TaskOutcome::Done), "{kind:?}: {outcome:?}");
@@ -621,6 +819,7 @@ mod tests {
             dst_dir: Some(VfsPath::local(&dir)),
             dst_name: None,
             overwrite_all: false,
+            steps: Vec::new(),
         };
         let outcome = run(10, req, tx, CancelToken::new(), reply_rx).await;
         assert!(matches!(outcome, TaskOutcome::Done), "{outcome:?}");
@@ -646,6 +845,7 @@ mod tests {
             dst_dir: None,
             dst_name: None,
             overwrite_all: false,
+            steps: Vec::new(),
         };
         let (_reply_tx, reply_rx) = mpsc::channel(1);
         let outcome = run(2, req, tx, CancelToken::new(), reply_rx).await;

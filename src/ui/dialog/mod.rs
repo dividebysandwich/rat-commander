@@ -28,6 +28,7 @@ mod saveas;
 mod search;
 mod select;
 mod send;
+mod syncpreview;
 mod usermenu;
 
 // Shared widget helpers used by `src/disk/render.rs` and kept accessible at the
@@ -66,6 +67,7 @@ pub use saveas::SaveAsDialog;
 pub use search::{SearchReplaceDialog, SearchReplaceParams};
 pub use select::SelectDialog;
 pub use send::SendFileDialog;
+pub use syncpreview::SyncPreviewDialog;
 pub use usermenu::UserMenuDialog;
 
 use crate::ops::progress::{OverwriteDecision, TaskId};
@@ -121,6 +123,8 @@ pub enum Dialog {
     SendFile(SendFileDialog),
     /// Raw `git` command output (scrollable, with a Close button).
     GitOutput(GitOutputDialog),
+    /// The directory-sync plan, shown before any of it runs.
+    SyncPreview(SyncPreviewDialog),
 }
 
 /// What the app should do after a dialog handles a key.
@@ -188,6 +192,13 @@ pub enum Submit {
     Confirmations(ConfirmValues),
     /// Compress these (local) sources into an archive of the given name.
     Compress(Vec<VfsPath>, String),
+    /// Open the sync options dialog (from the Compare-directories dialog).
+    OpenSync,
+    /// Plan a directory sync in this mode (active panel → other panel); the
+    /// resulting plan is shown for confirmation before anything runs.
+    SyncPlan(crate::ops::sync::SyncMode),
+    /// Execute a previewed sync plan through the ops engine.
+    SyncRun(Box<crate::ops::sync::SyncPlan>),
     /// Run `git <args>` in the active panel's directory and show its output.
     /// Every guided Git dialog funnels into this one variant, having already
     /// built its argument list (see [`form::GitForm`]). `title` names the command
@@ -387,6 +398,7 @@ impl Dialog {
             Dialog::Hotlist(d) => d.handle_key(key),
             Dialog::SendFile(d) => d.handle_key(key),
             Dialog::GitOutput(d) => d.handle_key(key),
+            Dialog::SyncPreview(d) => d.handle_key(key),
         }
     }
 
@@ -424,6 +436,7 @@ impl Dialog {
             Dialog::Hotlist(d) => d.render(f, area, theme),
             Dialog::SendFile(d) => d.render(f, area, theme, gfx),
             Dialog::GitOutput(d) => d.render(f, area, theme, gfx),
+            Dialog::SyncPreview(d) => d.render(f, area, theme, gfx),
         }
     }
 
@@ -434,6 +447,7 @@ impl Dialog {
         match self {
             // Precise per-button hit-testing.
             Dialog::GitOutput(d) => return d.handle_click(col, row),
+            Dialog::SyncPreview(d) => return d.handle_click(col, row),
             Dialog::Overwrite(d) => return d.handle_click(col, row),
             Dialog::Compare(d) => return d.handle_click(col, row),
             Dialog::ChecksumResult(d) => return d.handle_click(col, row),
@@ -544,6 +558,9 @@ impl Dialog {
                 return d.handle_scroll(delta);
             }
             Dialog::GitOutput(d) => {
+                return d.handle_scroll(delta);
+            }
+            Dialog::SyncPreview(d) => {
                 return d.handle_scroll(delta);
             }
             _ => {}

@@ -3034,3 +3034,74 @@ fn git_shortcuts_are_not_swallowed_by_the_command_line() {
         "Ctrl-D is readline's delete-char, which is why the diff is on Alt-D"
     );
 }
+
+/// The sync flow end to end at the app level: options dialog → background plan →
+/// preview → execute through the ops engine.
+#[tokio::test]
+async fn sync_plans_previews_and_executes_a_mirror() {
+    use crate::app::event::AppEvent;
+    use crate::ui::dialog::Submit;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("rc_syncflow_{}_{nanos}", std::process::id()));
+    let (da, db) = (root.join("a"), root.join("b"));
+    std::fs::create_dir_all(&da).unwrap();
+    std::fs::create_dir_all(&db).unwrap();
+    std::fs::write(da.join("new.txt"), b"fresh").unwrap();
+    std::fs::write(db.join("stale.txt"), b"old").unwrap();
+
+    let (tx, mut rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.panels[0].cwd = VfsPath::local(&da);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+    st.panels[1].cwd = VfsPath::local(&db);
+    st.panels[1].backend = st.registry.local();
+    st.panels[1].reload().await.unwrap();
+
+    // The Command menu / Compare dialog opens the options form.
+    st.open_sync();
+    assert!(matches!(st.dialog, Some(Dialog::Form(_))), "the sync options form opens");
+
+    // Choosing a mirror plans it in the background behind a spinner.
+    let mode = crate::ops::sync::SyncMode::OneWay { delete_extraneous: true };
+    st.handle_submit(Submit::SyncPlan(mode)).await;
+    assert!(matches!(st.dialog, Some(Dialog::Busy(_))), "planning shows a spinner");
+
+    // The plan arrives as an event and becomes the preview.
+    let plan = match rx.recv().await.expect("a SyncPlanned event") {
+        AppEvent::SyncPlanned { result } => *result.expect("planning succeeded"),
+        other => panic!("expected SyncPlanned, got {other:?}"),
+    };
+    // It copies the new file and removes the extraneous one — and nothing has
+    // happened on disk yet.
+    assert_eq!(plan.counts().copies, 1);
+    assert_eq!(plan.counts().deletes, 1);
+    assert!(db.join("stale.txt").exists(), "preview alone changes nothing");
+    st.on_sync_planned(Ok(plan.clone()));
+    assert!(matches!(st.dialog, Some(Dialog::SyncPreview(_))), "the plan is previewed");
+
+    // Executing runs it as a normal backgroundable transfer task.
+    st.handle_submit(Submit::SyncRun(Box::new(plan))).await;
+    match &st.dialog {
+        Some(Dialog::Progress(p)) => {
+            assert!(p.backgroundable, "a sync can be sent to the background");
+            assert!(st.task_progress.contains_key(&p.id), "it shows in the background list");
+        }
+        other => panic!("expected a progress dialog, got {:?}", other.is_some()),
+    }
+
+    // Drain events until the task reports done, then check the mirror landed.
+    loop {
+        match rx.recv().await.expect("task events") {
+            AppEvent::TaskDone { .. } => break,
+            _ => continue,
+        }
+    }
+    assert_eq!(std::fs::read(db.join("new.txt")).unwrap(), b"fresh");
+    assert!(!db.join("stale.txt").exists(), "the extraneous file was removed");
+
+    let _ = std::fs::remove_dir_all(&root);
+}

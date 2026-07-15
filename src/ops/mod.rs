@@ -3,6 +3,7 @@
 pub mod cancel;
 pub mod engine;
 pub mod progress;
+pub mod sync;
 
 pub use cancel::CancelToken;
 pub use progress::TaskId;
@@ -20,6 +21,9 @@ pub enum OpKind {
     Copy,
     Move,
     Delete,
+    /// Execute a directory-sync plan ([`OpRequest::steps`]) rather than a
+    /// sources → destination transfer.
+    Sync,
 }
 
 /// A fully-resolved operation request handed to the engine.
@@ -35,6 +39,11 @@ pub struct OpRequest {
     pub dst_name: Option<String>,
     /// Overwrite existing destinations without prompting (confirm-overwrite off).
     pub overwrite_all: bool,
+    /// For [`OpKind::Sync`]: the planned steps. Each names its own exact source
+    /// and destination and which side it runs on (`0` = `src_fs`, `1` = `dst_fs`),
+    /// so a plan can copy in both directions within the one task. `sources`,
+    /// `dst_dir` and `dst_name` are unused in that mode.
+    pub steps: Vec<sync::SyncStep>,
 }
 
 /// A handle to a running task, stored by the app so the progress dialog's

@@ -89,6 +89,8 @@ pub enum MenuAction {
     NetworkConnections,
     CompareDirs,
     CompareFiles,
+    /// Mirror one panel's directory onto the other (Command → Synchronize).
+    SyncDirs,
     /// Open the fuzzy command palette (Ctrl-P).
     CommandPalette,
     /// Open the directory hotlist / bookmarks (Ctrl-\).
@@ -285,6 +287,7 @@ impl MenuBarState {
             item("&Find file...", MenuAction::FindFile),
             item("Find d&uplicates...", MenuAction::FindDuplicates),
             item("Compare &directories...", MenuAction::CompareDirs),
+            item("S&ynchronize directories...", MenuAction::SyncDirs),
             item("Compare fi&les...", MenuAction::CompareFiles),
             item("&Process explorer...", MenuAction::ProcExplorer),
             item("Disk &explorer...", MenuAction::DiskExplorer),

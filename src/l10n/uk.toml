@@ -114,6 +114,11 @@ code = "uk"
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "Контрольна сума… (&K)"
+# -- Directory synchronisation --
+"S&ynchronize directories..." = "Синхронізувати каталоги… (&Y)"
+"Synchronize" = "Синхронізація"
+"Synchronize..." = "Синхронізувати…"
+"Mode" = "Режим"
 # -- Git menu (File → Git, or Alt-G) --
 "&Git" = "Git (&G)"
 "&Status..." = "Стан… (&S)"

@@ -52,6 +52,7 @@ impl AppState {
         entries.extend([
             cmd("Find d&uplicates...", MenuAction::FindDuplicates),
             cmd("Compare &directories...", MenuAction::CompareDirs),
+            cmd("S&ynchronize directories...", MenuAction::SyncDirs),
             cmd("Compare fi&les...", MenuAction::CompareFiles),
             cmd("&Process explorer...", MenuAction::ProcExplorer),
             cmd("Disk &explorer...", MenuAction::DiskExplorer),

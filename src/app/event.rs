@@ -137,6 +137,11 @@ pub enum AppEvent {
     /// A device fully downloaded the shared file from the LAN send server; the
     /// open Send dialog bumps its download counter.
     FileSent,
+    /// A directory-sync plan finished being computed (both trees walked and
+    /// diffed). Nothing has been changed yet — the plan is shown for approval.
+    SyncPlanned {
+        result: Result<Box<crate::ops::sync::SyncPlan>, String>,
+    },
     /// A Git command finished; `title` names it (e.g. `"push"`). The handler shows
     /// the output (or closes quietly when a successful command said nothing) and
     /// refreshes the panels' VCS state.

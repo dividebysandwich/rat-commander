@@ -114,6 +114,11 @@ code = "zh-Hant"
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "校驗和…(&K)"
+# -- Directory synchronisation --
+"S&ynchronize directories..." = "同步目錄…(&Y)"
+"Synchronize" = "同步"
+"Synchronize..." = "同步…"
+"Mode" = "模式"
 # -- Git menu (File → Git, or Alt-G) --
 "&Git" = "Git(&G)"
 "&Status..." = "狀態…(&S)"

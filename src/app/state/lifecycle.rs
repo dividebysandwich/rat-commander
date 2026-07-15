@@ -448,6 +448,9 @@ impl AppState {
             AppEvent::FileSent => {
                 self.on_file_sent();
             }
+            AppEvent::SyncPlanned { result } => {
+                self.on_sync_planned(result.map(|p| *p));
+            }
             AppEvent::GitDone { title, out } => {
                 self.on_git_done(title, out).await;
             }

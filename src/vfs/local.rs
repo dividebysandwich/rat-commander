@@ -212,6 +212,18 @@ impl Vfs for LocalFs {
         Err(crate::util::Error::Unsupported)
     }
 
+    async fn set_mtime(&self, path: &VfsPath, mtime: std::time::SystemTime) -> Result<()> {
+        // `File::set_modified` needs the file open for writing; it is a blocking
+        // syscall, so keep it off the async worker.
+        let p = path.as_path().to_path_buf();
+        tokio::task::spawn_blocking(move || -> std::io::Result<()> {
+            std::fs::OpenOptions::new().write(true).open(&p)?.set_modified(mtime)
+        })
+        .await
+        .map_err(|e| crate::util::Error::other(e.to_string()))??;
+        Ok(())
+    }
+
     #[cfg(unix)]
     async fn set_owner(&self, path: &VfsPath, uid: Option<u32>, gid: Option<u32>) -> Result<()> {
         use nix::unistd::{Gid, Uid};

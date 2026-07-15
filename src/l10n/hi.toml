@@ -114,6 +114,11 @@ code = "hi"
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "चेकसम… (&K)"
+# -- Directory synchronisation --
+"S&ynchronize directories..." = "डायरेक्टरी सिंक करें… (&Y)"
+"Synchronize" = "सिंक करें"
+"Synchronize..." = "सिंक करें…"
+"Mode" = "मोड"
 # -- Git menu (File → Git, or Alt-G) --
 "&Git" = "Git (&G)"
 "&Status..." = "स्थिति… (&S)"

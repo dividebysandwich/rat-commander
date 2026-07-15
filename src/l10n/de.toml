@@ -44,6 +44,11 @@ code = "de"
 "&Symlink" = "&Symlink"
 "Com&press..." = "Kom&primieren..."
 "Chec&ksum..." = "Prü&fsumme..."
+# -- Directory synchronisation --
+"S&ynchronize directories..." = "Verzeichnisse s&ynchronisieren..."
+"Synchronize" = "Synchronisieren"
+"Synchronize..." = "Synchronisieren..."
+"Mode" = "Modus"
 # -- Git menu (File → Git, or Alt-G) --
 "&Git" = "&Git"
 "&Status..." = "&Status..."

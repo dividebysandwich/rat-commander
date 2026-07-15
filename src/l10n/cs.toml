@@ -114,6 +114,11 @@ code = "cs"
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "Kontrolní součet… (&K)"
+# -- Directory synchronisation --
+"S&ynchronize directories..." = "Synchronizovat adresáře… (&Y)"
+"Synchronize" = "Synchronizovat"
+"Synchronize..." = "Synchronizovat…"
+"Mode" = "Režim"
 # -- Git menu (File → Git, or Alt-G) --
 "&Git" = "Git (&G)"
 "&Status..." = "Stav… (&S)"

@@ -114,6 +114,11 @@ code = "hu"
 
 # -- Checksum / network / sessions (recent features) --
 "Chec&ksum..." = "Ellenőrző összeg… (&K)"
+# -- Directory synchronisation --
+"S&ynchronize directories..." = "Könyvtárak szinkronizálása… (&Y)"
+"Synchronize" = "Szinkronizálás"
+"Synchronize..." = "Szinkronizálás…"
+"Mode" = "Mód"
 # -- Git menu (File → Git, or Alt-G) --
 "&Git" = "Git (&G)"
 "&Status..." = "Állapot… (&S)"

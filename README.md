@@ -66,6 +66,16 @@ The installed executable is named **`rc`** for quick typing.
   hides non-matching files until you clear it.
 - **Find file**, **Compare directories**, **Find duplicates**, and a
   side-by-side **Compare files** diff with in-place merging.
+- **Synchronize directories** — mirror one panel's tree onto the other, in
+  **one-way** (optionally deleting whatever the source doesn't have) or
+  **two-way** (newer file wins) mode. The plan is **previewed in full** — every
+  copy and delete, with totals — before a byte moves, and then runs through the
+  ordinary transfer engine, so it shows progress, aborts, and can be sent to the
+  **background**: *"mirror this folder to my SFTP server while I keep working"* is
+  two dialogs. Works **local↔local and local↔SFTP** in full (copies carry their
+  source's timestamp, so re-running only moves what changed). **FTP/SCP** report
+  no file times, so there it compares by size and one-way modes only; an
+  **archive** can be a source but not a destination.
 - **Checksum** — compute a CRC32/MD5/SHA-1/SHA-256/SHA-512 digest of a file with
   a progress bar, and optionally verify it against a pasted reference checksum.
 - **Send over LAN** (File menu) — share the highlighted file with a nearby phone

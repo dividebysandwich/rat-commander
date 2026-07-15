@@ -223,6 +223,26 @@ pub enum FormPurpose {
     /// A guided Git dialog. The form builds its own `git` argv on submit (see
     /// [`GitForm`]), so every git action reaches the app as one `Submit::GitRun`.
     Git(GitForm),
+    /// Collect the options for a directory sync; the app then plans it.
+    Sync,
+}
+
+/// The sync-mode choices, in the order they appear in the dropdown. The safest
+/// (adds nothing back, removes nothing) comes first, the destructive mirror last.
+pub(crate) const SYNC_MODES: [&str; 3] = [
+    "One-way: copy new and changed files",
+    "One-way mirror: also delete extraneous files",
+    "Two-way: newer file wins",
+];
+
+/// The [`SyncMode`](crate::ops::sync::SyncMode) a [`SYNC_MODES`] label selects.
+pub(crate) fn sync_mode_of(label: &str) -> crate::ops::sync::SyncMode {
+    use crate::ops::sync::SyncMode;
+    match label {
+        l if l == SYNC_MODES[1] => SyncMode::OneWay { delete_extraneous: true },
+        l if l == SYNC_MODES[2] => SyncMode::TwoWay,
+        _ => SyncMode::OneWay { delete_extraneous: false },
+    }
 }
 
 /// `git reset` modes, least destructive first, so the dialog opens on the safe
@@ -387,6 +407,32 @@ impl FormDialog {
     /// Build a chmod form for `targets` from the current mode bits. The trailing
     /// "Recurse into directories" checkbox makes the change apply into any
     /// directories in the selection.
+    /// Collect the options for mirroring the active panel's directory onto the
+    /// other one. `src` / `dst` are the two directories, shown so it is obvious
+    /// which way round the sync runs before anything is planned.
+    pub fn sync(src: &str, dst: &str) -> Self {
+        // The option strings stay in English on purpose: `sync_mode_of` maps the
+        // picked value back to a mode by matching them, and a Choice renders its
+        // options raw (only the field *label* is translated) — the same deal as
+        // the checksum-algorithm and filesystem pickers.
+        let modes: Vec<String> = SYNC_MODES.iter().map(|s| s.to_string()).collect();
+        FormDialog::from_fields(
+            "Synchronize",
+            vec![Field::choice("Mode", modes, SYNC_MODES[0])],
+            FormPurpose::Sync,
+        )
+        // The title carries the direction: it is the one thing the user must get
+        // right, and it is longer than a field label should be.
+        .titled(format!("{}:  {src}  →  {dst}", crate::l10n::trd("Synchronize")))
+    }
+
+    /// Replace the dialog title (kept out of `from_fields` so the common case
+    /// stays a plain translated key).
+    fn titled(mut self, title: String) -> Self {
+        self.title = title;
+        self
+    }
+
     /// A plain form: a title, its fields, and what to do on submit.
     fn from_fields(title: &str, fields: Vec<Field>, purpose: FormPurpose) -> Self {
         FormDialog {
@@ -933,6 +979,8 @@ impl FormDialog {
                     },
                 }
             }
+            // The app plans the sync in the background, then previews it.
+            FormPurpose::Sync => Submit::SyncPlan(sync_mode_of(fields[0].as_text())),
             FormPurpose::Chmod(paths) => {
                 Submit::Chmod(paths.clone(), self.chmod_mode(), self.recursive())
             }

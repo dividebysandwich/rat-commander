@@ -258,6 +258,7 @@ impl AppState {
             MenuAction::DiskManager => self.mountview = Some(MountView::new()),
             MenuAction::NetworkConnections => self.open_network_prompt(),
             MenuAction::CompareDirs => self.dialog = Some(Dialog::Compare(CompareDialog::new())),
+            MenuAction::SyncDirs => self.open_sync(),
             MenuAction::CompareFiles => self.open_compare_files().await,
             MenuAction::CommandPalette => self.open_command_palette(),
             MenuAction::Hotlist => self.open_hotlist(),
