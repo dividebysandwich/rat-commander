@@ -522,7 +522,7 @@ mod feature_tests {
         // A console line wide enough to reach across both panels' interiors must
         // still be fully occluded — panels clear their cells, so the backdrop
         // can't bleed through cells the listing doesn't fill.
-        st.console.feed(&vec![b'X'; 118]);
+        st.console.feed(&[b'X'; 118]);
         st.console.feed(b"\r\n");
         let wide = "X".repeat(100);
         assert!(

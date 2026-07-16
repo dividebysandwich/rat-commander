@@ -365,6 +365,7 @@ pub(crate) fn draw_input_field(
 /// Like [`draw_input_field`], but renders the whole value highlighted when
 /// `selected` is set (mimics a GUI "all text marked" state, where the next
 /// keystroke replaces the pre-filled text).
+#[allow(clippy::too_many_arguments)] // a render helper; each field is a distinct draw input
 pub(crate) fn draw_input_field_ex(
     f: &mut Frame,
     area: Rect,
