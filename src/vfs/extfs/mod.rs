@@ -21,7 +21,6 @@ use crate::vfs::remote::perms_to_mode;
 use crate::vfs::{BoxRead, BoxWrite, Capabilities, Vfs, VfsEntry, VfsKind, VfsPath, WriteMeta};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use tokio::io::AsyncWriteExt;
@@ -151,20 +150,10 @@ fn inner_rel(path: &VfsPath) -> String {
     path.posix_path().trim_start_matches('/').to_string()
 }
 
-static SCRATCH_SEQ: AtomicU64 = AtomicU64::new(0);
-
-/// A unique temp path for copyout/copyin scratch (hand-rolled, like the rest of
-/// the codebase — no `tempfile` dependency).
+/// A unique temp path for copyout/copyin scratch. Shares the sweepable
+/// `rc-tmp-` prefix with the rest of the app (see [`crate::util::temp`]).
 fn scratch_path(tag: &str) -> PathBuf {
-    let seq = SCRATCH_SEQ.fetch_add(1, Ordering::Relaxed);
-    let nanos = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    std::env::temp_dir().join(format!(
-        "rc_extfs_{tag}_{}_{seq}_{nanos}",
-        std::process::id()
-    ))
+    crate::util::temp::rc_temp_path(&format!("extfs-{tag}"))
 }
 
 /// A file exposed via an MC `extfs.d` script.
