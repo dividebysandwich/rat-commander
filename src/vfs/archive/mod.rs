@@ -365,9 +365,18 @@ pub fn remove_from_archive(container: &Path, remove: &HashSet<String>) -> Result
 
 fn write_swap(format: ArchiveFormat, container: &Path, entries: &[FullEntry]) -> Result<()> {
     let tmp = container.with_extension("rc-tmp");
-    formats::write_all(format, &tmp, entries)?;
-    std::fs::rename(&tmp, container)?;
-    Ok(())
+    // Rebuild into a sibling temp, then atomically swap it in. On any failure —
+    // a bad write or a failed rename — remove the temp so a failed archive edit
+    // never leaves a stray `.rc-tmp` next to the user's archive.
+    let result = (|| -> Result<()> {
+        formats::write_all(format, &tmp, entries)?;
+        std::fs::rename(&tmp, container)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result
 }
 
 /// Recursively collect a local path into archive entries rooted at `dest_inner`.
@@ -429,6 +438,26 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("rc_arc_{tag}_{}_{nanos}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    /// A failed archive rebuild must not leave a stray `.rc-tmp` beside the
+    /// archive. We force the rename to fail (the target path is a directory)
+    /// after the temp has been written, and assert it was cleaned up.
+    #[test]
+    fn write_swap_removes_the_temp_when_the_swap_fails() {
+        let dir = unique_dir("swapfail");
+        // `container` is an existing directory, so renaming the temp file onto it
+        // fails — but only after `write_all` has created the temp.
+        let container = dir.join("archive.zip");
+        std::fs::create_dir(&container).unwrap();
+        let tmp = container.with_extension("rc-tmp");
+
+        let entries = vec![FullEntry { path: "f.txt".into(), is_dir: false, data: b"x".to_vec() }];
+        let result = write_swap(ArchiveFormat::Zip, &container, &entries);
+        assert!(result.is_err(), "renaming onto a directory fails");
+        assert!(!tmp.exists(), "the .rc-tmp was cleaned up, not left behind: {tmp:?}");
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     fn make_sources(root: &Path) -> Vec<PathBuf> {
