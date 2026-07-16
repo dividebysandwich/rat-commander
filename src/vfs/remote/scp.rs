@@ -183,8 +183,8 @@ impl Vfs for ScpFs {
         let path = path_str(path);
         // Pipe the engine's bytes to `cat > path` over a fresh channel and stream
         // them as they arrive, so the progress bar tracks the real upload.
-        Ok(pipe_upload(64 * 1024, move |mut rx| async move {
-            let channel = handle
+        Ok(pipe_upload(64 * 1024, move |rx| async move {
+            let mut channel = handle
                 .channel_open_session()
                 .await
                 .map_err(|e| std::io::Error::other(format!("channel open failed: {e}")))?;
@@ -192,9 +192,31 @@ impl Vfs for ScpFs {
                 .exec(true, format!("cat > {}", shell_quote(&path)))
                 .await
                 .map_err(|e| std::io::Error::other(format!("exec failed: {e}")))?;
-            let mut stream = channel.into_stream();
-            tokio::io::copy(&mut rx, &mut stream).await?;
-            stream.shutdown().await?;
+            // Stream the engine's bytes to the remote `cat`, then EOF so it
+            // finishes. (Keeping the channel — rather than `into_stream()` — lets
+            // us read the exit status below.)
+            channel
+                .data(rx)
+                .await
+                .map_err(|e| std::io::Error::other(format!("upload failed: {e}")))?;
+            channel
+                .eof()
+                .await
+                .map_err(|e| std::io::Error::other(format!("eof failed: {e}")))?;
+            // Check the remote command actually succeeded. A failed `cat`
+            // (permission, quota, disk full) must surface as an error, not a
+            // silently truncated or empty file reported as a successful write.
+            let mut code = 0u32;
+            while let Some(msg) = channel.wait().await {
+                if let ChannelMsg::ExitStatus { exit_status } = msg {
+                    code = exit_status;
+                }
+            }
+            if code != 0 {
+                return Err(std::io::Error::other(format!(
+                    "remote write failed (exit status {code})"
+                )));
+            }
             Ok(())
         }))
     }

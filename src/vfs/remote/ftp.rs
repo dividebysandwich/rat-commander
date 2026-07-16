@@ -28,8 +28,13 @@ pub async fn connect(creds: &RemoteCreds) -> Result<Connection> {
     // Passive mode (PASV) has the client open the data connection — the default,
     // and what works behind NAT/firewalls; active has the server connect back.
     stream.set_mode(if creds.passive { Mode::Passive } else { Mode::Active });
-    // Binary mode so SIZE and transfers are byte-accurate.
-    let _ = stream.transfer_type(FileType::Binary).await;
+    // Binary mode so SIZE and transfers are byte-accurate. ASCII mode would
+    // corrupt binary files (and skew SIZE), so a server that rejects TYPE I is a
+    // hard error rather than a silent fall-back.
+    stream
+        .transfer_type(FileType::Binary)
+        .await
+        .map_err(|e| Error::other(format!("FTP: cannot set binary mode: {e}")))?;
 
     let root = if creds.path.trim().is_empty() {
         stream.pwd().await.unwrap_or_else(|_| "/".to_string())
