@@ -205,3 +205,125 @@ pub trait Vfs: Send + Sync {
         Err(crate::util::Error::Unsupported)
     }
 }
+
+/// A configurable in-memory [`Vfs`] for tests, so the transfer/save paths can be
+/// exercised without a real filesystem or remote server. It can report a file of
+/// a given size, hand out a reader that fails after N bytes, and record whether
+/// the writer it returns was `shutdown` (i.e. properly finalized).
+#[cfg(test)]
+pub(crate) mod testmock {
+    use super::*;
+    use std::pin::Pin;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::task::{Context, Poll};
+    use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+
+    #[derive(Default)]
+    pub(crate) struct MockVfs {
+        /// Size reported by `stat` and produced by `open_read`.
+        pub file_size: usize,
+        /// `open_read` yields this many bytes, then returns an I/O error; `None`
+        /// = a clean reader of `file_size` bytes.
+        pub read_fail_after: Option<usize>,
+        /// Set true once a writer from `open_write` has `poll_shutdown` polled,
+        /// i.e. the caller finalized the write rather than only flushing.
+        pub shutdown_called: Arc<AtomicBool>,
+    }
+
+    impl MockVfs {
+        pub(crate) fn arc(self) -> Arc<dyn Vfs> {
+            Arc::new(self)
+        }
+    }
+
+    /// A writer that discards bytes but flips a flag when shut down.
+    struct ProbeWriter {
+        flag: Arc<AtomicBool>,
+    }
+    impl AsyncWrite for ProbeWriter {
+        fn poll_write(self: Pin<&mut Self>, _: &mut Context<'_>, b: &[u8]) -> Poll<std::io::Result<usize>> {
+            Poll::Ready(Ok(b.len()))
+        }
+        fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+        fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+            self.flag.store(true, Ordering::SeqCst);
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    /// A reader that yields `remaining` bytes of `b'x'`, then errors.
+    struct FailingReader {
+        remaining: usize,
+    }
+    impl AsyncRead for FailingReader {
+        fn poll_read(mut self: Pin<&mut Self>, _: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<std::io::Result<()>> {
+            if self.remaining == 0 {
+                return Poll::Ready(Err(std::io::Error::other("simulated read failure")));
+            }
+            let n = self.remaining.min(buf.remaining()).min(4096);
+            buf.put_slice(&vec![b'x'; n]);
+            self.remaining -= n;
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Vfs for MockVfs {
+        fn scheme(&self) -> &str {
+            "mock"
+        }
+        fn capabilities(&self) -> Capabilities {
+            Capabilities {
+                writable: true,
+                permissions: false,
+                ownership: false,
+                symlinks: false,
+                random_access: false,
+                inode: false,
+                server_rename: false,
+            }
+        }
+        async fn read_dir(&self, _: &VfsPath) -> Result<Vec<VfsEntry>> {
+            Ok(Vec::new())
+        }
+        async fn stat(&self, path: &VfsPath) -> Result<VfsEntry> {
+            Ok(VfsEntry {
+                name: path.file_name(),
+                kind: VfsKind::File,
+                size: self.file_size as u64,
+                mtime: None,
+                atime: None,
+                ctime: None,
+                inode: None,
+                mode: None,
+                uid: None,
+                gid: None,
+                symlink_target: None,
+                symlink_broken: false,
+            })
+        }
+        async fn open_read(&self, _: &VfsPath) -> Result<BoxRead> {
+            Ok(Box::new(FailingReader {
+                remaining: self.read_fail_after.unwrap_or(self.file_size),
+            }))
+        }
+        async fn open_write(&self, _: &VfsPath, _: WriteMeta) -> Result<BoxWrite> {
+            Ok(Box::new(ProbeWriter { flag: self.shutdown_called.clone() }))
+        }
+        async fn mkdir(&self, _: &VfsPath) -> Result<()> {
+            Ok(())
+        }
+        async fn remove_file(&self, _: &VfsPath) -> Result<()> {
+            Ok(())
+        }
+        async fn remove_dir(&self, _: &VfsPath) -> Result<()> {
+            Ok(())
+        }
+        async fn rename(&self, _: &VfsPath, _: &VfsPath) -> Result<()> {
+            Err(crate::util::Error::Unsupported)
+        }
+    }
+}

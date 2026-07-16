@@ -3318,3 +3318,21 @@ async fn a_backgrounded_transfer_keeps_its_speed_history() {
         _ => panic!("a progress dialog"),
     }
 }
+
+/// Saving a file must *finalize* the write, not merely flush it — for the remote
+/// backends the upload only commits (and surfaces its error) on shutdown. This
+/// pins `write_file` calling `shutdown()`; without it, an editor save over
+/// SFTP/SCP/FTP could report success on an incomplete upload.
+#[tokio::test]
+async fn write_file_finalizes_the_write_with_shutdown() {
+    use crate::vfs::testmock::MockVfs;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let flag = Arc::new(AtomicBool::new(false));
+    let backend: Arc<dyn crate::vfs::Vfs> =
+        MockVfs { file_size: 0, read_fail_after: None, shutdown_called: flag.clone() }.arc();
+    super::write_file(&backend, &VfsPath::local("/out.txt"), b"hello")
+        .await
+        .expect("write succeeds");
+    assert!(flag.load(Ordering::SeqCst), "write_file must call shutdown() to finalize the upload");
+}

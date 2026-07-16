@@ -625,7 +625,13 @@ async fn write_file(
         .open_write(path, crate::vfs::WriteMeta::default())
         .await?;
     w.write_all(data).await?;
-    w.flush().await?;
+    // `shutdown()` (not just `flush()`) is what finalizes the write: for the
+    // remote backends the writer is a pipe whose flush only pushes bytes into the
+    // channel, while closing the pipe and awaiting the upload's result — and any
+    // error it carries — happens on shutdown. Without this an editor save over
+    // SFTP/SCP/FTP could report success while the upload was incomplete or failed.
+    // (Mirrors the copy engine's contract; see `src/ops/engine.rs` copy_file.)
+    w.shutdown().await?;
     Ok(())
 }
 
