@@ -557,11 +557,11 @@ impl AppState {
                             }
                             Ok(Err(e)) => {
                                 let _ = std::fs::remove_file(&temp);
-                                self.show_error(format!("cannot open file: {e}"));
+                                self.show_error(format!("Cannot open file: {e}"));
                             }
                             Err(_) => {
                                 let _ = std::fs::remove_file(&temp);
-                                self.show_error("viewer failed to open file");
+                                self.show_error("Viewer failed to open file");
                             }
                         }
                     }
@@ -578,7 +578,7 @@ impl AppState {
                                 Self::restore_editor_position(&mut ed);
                                 self.editor = Some(ed);
                             }
-                            Err(e) => self.show_error(format!("cannot open file: {e}")),
+                            Err(e) => self.show_error(format!("Cannot open file: {e}")),
                         }
                         let _ = std::fs::remove_file(&temp);
                     }

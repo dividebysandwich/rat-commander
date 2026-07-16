@@ -133,8 +133,8 @@ impl AppState {
                     }
                     self.viewer = Some(v);
                 }
-                Ok(Err(e)) => self.show_error(format!("cannot open file: {e}")),
-                Err(_) => self.show_error("viewer failed to open file"),
+                Ok(Err(e)) => self.show_error(format!("Cannot open file: {e}")),
+                Err(_) => self.show_error("Viewer failed to open file"),
             }
         } else {
             // Remote/archive: stream to a temp file with a cancellable progress
@@ -180,7 +180,7 @@ impl AppState {
         if local && size > crate::editor::MAX_TEXT_EDIT {
             match EditorState::new_hex(name, path) {
                 Ok(ed) => self.editor = Some(ed),
-                Err(e) => self.show_error(format!("cannot open file: {e}")),
+                Err(e) => self.show_error(format!("Cannot open file: {e}")),
             }
             return Flow::Continue;
         }
@@ -193,7 +193,7 @@ impl AppState {
                     Self::restore_editor_position(&mut ed);
                     self.editor = Some(ed);
                 }
-                Err(e) => self.show_error(format!("cannot open file: {e}")),
+                Err(e) => self.show_error(format!("Cannot open file: {e}")),
             }
             return Flow::Continue;
         }
@@ -233,7 +233,7 @@ impl AppState {
         if size > crate::editor::MAX_TEXT_EDIT {
             match EditorState::new_hex(name, vpath) {
                 Ok(ed) => self.editor = Some(ed),
-                Err(e) => self.show_error(format!("cannot open file: {e}")),
+                Err(e) => self.show_error(format!("Cannot open file: {e}")),
             }
             return;
         }
@@ -331,7 +331,7 @@ impl AppState {
                         ed.mark_saved();
                     }
                 }
-                Err(e) => self.show_error(format!("save failed: {e}")),
+                Err(e) => self.show_error(format!("Save failed: {e}")),
             }
             return;
         }
@@ -339,7 +339,7 @@ impl AppState {
         let path = ed.path.clone();
         let backend = match self.registry.resolve(&path) {
             Ok(b) => b,
-            Err(e) => return self.show_error(e.to_string()),
+            Err(e) => return self.show_error(format!("Cannot save file: {e}")),
         };
         match write_file(&backend, &path, contents.as_bytes()).await {
             Ok(()) => {
@@ -462,7 +462,7 @@ impl AppState {
                 ed.enable_syntax(self.dark_ui());
                 self.editor = Some(ed);
             }
-            Err(e) => self.show_error(format!("cannot open rc.ext: {e}")),
+            Err(e) => self.show_error(format!("Cannot open rc.ext: {e}")),
         }
     }
 
@@ -478,7 +478,7 @@ impl AppState {
                 ed.enable_syntax(self.dark_ui());
                 self.editor = Some(ed);
             }
-            Err(e) => self.show_error(format!("cannot open menu: {e}")),
+            Err(e) => self.show_error(format!("Cannot open menu: {e}")),
         }
     }
 
@@ -619,11 +619,11 @@ impl AppState {
         let rback = self.panels[1].backend.clone();
         let ldata = match load_file(&lback, &lp).await {
             Ok(d) => d,
-            Err(e) => return self.show_error(format!("cannot read {ln}: {e}")),
+            Err(e) => return self.show_error(format!("Cannot read {ln}: {e}")),
         };
         let rdata = match load_file(&rback, &rp).await {
             Ok(d) => d,
-            Err(e) => return self.show_error(format!("cannot read {rn}: {e}")),
+            Err(e) => return self.show_error(format!("Cannot read {rn}: {e}")),
         };
         self.diffview = Some(DiffView::new(ln, lp, &ldata, rn, rp, &rdata));
     }
@@ -642,12 +642,12 @@ impl AppState {
             match self.registry.resolve(&path) {
                 Ok(backend) => {
                     if let Err(e) = write_file(&backend, &path, contents.as_bytes()).await {
-                        self.show_error(format!("save failed: {e}"));
+                        self.show_error(format!("Save failed: {e}"));
                         ok = false;
                     }
                 }
                 Err(e) => {
-                    self.show_error(e.to_string());
+                    self.show_error(format!("Cannot save file: {e}"));
                     ok = false;
                 }
             }

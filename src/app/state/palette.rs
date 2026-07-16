@@ -311,7 +311,7 @@ impl AppState {
             Ok(backend) => {
                 self.active_panel().try_enter(target, backend, None).await;
             }
-            Err(e) => self.show_error(e.to_string()),
+            Err(e) => self.show_error(format!("Cannot open location: {e}")),
         }
     }
 
@@ -319,7 +319,7 @@ impl AppState {
     /// write error the same way the Settings dialog does.
     pub(in crate::app::state) fn save_config_reporting(&mut self) {
         if let Err(e) = self.config.save() {
-            self.show_error(format!("could not save settings: {e}"));
+            self.show_error(format!("Could not save settings: {e}"));
         }
     }
 }

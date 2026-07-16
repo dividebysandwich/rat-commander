@@ -16,7 +16,7 @@ impl AppState {
         }
         let backend = match self.registry.resolve(&target) {
             Ok(b) => b,
-            Err(e) => return self.show_error(e.to_string()),
+            Err(e) => return self.show_error(format!("Cannot open location: {e}")),
         };
         let current = self.panels[side].cwd.clone();
         self.panels[side].in_history_nav = true;
@@ -38,7 +38,7 @@ impl AppState {
         }
         let backend = match self.registry.resolve(&target) {
             Ok(b) => b,
-            Err(e) => return self.show_error(e.to_string()),
+            Err(e) => return self.show_error(format!("Cannot open location: {e}")),
         };
         let current = self.panels[side].cwd.clone();
         self.panels[side].in_history_nav = true;
@@ -123,7 +123,7 @@ impl AppState {
         }
         let backend = match self.registry.resolve(&target) {
             Ok(b) => b,
-            Err(e) => return self.show_error(e.to_string()),
+            Err(e) => return self.show_error(format!("Cannot open location: {e}")),
         };
         self.panels[side].try_enter(target, backend, None).await;
     }

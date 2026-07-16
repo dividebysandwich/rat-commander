@@ -13,7 +13,7 @@ impl AppState {
         let dst_fs = match self.registry.resolve(&target) {
             Ok(b) => b,
             Err(e) => {
-                self.show_error(format!("cannot resolve destination: {e}"));
+                self.show_error(format!("Cannot resolve destination: {e}"));
                 return;
             }
         };
@@ -35,7 +35,7 @@ impl AppState {
         if dst_dir.scheme == "file"
             && let Err(e) = tokio::fs::create_dir_all(dst_dir.as_path()).await
         {
-            self.show_error(format!("cannot create destination: {e}"));
+            self.show_error(format!("Cannot create destination: {e}"));
             return;
         }
 
@@ -366,7 +366,7 @@ impl AppState {
 
     pub(in crate::app::state) fn start_archive_add(&mut self, kind: OpKind, sources: Vec<VfsPath>, dest: VfsPath) {
         let Some(container) = dest.container.clone() else {
-            return self.show_error("destination is not an archive");
+            return self.show_error("Destination is not an archive");
         };
         let dest_inner = dest.path.to_string_lossy().into_owned();
         let local: Vec<PathBuf> = sources.iter().map(|s| s.path.clone()).collect();

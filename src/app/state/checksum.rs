@@ -17,7 +17,7 @@ impl AppState {
     ) {
         let backend = match self.registry.resolve(&path) {
             Ok(b) => b,
-            Err(e) => return self.show_error(format!("cannot open file: {e}")),
+            Err(e) => return self.show_error(format!("Cannot open file: {e}")),
         };
         let name = path.file_name();
         let expected = normalize_expected(&expected);

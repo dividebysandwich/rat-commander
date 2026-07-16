@@ -65,7 +65,7 @@ impl AppState {
         let matcher =
             match crate::panel::selection::NameMatcher::build(&p.file_name, p.case_sensitive, p.shell) {
                 Ok(m) => m,
-                Err(e) => return self.show_error(format!("invalid pattern: {e}")),
+                Err(e) => return self.show_error(format!("Invalid pattern: {e}")),
             };
         let cwd = self.panels[self.active].cwd.clone();
         let backend = self.panels[self.active].backend.clone();

@@ -87,7 +87,7 @@ impl AppState {
         }
         let backend = match self.registry.resolve(&probe) {
             Ok(b) => b,
-            Err(e) => return self.show_error(e.to_string()),
+            Err(e) => return self.show_error(format!("Cannot open location: {e}")),
         };
         self.active_panel().try_enter(probe, backend, None).await;
     }

@@ -144,7 +144,7 @@ impl AppState {
                             let _ = self.panels[other].reload_keeping(None).await;
                         }
                     }
-                    Err(e) => self.show_error(format!("mkdir failed: {e}")),
+                    Err(e) => self.show_error(format!("Could not create directory: {e}")),
                 }
             }
             Submit::Copy(sources, dest) => self.begin_transfer(OpKind::Copy, sources, &dest).await,
@@ -215,10 +215,10 @@ impl AppState {
                         let link = dir.join(&name);
                         match backend.symlink(&target, &link).await {
                             Ok(()) => self.reload_all().await,
-                            Err(e) => self.show_error(format!("symlink failed: {e}")),
+                            Err(e) => self.show_error(format!("Could not create symlink: {e}")),
                         }
                     }
-                    Err(e) => self.show_error(e.to_string()),
+                    Err(e) => self.show_error(format!("Cannot create symlink: {e}")),
                 }
             }
             Submit::Settings(v) => {
@@ -248,7 +248,7 @@ impl AppState {
                 // Re-theme the running UI immediately.
                 self.theme = Theme::by_name(&self.config.theme, self.truecolor);
                 if let Err(e) = self.config.save() {
-                    self.show_error(format!("could not save settings: {e}"));
+                    self.show_error(format!("Could not save settings: {e}"));
                 }
             }
             Submit::Confirmations(v) => {
@@ -258,7 +258,7 @@ impl AppState {
                 self.config.confirm_unmount = v.unmount;
                 self.config.confirm_exit = v.exit;
                 if let Err(e) = self.config.save() {
-                    self.show_error(format!("could not save settings: {e}"));
+                    self.show_error(format!("Could not save settings: {e}"));
                 }
             }
             Submit::OpenWith(path) => {
@@ -388,7 +388,7 @@ impl AppState {
                 .unselect_group(&p.entries, pattern, case_sensitive, shell)
         };
         if let Err(e) = res {
-            self.show_error(format!("invalid pattern: {e}"));
+            self.show_error(format!("Invalid pattern: {e}"));
         }
     }
 

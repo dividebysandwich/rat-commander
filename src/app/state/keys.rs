@@ -650,7 +650,7 @@ impl AppState {
         let backend = match self.registry.resolve(&newcwd) {
             Ok(b) => b,
             Err(e) => {
-                self.show_error(e.to_string());
+                self.show_error(format!("Cannot open location: {e}"));
                 return Flow::Continue;
             }
         };
@@ -681,7 +681,7 @@ impl AppState {
         };
         let backend = match self.registry.resolve(&path) {
             Ok(b) => b,
-            Err(e) => return self.show_error(e.to_string()),
+            Err(e) => return self.show_error(format!("Cannot open location: {e}")),
         };
         let other = self.other_index();
         self.panels[other].try_enter(path, backend, None).await;
@@ -722,7 +722,7 @@ impl AppState {
 
         let backend = match self.registry.resolve(&newcwd) {
             Ok(b) => b,
-            Err(e) => return self.show_error(e.to_string()),
+            Err(e) => return self.show_error(format!("Cannot open location: {e}")),
         };
         self.active_panel().try_enter(newcwd, backend, None).await;
     }

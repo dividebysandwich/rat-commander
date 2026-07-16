@@ -175,7 +175,7 @@ impl AppState {
         let backend = match self.registry.resolve(&target) {
             Ok(b) => b,
             Err(e) => {
-                self.show_error(e.to_string());
+                self.show_error(format!("Cannot open location: {e}"));
                 return;
             }
         };

@@ -132,7 +132,7 @@ impl AppState {
         let backend = self.panels[side].backend.clone();
         let work_data = match load_file(&backend, &work_path).await {
             Ok(d) => d,
-            Err(e) => return self.show_error(format!("cannot read {name}: {e}")),
+            Err(e) => return self.show_error(format!("Cannot read {name}: {e}")),
         };
         // The committed version (empty for a new/untracked file).
         let head_data = crate::git::head_blob(&root, &rel).await.unwrap_or_default();
