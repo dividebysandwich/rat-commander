@@ -92,6 +92,7 @@ pub struct ThemeEditor {
     pub(crate) button: usize,
     pub(crate) overlay: Overlay,
     /// The app's active theme name, so a save of it can refresh the live UI.
+    #[allow(dead_code)] // reserved for the save-refresh hook; not read yet
     pub(crate) app_theme: String,
     // -- Hit-test zones, in absolute screen coords, written every render() so
     //    the mouse handler and the drawing always agree on where things are. --

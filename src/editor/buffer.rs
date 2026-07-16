@@ -166,6 +166,7 @@ impl EditorBuffer {
     }
 
     /// Find `needle` (case-sensitive) at or after `from`; returns char index.
+    #[allow(dead_code)] // literal-search helper, exercised by tests
     pub fn find(&self, needle: &str, from: usize) -> Option<usize> {
         if needle.is_empty() {
             return None;

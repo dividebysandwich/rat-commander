@@ -178,11 +178,6 @@ fn subtree_totals(tree: &Tree, dir: &str) -> (u64, u64) {
     (files, bytes)
 }
 
-/// Whether `tree` holds `rel` as the same kind (file vs directory).
-fn same_kind(tree: &Tree, rel: &str, is_dir: bool) -> bool {
-    tree.get(rel).is_some_and(|e| e.is_dir == is_dir)
-}
-
 /// Reconcile two walked trees into an ordered list of steps.
 ///
 /// Every relative path in either tree is classified by what each side holds

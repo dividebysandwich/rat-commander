@@ -286,11 +286,6 @@ impl FileBrowserDialog {
         d
     }
 
-    /// The device this browse is targeting (for the title).
-    pub fn target_dev(&self) -> &str {
-        &self.target.dev
-    }
-
     fn matcher(&self) -> Option<crate::panel::selection::NameMatcher> {
         // The filter is space/`;`/`,`-separated globs; normalize to `;`.
         let pat: String = self.filter.split_whitespace().collect::<Vec<_>>().join(";");

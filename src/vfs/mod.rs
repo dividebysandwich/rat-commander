@@ -83,7 +83,9 @@ pub struct Capabilities {
     pub ownership: bool,
     pub symlinks: bool,
     /// Whether `open_read` supports cheap random access (false for tar.gz, FTP).
+    #[allow(dead_code)] // populated by every backend; not consumed by a caller yet
     pub random_access: bool,
+    #[allow(dead_code)]
     pub inode: bool,
     /// Whether the backend can rename server-side (vs copy+delete).
     pub server_rename: bool,
@@ -107,6 +109,8 @@ impl Capabilities {
 /// Metadata hint passed to [`Vfs::open_write`]; some backends (archive writers)
 /// need the size up front.
 #[derive(Debug, Clone, Default)]
+// size_hint/mode/mtime are upload hints no backend consumes yet; `append` is used.
+#[allow(dead_code)]
 pub struct WriteMeta {
     pub size_hint: Option<u64>,
     pub mode: Option<u32>,
@@ -151,6 +155,8 @@ pub type BoxWrite = Box<dyn AsyncWrite + Send + Unpin>;
 /// `rename` is intra-backend only.
 #[async_trait::async_trait]
 pub trait Vfs: Send + Sync {
+    // Part of the backend contract; retained though no caller reads it yet.
+    #[allow(dead_code)]
     fn scheme(&self) -> &str;
     fn capabilities(&self) -> Capabilities;
 
@@ -189,6 +195,8 @@ pub trait Vfs: Send + Sync {
     async fn symlink(&self, _target: &str, _link: &VfsPath) -> Result<()> {
         Err(crate::util::Error::Unsupported)
     }
+    // Backend contract; symlink reads aren't wired to a caller yet.
+    #[allow(dead_code)]
     async fn read_link(&self, _path: &VfsPath) -> Result<String> {
         Err(crate::util::Error::Unsupported)
     }

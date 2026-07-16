@@ -38,6 +38,7 @@ pub enum TaskOutcome {
 pub struct ConflictInfo {
     pub id: TaskId,
     /// Bare file name in conflict.
+    #[allow(dead_code)] // carried for context; the dialog shows the full paths
     pub name: String,
     /// The incoming (source) file.
     pub new_path: String,

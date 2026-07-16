@@ -201,6 +201,7 @@ const TOP_FILES: usize = 32;
 /// Scan the immediate subdirectories of `dir`, computing each one's total
 /// on-disk size and its largest files (symlinks are skipped, never followed).
 /// Sorted largest-first.
+#[allow(dead_code)] // convenience wrapper used by tests
 pub fn scan_dir(dir: &Path) -> Vec<DiskEntry> {
     scan_dir_with(dir, |_, _| {})
 }

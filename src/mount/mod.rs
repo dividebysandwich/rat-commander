@@ -115,10 +115,6 @@ impl FsType {
     pub fn from_label(s: &str) -> Option<FsType> {
         FsType::ALL.into_iter().find(|f| f.label() == s)
     }
-
-    pub fn is_ext(self) -> bool {
-        matches!(self, FsType::Ext4 | FsType::Ext3 | FsType::Ext2)
-    }
 }
 
 /// A requested format operation, collected from the formatter dialog.

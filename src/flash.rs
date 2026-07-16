@@ -48,8 +48,6 @@ pub struct FlashTarget {
     pub removable: bool,
     /// Model name (for the confirmation message).
     pub model: String,
-    /// Volume label (for the confirmation message).
-    pub label: String,
 }
 
 impl FlashTarget {
@@ -59,7 +57,6 @@ impl FlashTarget {
             size: d.size,
             removable: d.removable,
             model: d.model.clone(),
-            label: d.label.clone(),
         }
     }
 

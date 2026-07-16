@@ -111,6 +111,7 @@ impl Hasher {
 
 /// Hash all of `data` in one shot, returning lowercase hex. Convenience for
 /// tests and small inputs; the app streams a file via [`ChecksumKind::hasher`].
+#[cfg(test)]
 pub fn hash_bytes(kind: ChecksumKind, data: &[u8]) -> String {
     let mut h = kind.hasher();
     h.update(data);

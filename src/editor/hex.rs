@@ -10,14 +10,13 @@
 use std::collections::BTreeMap;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Bytes shown per row.
 pub const BYTES_PER_ROW: u64 = 16;
 
 pub struct HexEditor {
     file: File,
-    pub path: PathBuf,
     pub len: u64,
     pub readonly: bool,
     /// Cursor byte offset, in `0..len` (or 0 for an empty file).
@@ -47,7 +46,6 @@ impl HexEditor {
         let len = file.metadata()?.len();
         Ok(HexEditor {
             file,
-            path: path.to_path_buf(),
             len,
             readonly,
             cursor: 0,
@@ -274,6 +272,7 @@ fn find_sub(hay: &[u8], needle: &[u8]) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     fn tmp(bytes: &[u8]) -> PathBuf {
         let nanos = std::time::SystemTime::now()

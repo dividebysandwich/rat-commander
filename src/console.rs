@@ -82,6 +82,7 @@ impl Console {
 
     /// Feed bytes straight into the current emulator (used by tests and to seed
     /// the screen; the live console is driven by each shell's reader).
+    #[cfg(test)]
     pub fn feed(&self, bytes: &[u8]) {
         if bytes.is_empty() {
             return;

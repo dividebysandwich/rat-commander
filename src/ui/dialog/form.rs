@@ -135,6 +135,7 @@ impl Form {
     }
 
     /// Number of fields (used to compute the dialog height for click geometry).
+    #[allow(dead_code)] // used by form tests
     pub fn field_count(&self) -> usize {
         self.fields.len()
     }

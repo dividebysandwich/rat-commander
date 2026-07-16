@@ -110,6 +110,7 @@ pub enum MenuAction {
     /// Disconnect (with confirmation) the remote session with this id.
     DisconnectSession(usize),
     /// Open the drive-letter picker for a panel (Windows).
+    #[cfg_attr(not(windows), allow(dead_code))] // constructed only under cfg(windows)
     Drive(usize),
     Settings,
     Confirmations,

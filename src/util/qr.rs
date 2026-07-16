@@ -36,6 +36,7 @@ impl Qr {
     }
 
     /// Modules per side (without the quiet zone).
+    #[allow(dead_code)] // used by qr tests
     pub fn size(&self) -> usize {
         self.size
     }

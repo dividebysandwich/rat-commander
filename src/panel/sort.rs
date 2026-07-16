@@ -18,33 +18,6 @@ pub enum SortKey {
     Inode,
 }
 
-impl SortKey {
-    pub fn label(self) -> &'static str {
-        match self {
-            SortKey::Unsorted => "Unsorted",
-            SortKey::Name => "Name",
-            SortKey::Extension => "Extension",
-            SortKey::Size => "Size",
-            SortKey::ModifyTime => "Modify time",
-            SortKey::AccessTime => "Access time",
-            SortKey::ChangeTime => "Change time",
-            SortKey::Inode => "Inode",
-        }
-    }
-
-    /// All keys, in menu order.
-    pub const ALL: [SortKey; 8] = [
-        SortKey::Unsorted,
-        SortKey::Name,
-        SortKey::Extension,
-        SortKey::Size,
-        SortKey::ModifyTime,
-        SortKey::AccessTime,
-        SortKey::ChangeTime,
-        SortKey::Inode,
-    ];
-}
-
 /// The full sort configuration: key plus the modifier toggles.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(default)]

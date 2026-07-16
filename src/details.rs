@@ -77,13 +77,6 @@ pub struct PreviewTreeLine {
     pub is_dir: bool,
 }
 
-impl DetailsData {
-    /// Whether a background size scan is still running.
-    pub fn scanning(&self) -> bool {
-        matches!(&self.kind, DetailsKind::Tally(t) if t.scanning)
-    }
-}
-
 #[derive(Default)]
 pub enum DetailsKind {
     /// Nothing to show (the other panel is on `..`, empty, or also in Details).

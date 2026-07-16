@@ -36,6 +36,7 @@ pub struct ProcInfo {
     /// Resident set size in bytes.
     pub rss: u64,
     /// RSS as a percentage of total RAM.
+    #[allow(dead_code)] // computed per process; not shown by the current columns
     pub mem_pct: f32,
     /// Number of threads.
     pub threads: u32,

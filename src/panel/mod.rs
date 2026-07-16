@@ -23,6 +23,7 @@ pub struct PanelHit {
     pub body: Rect,
     pub brief: bool,
     pub offset: usize,
+    #[allow(dead_code)] // Brief-grid column count; the click map now uses `rows`
     pub columns: usize,
     /// Column height in the Brief grid (entries per screen column); used for the
     /// column-major click mapping.

@@ -8,7 +8,7 @@
 
 use ratatui::style::{Color, Modifier, Style};
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{LazyLock, RwLock};
 
 const fn rgb(h: u32) -> Color {
@@ -17,10 +17,13 @@ const fn rgb(h: u32) -> Color {
 
 /// The signature Rat/Midnight Commander teal used for the selection bar and
 /// menu / function-key bars (matching the real program).
+#[allow(dead_code)] // referenced by theme tests
 const MC_TEAL: Color = rgb(0x00a3a3);
 
 /// A 16-color terminal palette plus background/foreground.
 #[derive(Clone, Copy)]
+// The full 16-color ANSI model; the current styles don't read every slot.
+#[allow(dead_code)]
 pub struct Palette {
     pub name: &'static str,
     pub bg: Color,
@@ -236,12 +239,6 @@ theme_fields! {
 /// the visual theme editor's picker.
 pub fn active_specs() -> Vec<ThemeSpec> {
     ACTIVE.read().unwrap().clone()
-}
-
-/// The active spec matching `name` (fuzzy, like [`Theme::by_name`]).
-pub fn spec_by_name(name: &str) -> Option<ThemeSpec> {
-    let key = norm_name(name);
-    ACTIVE.read().unwrap().iter().find(|p| norm_name(&p.name) == key).cloned()
 }
 
 /// Insert or replace `spec` (matched by name) in the active set and persist the
@@ -622,15 +619,6 @@ pub fn reload_user_themes() -> Result<usize, String> {
     Ok(n)
 }
 
-/// Ensure `themes.toml` exists (writing the presets if absent); returns its path.
-pub fn ensure_themes_file() -> Option<PathBuf> {
-    let path = crate::config::paths::themes_file()?;
-    if !path.exists() {
-        let _ = write_themes(&path, &builtin_specs());
-    }
-    Some(path)
-}
-
 fn write_themes(path: &Path, specs: &[ThemeSpec]) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -917,19 +905,6 @@ impl Theme {
         let g = lerp(self.grad_a.1, self.grad_b.1, t);
         let b = lerp(self.grad_a.2, self.grad_b.2, t);
         Color::Rgb(r, g, b)
-    }
-
-    /// The static gradient color (full RGB) at normalized position `t` in
-    /// `[0, 1]`, ignoring both animation and the `truecolor` gate. Used for
-    /// pixel-graphics fills that should stay stable frame-to-frame (so their
-    /// encoded image can be cached rather than re-transmitted every frame).
-    pub fn gradient_rgb_static(&self, t: f64) -> (u8, u8, u8) {
-        let t = t.clamp(0.0, 1.0);
-        (
-            lerp(self.grad_a.0, self.grad_b.0, t),
-            lerp(self.grad_a.1, self.grad_b.1, t),
-            lerp(self.grad_a.2, self.grad_b.2, t),
-        )
     }
 
     /// The gradient color (full RGB) at normalized position `t` in `[0, 1]`,

@@ -50,6 +50,7 @@ pub struct OpRequest {
 /// Abort button can trip its cancel token, and so the overwrite dialog can send
 /// the user's decision back to the (paused) engine.
 pub struct TaskHandle {
+    #[allow(dead_code)] // task identity, set by every spawner; not read back yet
     pub id: TaskId,
     pub cancel: CancelToken,
     pub reply: mpsc::Sender<OverwriteDecision>,

@@ -94,16 +94,11 @@ impl ExtRules {
     pub fn lookup(&self, filename: &str) -> Option<&ExtEntry> {
         self.entries.iter().find(|e| e.matcher.matches(filename))
     }
-
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
 }
 
 /// Ensure `rc.ext` exists on disk (writing the default file if it doesn't yet)
 /// and return its path, so Options → Edit extensions can open it in the internal
-/// editor. Mirrors [`crate::ui::theme::ensure_themes_file`]. Returns `None` when
-/// no config directory is available.
+/// editor. Returns `None` when no config directory is available.
 pub fn ensure_ext_file() -> Option<std::path::PathBuf> {
     let path = paths::ext_file()?;
     if !path.exists() {

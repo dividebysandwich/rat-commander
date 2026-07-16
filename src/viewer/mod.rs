@@ -281,6 +281,7 @@ impl ViewerState {
     }
 
     /// Convenience: open + scan a file in one call (used by tests).
+    #[cfg(test)]
     pub fn open_file(name: String, path: PathBuf, temp: Option<PathBuf>) -> std::io::Result<Self> {
         let (file, len, line_starts, scanned) = scan_file(&path)?;
         Ok(Self::from_scanned(name, file, len, line_starts, scanned, temp))
@@ -561,6 +562,7 @@ impl ViewerState {
     }
 
     /// Whether the F6 document-outline overlay is currently shown.
+    #[allow(dead_code)] // accessor used by tests
     pub fn is_outline_open(&self) -> bool {
         self.outline_open
     }
@@ -774,6 +776,7 @@ impl ViewerState {
     }
 
     /// Number of lines the last "Find all" marked.
+    #[allow(dead_code)] // accessor used by tests
     pub fn found_count(&self) -> usize {
         self.found_lines.len()
     }

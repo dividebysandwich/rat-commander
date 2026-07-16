@@ -48,6 +48,7 @@ pub struct Catalog {
     pub name: String,
     /// Short language code (informational).
     #[serde(default)]
+    #[allow(dead_code)] // parsed from lang files as schema; not read by the app
     pub code: String,
     /// Right-to-left script (Arabic, Persian, …). Drives optional reshaping so
     /// the text reads correctly on terminals without their own bidi support.

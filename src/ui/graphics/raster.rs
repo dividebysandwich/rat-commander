@@ -611,6 +611,7 @@ pub fn pillow_into(
 }
 
 /// A standalone "pillow" box image (see [`pillow_into`]).
+#[allow(dead_code)] // exercised by raster tests
 pub fn pillow_box(w: u32, h: u32, fill: Rgb, subs: &[SubBox], bg: Rgb) -> RgbaImage {
     let mut img = RgbaImage::from_pixel(w.max(1), h.max(1), Rgba([bg.0, bg.1, bg.2, 255]));
     pillow_into(&mut img, 0, 0, w.max(1), h.max(1), fill, subs, None);

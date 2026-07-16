@@ -117,14 +117,6 @@ impl CommandLine {
         }
     }
 
-    pub fn home(&mut self) {
-        self.cursor = 0;
-    }
-
-    pub fn end(&mut self) {
-        self.cursor = self.buffer.chars().count();
-    }
-
     pub fn clear(&mut self) {
         self.buffer.clear();
         self.cursor = 0;
