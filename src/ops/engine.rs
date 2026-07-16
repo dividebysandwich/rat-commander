@@ -9,7 +9,7 @@ use super::sync::SyncStep;
 use super::{OpKind, OpRequest};
 use crate::util::async_bridge::AppSender;
 use crate::util::{Error, Result};
-use crate::vfs::{Vfs, VfsEntry, VfsKind, VfsPath, WriteMeta};
+use crate::vfs::{BoxWrite, Vfs, VfsEntry, VfsKind, VfsPath, WriteMeta};
 use futures::future::BoxFuture;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -410,18 +410,23 @@ impl Engine {
         let mut buf = vec![0u8; CHUNK];
         loop {
             if self.cancel.is_cancelled() {
-                // Clean up the partial destination file.
-                drop(writer);
-                let _ = dst_fs.remove_file(dst).await;
+                discard_partial(writer, dst_fs, dst, append).await;
                 return Err(Error::Cancelled);
             }
-            let n = reader.read(&mut buf).await?;
+            // A read failure mid-copy (e.g. a dropped remote read) must not leave a
+            // truncated destination behind, same as the cancel/write paths.
+            let n = match reader.read(&mut buf).await {
+                Ok(n) => n,
+                Err(e) => {
+                    discard_partial(writer, dst_fs, dst, append).await;
+                    return Err(e.into());
+                }
+            };
             if n == 0 {
                 break;
             }
             if let Err(e) = writer.write_all(&buf[..n]).await {
-                drop(writer);
-                let _ = dst_fs.remove_file(dst).await;
+                discard_partial(writer, dst_fs, dst, append).await;
                 return Err(e.into());
             }
             self.file_done += n as u64;
@@ -429,8 +434,12 @@ impl Engine {
             self.emit(false);
         }
         // shutdown() flushes AND closes — required so remote/buffering writers
-        // (SFTP File, FTP/SCP CollectWriter) actually finalize the upload.
-        writer.shutdown().await?;
+        // (SFTP File, FTP/SCP CollectWriter) actually finalize the upload. A
+        // failure here means the upload didn't commit, so drop the partial too.
+        if let Err(e) = writer.shutdown().await {
+            discard_partial(writer, dst_fs, dst, append).await;
+            return Err(e.into());
+        }
         drop(writer);
 
         // Best-effort: preserve permissions.
@@ -498,6 +507,19 @@ impl Engine {
         };
         // Best-effort; if the channel is full we simply drop this frame.
         let _ = self.tx.try_send(crate::app::event::AppEvent::Progress(update));
+    }
+}
+
+/// Drop a half-written destination after a cancelled or failed copy. The writer
+/// is closed first (so a remote pipe releases), then the file is removed — but
+/// **only when we created it**: in append mode the destination pre-existed and
+/// holds the user's data, so removing it would destroy exactly what we were
+/// adding to. Removal is best-effort; a leftover partial is preferable to
+/// masking the original error.
+async fn discard_partial(writer: BoxWrite, dst_fs: &Arc<dyn Vfs>, dst: &VfsPath, append: bool) {
+    drop(writer);
+    if !append {
+        let _ = dst_fs.remove_file(dst).await;
     }
 }
 
@@ -852,6 +874,58 @@ mod tests {
         assert!(matches!(outcome, TaskOutcome::Done));
         assert!(!victim.exists());
 
+        std::fs::remove_dir_all(&root).ok();
+    }
+}
+
+#[cfg(test)]
+mod partial_cleanup_tests {
+    use super::*;
+    use crate::ops::{OpKind, OpRequest};
+    use crate::util::async_bridge;
+    use crate::vfs::local::LocalFs;
+    use crate::vfs::testmock::MockVfs;
+
+    fn unique_dir(tag: &str) -> std::path::PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("rc_test_{tag}_{}_{nanos}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// A source read that drops mid-copy must not leave a truncated file at the
+    /// destination — the read-error path now cleans up like cancel/write errors.
+    #[tokio::test]
+    async fn copy_removes_the_partial_destination_on_a_read_error() {
+        let root = unique_dir("readerr");
+        let dst_dir = root.join("dest");
+        std::fs::create_dir_all(&dst_dir).unwrap();
+
+        // A mock source claiming 100 bytes but failing after 10.
+        let src_fs: Arc<dyn Vfs> =
+            MockVfs { file_size: 100, read_fail_after: Some(10), ..Default::default() }.arc();
+        let dst_fs: Arc<dyn Vfs> = Arc::new(LocalFs::new());
+        let (tx, _rx) = async_bridge::channel();
+        let req = OpRequest {
+            kind: OpKind::Copy,
+            src_fs,
+            sources: vec![VfsPath { scheme: "mock".into(), path: "/src.bin".into(), container: None }],
+            dst_fs: Some(dst_fs),
+            dst_dir: Some(VfsPath::local(&dst_dir)),
+            dst_name: None,
+            overwrite_all: false,
+            steps: Vec::new(),
+        };
+        let (_reply_tx, reply_rx) = mpsc::channel(1);
+        let outcome = run(1, req, tx, CancelToken::new(), reply_rx).await;
+        assert!(matches!(outcome, TaskOutcome::Failed(_)), "the read error fails the op: {outcome:?}");
+        assert!(
+            !dst_dir.join("src.bin").exists(),
+            "the truncated destination file was removed, not left behind"
+        );
         std::fs::remove_dir_all(&root).ok();
     }
 }
