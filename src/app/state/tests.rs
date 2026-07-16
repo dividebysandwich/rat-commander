@@ -2601,6 +2601,25 @@ async fn run_program_submit_executes_in_foreground() {
     assert!(st.dialog.is_none(), "the confirm dialog is dismissed");
 }
 
+/// An F2 user-menu command on a local panel is routed to the foreground
+/// suspend-and-run path (so its output is visible), not the background console.
+#[tokio::test]
+async fn user_menu_command_runs_in_the_foreground_on_a_local_panel() {
+    use crate::ui::dialog::{DialogResult, Submit};
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    let flow = st
+        .handle_dialog_result(DialogResult::Submit(Submit::UserCommand("echo hi in %d".into())))
+        .await;
+    match flow {
+        Flow::RunCommandForeground(cmd) => {
+            assert!(cmd.contains("echo hi in ") && !cmd.contains("%d"), "expanded + foreground: {cmd}");
+        }
+        _ => panic!("a local F2 menu command should run in the foreground"),
+    }
+    assert!(st.dialog.is_none(), "the menu dialog is dismissed");
+}
+
 /// Pressing Enter on an executable file with no MIME handler runs it directly
 /// (ELF binaries, scripts) rather than trying to open it with an application.
 #[cfg(all(unix, target_os = "linux"))]

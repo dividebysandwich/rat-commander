@@ -82,6 +82,8 @@ impl AppState {
                 self.handle_submit(s).await;
                 if self.pending_quit {
                     Flow::Quit
+                } else if let Some(cmd) = self.pending_run_fg.take() {
+                    Flow::RunCommandForeground(cmd)
                 } else if let Some(cmd) = self.pending_run.take() {
                     Flow::RunCommand(cmd)
                 } else {
@@ -175,7 +177,18 @@ impl AppState {
             }
             Submit::Checksum { path, kind, expected } => self.start_checksum(path, kind, expected),
             Submit::Connect(side, creds) => self.connect_remote(side, creds).await,
-            Submit::UserCommand(tpl) => self.pending_run = Some(self.expand_macros(&tpl)),
+            Submit::UserCommand(tpl) => {
+                let cmd = self.expand_macros(&tpl);
+                // On a local panel, run F2 menu commands in the foreground
+                // (MC-style) so the user watches them and sees any errors. On a
+                // remote/archive panel keep the behind-the-panels console, which
+                // on an SFTP/SCP panel runs the command on the remote host.
+                if self.console_cwd().scheme == "file" {
+                    self.pending_run_fg = Some(cmd);
+                } else {
+                    self.pending_run = Some(cmd);
+                }
+            }
             Submit::KillProcess { pid, force } => self.kill_process(pid, force),
             Submit::CompareDirs(mode) => self.compare_dirs(mode).await,
             Submit::FindDuplicates(crit) => self.start_find_duplicates(crit),

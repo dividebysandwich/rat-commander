@@ -134,6 +134,9 @@ async fn run_loop(
                                 Flow::RunCommand(cmd) => {
                                     run_command(term, state, &mut shells, &cmd).await?
                                 }
+                                Flow::RunCommandForeground(cmd) => {
+                                    run_command_foreground(term, state, &cmd).await?
+                                }
                                 Flow::RunExternal { program, path } => {
                                     run_external(term, state, &program, &path).await?
                                 }
@@ -156,6 +159,9 @@ async fn run_loop(
                             Flow::Quit => break,
                             Flow::RunCommand(cmd) => {
                                 run_command(term, state, &mut shells, &cmd).await?
+                            }
+                            Flow::RunCommandForeground(cmd) => {
+                                run_command_foreground(term, state, &cmd).await?
                             }
                             Flow::RunExternal { program, path } => {
                                 run_external(term, state, &program, &path).await?
@@ -382,7 +388,7 @@ async fn run_command(
     // and POSIX `cd` quoting don't hold — see `toggle_subshell`), so run each
     // command the classic suspended way, in the active panel's directory.
     if cfg!(windows) {
-        return run_command_fallback(term, state, cmd).await;
+        return run_command_foreground(term, state, cmd).await;
     }
     let size = term.size()?;
 
@@ -411,7 +417,7 @@ async fn run_command(
 
     if !ensure_subshell(state, shells, &spawn_cwd, size.height, size.width) {
         // No PTY available — run this one command the old, suspended way.
-        return run_command_fallback(term, state, cmd).await;
+        return run_command_foreground(term, state, cmd).await;
     }
     let Some(sh) = shells.local.as_mut() else { return Ok(()) };
 
@@ -453,9 +459,11 @@ fn ensure_subshell(
     }
 }
 
-/// Fallback when no PTY can be created: suspend the TUI, run one command in the
-/// active panel's directory, wait for Enter, then restore the TUI.
-async fn run_command_fallback(term: &mut Term, state: &mut AppState, cmd: &str) -> Result<()> {
+/// Suspend the TUI, run one command in the active panel's directory, wait for
+/// Enter, then restore the TUI. Used deliberately for F2 user-menu commands
+/// (`Flow::RunCommandForeground`) and as the fallback for `Flow::RunCommand`
+/// when no PTY console can be created (and always on Windows).
+async fn run_command_foreground(term: &mut Term, state: &mut AppState, cmd: &str) -> Result<()> {
     restore_terminal(term, state.kbd_enhanced)?;
     let console_cwd = state.console_cwd();
     let cwd = if console_cwd.scheme == "file" {

@@ -46,8 +46,14 @@ use std::collections::HashMap;
 pub enum Flow {
     Continue,
     Quit,
-    /// Suspend the TUI and run this shell command in the active panel's cwd.
+    /// Run this shell command in the active panel's cwd — the behind-the-panels
+    /// console where one is available (so it doesn't block the UI), else a
+    /// suspended foreground shell. Used by the command line and file associations.
     RunCommand(String),
+    /// Suspend the TUI and run this shell command in the foreground, Midnight
+    /// Commander style: the user watches its output and presses Enter to return.
+    /// Used by the F2 user menu on a local panel.
+    RunCommandForeground(String),
     /// Suspend the TUI and run an external program against a file.
     RunExternal { program: String, path: std::path::PathBuf },
     /// Ctrl-O: drop to an interactive subshell, full screen.
@@ -238,8 +244,11 @@ pub struct AppState {
     /// File-association rules (loaded from the config `rc.ext` file), consulted
     /// on Enter/F3/F4 to run Open/View/Edit actions and mount extfs scripts.
     ext_rules: crate::ext::ExtRules,
-    /// A user-menu command to run after the dialog closes (expanded).
+    /// A command to run in the background console after the dialog closes (expanded).
     pending_run: Option<String>,
+    /// A command to run in a suspended foreground shell after the dialog closes
+    /// (expanded) — the F2 user menu on a local panel, so its output is visible.
+    pending_run_fg: Option<String>,
     /// Set when a confirmed quit should propagate out as `Flow::Quit`.
     pending_quit: bool,
     /// When a lone Esc has been pressed and we're waiting to see whether the
