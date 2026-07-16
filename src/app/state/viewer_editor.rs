@@ -77,6 +77,9 @@ impl AppState {
             ViewerSignal::OpenSearch => {
                 self.dialog = Some(Dialog::SearchReplace(self.search_dialog(false)));
             }
+            // F1 opens the manual, replacing the current viewer — the "Help"
+            // label on the viewer's F-key bar now does what it says.
+            ViewerSignal::OpenHelp => self.open_help(),
         }
     }
 

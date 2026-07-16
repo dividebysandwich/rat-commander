@@ -126,6 +126,8 @@ pub enum ViewerSignal {
     /// Ask the app to open the modal search dialog (F7) — the same one the
     /// editor uses, so the viewer offers the same modes and options.
     OpenSearch,
+    /// Ask the app to open the embedded user manual (F1), like the panel F1.
+    OpenHelp,
 }
 
 pub struct ViewerState {
@@ -430,6 +432,7 @@ impl ViewerState {
                 };
                 self.top = self.top.min(self.max_top());
             }
+            KeyCode::F(1) => return ViewerSignal::OpenHelp,
             KeyCode::F(5) => return ViewerSignal::OpenGoto,
             // F6 (Markdown files in text mode): open the document outline.
             KeyCode::F(6) if self.is_markdown && self.mode == ViewMode::Text => self.open_outline(),
@@ -551,7 +554,8 @@ impl ViewerState {
             6 => KeyCode::F(7),               // Search
             7 => KeyCode::F(8),               // Raw / Render (Markdown)
             8 => KeyCode::Char('n'),          // Next match
-            _ => return ViewerSignal::Stay,   // Help / empty: no-op
+            0 => return ViewerSignal::OpenHelp, // Help
+            _ => return ViewerSignal::Stay,   // empty slot: no-op
         };
         self.handle_key(KeyEvent::new(code, KeyModifiers::NONE))
     }
@@ -1245,6 +1249,15 @@ mod tests {
             hex: false,
             find_all: false,
         }
+    }
+
+    #[test]
+    fn f1_asks_the_app_to_open_the_manual() {
+        // The viewer's F-key bar advertises "Help" at F1; it must actually do
+        // something (open the manual), not sit there as a dead label.
+        let mut v = ViewerState::new("t".into(), b"hello".to_vec());
+        let sig = v.handle_key(KeyEvent::new(KeyCode::F(1), KeyModifiers::NONE));
+        assert!(matches!(sig, ViewerSignal::OpenHelp));
     }
 
     #[test]
