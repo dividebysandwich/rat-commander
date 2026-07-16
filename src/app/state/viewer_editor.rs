@@ -108,7 +108,7 @@ impl AppState {
 
         if !self.config.wants_internal_viewer() {
             return Flow::RunExternal {
-                program: self.config.viewer.clone(),
+                program: self.config.external_viewer().unwrap_or_default(),
                 path: path.path,
             };
         }
@@ -170,7 +170,7 @@ impl AppState {
 
         if !self.config.wants_internal_editor() {
             return Flow::RunExternal {
-                program: self.config.editor.clone(),
+                program: self.config.external_editor().unwrap_or_default(),
                 path: path.path,
             };
         }

@@ -183,6 +183,17 @@ impl Default for Config {
     }
 }
 
+/// A trimmed non-empty copy of `s`, else `None`.
+fn non_empty(s: &str) -> Option<String> {
+    let t = s.trim();
+    (!t.is_empty()).then(|| t.to_string())
+}
+
+/// A shell command from environment variable `var`, if set and non-empty.
+fn env_command(var: &str) -> Option<String> {
+    std::env::var(var).ok().and_then(|v| non_empty(&v))
+}
+
 impl Config {
     /// Load the config, falling back to defaults on any error.
     pub fn load() -> Self {
@@ -205,14 +216,28 @@ impl Config {
         std::fs::write(&path, text).map_err(|e| e.to_string())
     }
 
+    /// The external editor command: the configured `editor`, or — when that is
+    /// empty — the `$VISUAL` then `$EDITOR` environment variables (the Unix
+    /// convention). `None` when none is set, meaning the internal editor is used.
+    pub fn external_editor(&self) -> Option<String> {
+        non_empty(&self.editor)
+            .or_else(|| env_command("VISUAL"))
+            .or_else(|| env_command("EDITOR"))
+    }
+
+    /// The external viewer/pager command: the configured `viewer`, or `$PAGER`.
+    pub fn external_viewer(&self) -> Option<String> {
+        non_empty(&self.viewer).or_else(|| env_command("PAGER"))
+    }
+
     /// Whether to use the internal viewer for the given situation.
     pub fn wants_internal_viewer(&self) -> bool {
-        self.use_internal_viewer || self.viewer.trim().is_empty()
+        self.use_internal_viewer || self.external_viewer().is_none()
     }
 
     /// Whether to use the internal editor.
     pub fn wants_internal_editor(&self) -> bool {
-        self.use_internal_editor || self.editor.trim().is_empty()
+        self.use_internal_editor || self.external_editor().is_none()
     }
 
     /// Record a successful remote connection at the front of the history,
@@ -470,5 +495,69 @@ mod tests {
         assert_eq!(position_from(&path, "/f0"), None, "oldest evicted");
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod env_fallback_tests {
+    use super::*;
+
+    #[test]
+    fn non_empty_trims_and_rejects_blank() {
+        assert_eq!(non_empty("  vim  ").as_deref(), Some("vim"));
+        assert_eq!(non_empty("   "), None);
+        assert_eq!(non_empty(""), None);
+    }
+
+    #[test]
+    fn external_program_prefers_the_configured_value() {
+        // A configured command wins outright — the environment is never consulted,
+        // so this is deterministic regardless of the test runner's env.
+        let c = Config {
+            use_internal_editor: false,
+            use_internal_viewer: false,
+            editor: "code --wait".into(),
+            viewer: "  bat  ".into(),
+            ..Config::default()
+        };
+        assert_eq!(c.external_editor().as_deref(), Some("code --wait"));
+        assert_eq!(c.external_viewer().as_deref(), Some("bat"), "trimmed");
+        // With the internal toggle off and an external configured, the external wins.
+        assert!(!c.wants_internal_editor() && !c.wants_internal_viewer());
+    }
+
+    #[test]
+    fn external_program_falls_back_to_visual_editor_pager_env() {
+        // editor/viewer empty; internal toggles off so `wants_internal_*` reflects
+        // purely whether an external command resolved (config or env).
+        let c = Config {
+            use_internal_editor: false,
+            use_internal_viewer: false,
+            ..Config::default()
+        };
+        // Save and clear the vars this test drives, restore them afterward.
+        let vars = ["VISUAL", "EDITOR", "PAGER"];
+        let saved: Vec<Option<String>> = vars.iter().map(|k| std::env::var(k).ok()).collect();
+        let set = |k: &str, v: &str| unsafe { std::env::set_var(k, v) };
+        let clear = |k: &str| unsafe { std::env::remove_var(k) };
+
+        vars.iter().for_each(|k| clear(k));
+        assert_eq!(c.external_editor(), None, "no config, no env → the internal editor");
+        assert!(c.wants_internal_editor() && c.wants_internal_viewer(), "nothing external → internal");
+
+        set("EDITOR", "vi");
+        assert_eq!(c.external_editor().as_deref(), Some("vi"));
+        set("VISUAL", "nvim");
+        assert_eq!(c.external_editor().as_deref(), Some("nvim"), "$VISUAL beats $EDITOR");
+        set("PAGER", "less");
+        assert_eq!(c.external_viewer().as_deref(), Some("less"));
+        assert!(!c.wants_internal_editor() && !c.wants_internal_viewer(), "env external now used");
+
+        for (k, v) in vars.iter().zip(saved) {
+            match v {
+                Some(val) => set(k, &val),
+                None => clear(k),
+            }
+        }
     }
 }
