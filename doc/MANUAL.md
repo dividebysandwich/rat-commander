@@ -226,6 +226,7 @@ used to share now lives on `Alt-T`.
 
 ### Viewer (F3)
 
+- `F1` — Help (opens this manual)
 - `F2` — Toggle line wrap
 - `F4` — Toggle hex / text mode
 - `F5` — Goto (line / percent / byte offset)
@@ -1389,7 +1390,11 @@ Configuration files live in your platform config directory
   servers (without passwords), and your directory **`bookmarks`** (used by the
   command palette, Ctrl-P). It also holds `command_history_max` (default
   `100`) — the maximum number of command-line entries kept in the persistent
-  history; set it to `0` to disable history.
+  history; set it to `0` to disable history. Finally it remembers the **session
+  layout** — each panel's last directory, listing filter, visibility and
+  half-height state, the split direction, and which side was active — and
+  restores it on the next launch (a panel whose saved directory is gone falls
+  back to the working directory).
 - **`history`** — the persistent command-line history, one command per line
   (recalled with `Alt-P` / `Alt-N` / `Alt-H`), trimmed to `command_history_max`.
 - **`editor-positions.toml`** — the editor's cursor-position memory for the last
@@ -1406,7 +1411,10 @@ Choose the **theme** and **language**, toggle **truecolor**, **animations**, the
 **system-status widget** and **Reshape RTL text** (see *Language*), pick the
 **Graphics** mode (see *Terminal graphics* below), set an **external editor /
 viewer** command (used instead of the built-in ones), and choose whether to use
-the internal viewer/editor.
+the internal viewer/editor. When the external editor field is left blank, `rc`
+falls back to the **`$VISUAL`** then **`$EDITOR`** environment variable; the
+external viewer likewise falls back to **`$PAGER`**. Only if none of those is set
+does the built-in tool run.
 
 The **Theme**, **Language** and **Graphics** fields are dropdowns: press
 **Enter** to open the scrollable list, **↑/↓** (or the mouse wheel) to move

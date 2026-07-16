@@ -187,6 +187,7 @@ also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1
 
 | Key | Action |
 | --- | --- |
+| `F1` | Help (opens the user manual) |
 | `F2` | Toggle line wrap |
 | `F4` | Toggle hex / text mode |
 | `F5` | Goto (line / percent / byte offset) |
@@ -215,7 +216,8 @@ also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1
 
 `Tab`/arrows move between fields **and onto the OK/Cancel buttons**, `Space`
 toggles checkboxes and cycles choices, `Enter` confirms, `Esc` cancels (and
-aborts progress dialogs). The OK/Cancel and Yes/No buttons are also clickable.
+aborts progress dialogs, including long-running git network operations and the
+directory-sync scan). The OK/Cancel and Yes/No buttons are also clickable.
 
 See the **[user manual](doc/MANUAL.md)** for the process-explorer,
 disk-explorer and hex-editor key tables, and for what every feature does.
@@ -308,6 +310,13 @@ Settings dialog), **`themes.toml`** (editable color themes), **`lang/`**
 (one editable TOML per UI language), and **`menu`** (the F2 user menu, in
 Midnight Commander format). See the
 **[user manual](doc/MANUAL.md#configuration)** for details.
+
+**Session layout** is remembered between runs: on the next launch each panel
+reopens at its last directory (falling back to the working directory if it is
+gone), with its split direction, visibility, active side and listing filter
+restored. When no external editor or viewer is configured, `rc` falls back to
+**`$VISUAL`** then **`$EDITOR`** for editing and **`$PAGER`** for viewing before
+using the built-in ones.
 
 ---
 
