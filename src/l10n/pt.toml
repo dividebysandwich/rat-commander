@@ -367,3 +367,10 @@ code = "pt"
 "Taken" = "Capturada"
 "Exposure" = "Exposição"
 "Image" = "Imagem"
+
+# -- Tool footer hint bars (mount / net / disk) --
+"Esc / Enter to close" = "Esc / Enter para fechar"
+"Tab switch   ↑↓ move   Enter actions   u unmount   r refresh   Esc close" = "Tab alternar   ↑↓ mover   Enter ações   u desmontar   r atualizar   Esc fechar"
+"arrows move  ⏎ IP details  k/K kill  / filter  p proto  e estab  h loopback  Tab view  r refresh  Esc close" = "setas mover  ⏎ detalhes IP  k/K matar  / filtrar  p proto  e estabel.  h loopback  Tab visão  r atualizar  Esc fechar"
+"/ filter  s/S sort  p proto  e estab  h loopback  k/K kill  ⏎ details  Tab view  r refresh  Esc close" = "/ filtrar  s/S ordenar  p proto  e estabel.  h loopback  k/K matar  ⏎ detalhes  Tab visão  r atualizar  Esc fechar"
+"←↑↓→/click move   Enter/dbl-click open   g go to dir   Bksp up   Esc close" = "←↑↓→/clique mover   Enter/duplo-clique abrir   g ir ao dir.   Bksp subir   Esc fechar"

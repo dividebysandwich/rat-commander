@@ -367,3 +367,10 @@ code = "ru"
 "Taken" = "Снято"
 "Exposure" = "Экспозиция"
 "Image" = "Изображение"
+
+# -- Tool footer hint bars (mount / net / disk) --
+"Esc / Enter to close" = "Esc / Enter — закрыть"
+"Tab switch   ↑↓ move   Enter actions   u unmount   r refresh   Esc close" = "Tab перекл.   ↑↓ движ.   Enter действия   u отмонт.   r обновить   Esc закрыть"
+"arrows move  ⏎ IP details  k/K kill  / filter  p proto  e estab  h loopback  Tab view  r refresh  Esc close" = "стрелки движ.  ⏎ детали IP  k/K убить  / фильтр  p прото  e установл.  h loopback  Tab вид  r обновить  Esc закрыть"
+"/ filter  s/S sort  p proto  e estab  h loopback  k/K kill  ⏎ details  Tab view  r refresh  Esc close" = "/ фильтр  s/S сорт.  p прото  e установл.  h loopback  k/K убить  ⏎ детали  Tab вид  r обновить  Esc закрыть"
+"←↑↓→/click move   Enter/dbl-click open   g go to dir   Bksp up   Esc close" = "←↑↓→/клик движ.   Enter/двойн.клик открыть   g в каталог   Bksp вверх   Esc закрыть"

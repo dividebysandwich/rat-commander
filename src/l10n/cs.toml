@@ -367,3 +367,10 @@ code = "cs"
 "Taken" = "Pořízeno"
 "Exposure" = "Expozice"
 "Image" = "Obrázek"
+
+# -- Tool footer hint bars (mount / net / disk) --
+"Esc / Enter to close" = "Esc / Enter pro zavření"
+"Tab switch   ↑↓ move   Enter actions   u unmount   r refresh   Esc close" = "Tab přepnout   ↑↓ pohyb   Enter akce   u odpojit   r obnovit   Esc zavřít"
+"arrows move  ⏎ IP details  k/K kill  / filter  p proto  e estab  h loopback  Tab view  r refresh  Esc close" = "šipky pohyb  ⏎ detaily IP  k/K ukončit  / filtr  p proto  e navázané  h loopback  Tab zobraz.  r obnovit  Esc zavřít"
+"/ filter  s/S sort  p proto  e estab  h loopback  k/K kill  ⏎ details  Tab view  r refresh  Esc close" = "/ filtr  s/S řadit  p proto  e navázané  h loopback  k/K ukončit  ⏎ detaily  Tab zobraz.  r obnovit  Esc zavřít"
+"←↑↓→/click move   Enter/dbl-click open   g go to dir   Bksp up   Esc close" = "←↑↓→/klik pohyb   Enter/dvojklik otevřít   g do adresáře   Bksp nahoru   Esc zavřít"

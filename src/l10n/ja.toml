@@ -367,3 +367,10 @@ code = "ja"
 "Taken" = "撮影日時"
 "Exposure" = "露出"
 "Image" = "画像"
+
+# -- Tool footer hint bars (mount / net / disk) --
+"Esc / Enter to close" = "Esc / Enter で閉じる"
+"Tab switch   ↑↓ move   Enter actions   u unmount   r refresh   Esc close" = "Tab 切替   ↑↓ 移動   Enter 操作   u アンマウント   r 更新   Esc 閉じる"
+"arrows move  ⏎ IP details  k/K kill  / filter  p proto  e estab  h loopback  Tab view  r refresh  Esc close" = "矢印 移動  ⏎ IP詳細  k/K 強制終了  / フィルタ  p プロト  e 確立済  h ループバック  Tab 表示  r 更新  Esc 閉じる"
+"/ filter  s/S sort  p proto  e estab  h loopback  k/K kill  ⏎ details  Tab view  r refresh  Esc close" = "/ フィルタ  s/S 並替  p プロト  e 確立済  h ループバック  k/K 強制終了  ⏎ 詳細  Tab 表示  r 更新  Esc 閉じる"
+"←↑↓→/click move   Enter/dbl-click open   g go to dir   Bksp up   Esc close" = "←↑↓→/クリック 移動   Enter/ダブルクリック 開く   g ディレクトリへ   Bksp 上へ   Esc 閉じる"

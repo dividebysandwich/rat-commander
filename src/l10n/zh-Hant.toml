@@ -367,3 +367,10 @@ code = "zh-Hant"
 "Taken" = "拍攝時間"
 "Exposure" = "曝光"
 "Image" = "圖片"
+
+# -- Tool footer hint bars (mount / net / disk) --
+"Esc / Enter to close" = "Esc / Enter 關閉"
+"Tab switch   ↑↓ move   Enter actions   u unmount   r refresh   Esc close" = "Tab 切換   ↑↓ 移動   Enter 操作   u 卸載   r 重新整理   Esc 關閉"
+"arrows move  ⏎ IP details  k/K kill  / filter  p proto  e estab  h loopback  Tab view  r refresh  Esc close" = "方向鍵 移動  ⏎ IP詳情  k/K 強制結束  / 篩選  p 協定  e 已建立  h 回送  Tab 檢視  r 重新整理  Esc 關閉"
+"/ filter  s/S sort  p proto  e estab  h loopback  k/K kill  ⏎ details  Tab view  r refresh  Esc close" = "/ 篩選  s/S 排序  p 協定  e 已建立  h 回送  k/K 強制結束  ⏎ 詳情  Tab 檢視  r 重新整理  Esc 關閉"
+"←↑↓→/click move   Enter/dbl-click open   g go to dir   Bksp up   Esc close" = "←↑↓→/點擊 移動   Enter/雙擊 開啟   g 前往目錄   Bksp 上層   Esc 關閉"

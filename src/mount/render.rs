@@ -238,7 +238,7 @@ fn render_status(f: &mut Frame, area: Rect, mv: &MountView, theme: &Theme) {
 
 fn render_footer(f: &mut Frame, area: Rect, theme: &Theme) {
     let hint = "Tab switch   ↑↓ move   Enter actions   u unmount   r refresh   Esc close";
-    let line = pad_right(&format!(" {hint}"), area.width as usize);
+    let line = pad_right(&format!(" {}", crate::l10n::trd(hint)), area.width as usize);
     f.render_widget(
         Paragraph::new(Line::from(Span::styled(line, theme.fkey_label))).style(theme.fkey_label),
         area,

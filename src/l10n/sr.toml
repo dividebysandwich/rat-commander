@@ -367,3 +367,10 @@ code = "sr"
 "Taken" = "Snimljeno"
 "Exposure" = "Ekspozicija"
 "Image" = "Slika"
+
+# -- Tool footer hint bars (mount / net / disk) --
+"Esc / Enter to close" = "Esc / Enter za zatvaranje"
+"Tab switch   ↑↓ move   Enter actions   u unmount   r refresh   Esc close" = "Tab prebaci   ↑↓ kretanje   Enter akcije   u demontiraj   r osveži   Esc zatvori"
+"arrows move  ⏎ IP details  k/K kill  / filter  p proto  e estab  h loopback  Tab view  r refresh  Esc close" = "strelice kretanje  ⏎ IP detalji  k/K ubij  / filter  p proto  e uspostav.  h loopback  Tab prikaz  r osveži  Esc zatvori"
+"/ filter  s/S sort  p proto  e estab  h loopback  k/K kill  ⏎ details  Tab view  r refresh  Esc close" = "/ filter  s/S sortiraj  p proto  e uspostav.  h loopback  k/K ubij  ⏎ detalji  Tab prikaz  r osveži  Esc zatvori"
+"←↑↓→/click move   Enter/dbl-click open   g go to dir   Bksp up   Esc close" = "←↑↓→/klik kretanje   Enter/dupli-klik otvori   g u direkt.   Bksp gore   Esc zatvori"

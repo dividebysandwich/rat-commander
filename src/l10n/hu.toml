@@ -367,3 +367,10 @@ code = "hu"
 "Taken" = "Készült"
 "Exposure" = "Expozíció"
 "Image" = "Kép"
+
+# -- Tool footer hint bars (mount / net / disk) --
+"Esc / Enter to close" = "Esc / Enter a bezáráshoz"
+"Tab switch   ↑↓ move   Enter actions   u unmount   r refresh   Esc close" = "Tab váltás   ↑↓ mozgás   Enter műveletek   u leválasztás   r frissítés   Esc bezárás"
+"arrows move  ⏎ IP details  k/K kill  / filter  p proto  e estab  h loopback  Tab view  r refresh  Esc close" = "nyilak mozgás  ⏎ IP-részletek  k/K leállítás  / szűrés  p proto  e létrejött  h loopback  Tab nézet  r frissítés  Esc bezárás"
+"/ filter  s/S sort  p proto  e estab  h loopback  k/K kill  ⏎ details  Tab view  r refresh  Esc close" = "/ szűrés  s/S rendezés  p proto  e létrejött  h loopback  k/K leállítás  ⏎ részletek  Tab nézet  r frissítés  Esc bezárás"
+"←↑↓→/click move   Enter/dbl-click open   g go to dir   Bksp up   Esc close" = "←↑↓→/katt mozgás   Enter/dupla-katt megnyitás   g könyvtárba   Bksp fel   Esc bezárás"

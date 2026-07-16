@@ -248,6 +248,10 @@ fn connection_rows(nv: &NetView, w: usize) -> (String, Vec<String>) {
         cell(&crate::l10n::trd("Local"), local_w, false),
         cell(&crate::l10n::trd("Peer"), peer_w, false),
         cell(&crate::l10n::trd("Program"), prog_w, false),
+        // Traffic-direction column headers stay literal: "In"/"Out" are terse
+        // networking abbreviations, and the bare "In" key already denotes the
+        // unrelated location-field label elsewhere (localizing it here would
+        // mistranslate one of the two).
         cell("In", io_w, true),
         cell("Out", io_w, true),
         cell("In/s", io_w, true),
@@ -318,12 +322,13 @@ fn render_footer(f: &mut Frame, area: Rect, nv: &NetView, theme: &Theme) {
         return;
     }
     let hint = if nv.focus == Pane::Overview {
-        " arrows move  ⏎ IP details  k/K kill  / filter  p proto  e estab  h loopback  Tab view  r refresh  Esc close"
+        "arrows move  ⏎ IP details  k/K kill  / filter  p proto  e estab  h loopback  Tab view  r refresh  Esc close"
     } else {
-        " / filter  s/S sort  p proto  e estab  h loopback  k/K kill  ⏎ details  Tab view  r refresh  Esc close"
+        "/ filter  s/S sort  p proto  e estab  h loopback  k/K kill  ⏎ details  Tab view  r refresh  Esc close"
     };
+    let line = pad_right(&format!(" {}", crate::l10n::trd(hint)), area.width as usize);
     f.render_widget(
-        Paragraph::new(Line::from(Span::styled(pad_right(hint, area.width as usize), theme.fkey_label)))
+        Paragraph::new(Line::from(Span::styled(line, theme.fkey_label)))
             .style(theme.fkey_label),
         area,
     );
@@ -858,7 +863,7 @@ fn render_ip_detail(f: &mut Frame, area: Rect, nv: &NetView, theme: &Theme) {
     }
     let by = ib.y + ib.height - 1;
     f.render_widget(
-        Paragraph::new(Line::from(Span::styled("Esc / Enter to close", base)))
+        Paragraph::new(Line::from(Span::styled(crate::l10n::trd("Esc / Enter to close"), base)))
             .alignment(Alignment::Center)
             .style(base),
         Rect { x: ib.x, y: by, width: ib.width, height: 1 },

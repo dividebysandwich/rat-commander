@@ -121,7 +121,7 @@ fn render_header(f: &mut Frame, area: Rect, selected: Option<&DiskEntry>, total:
 fn render_footer(f: &mut Frame, area: Rect, theme: &Theme) {
     let hint = "←↑↓→/click move   Enter/dbl-click open   g go to dir   Bksp up   Esc close";
     // Draw as a highlighted bar (like the F-key row) so it's clearly visible.
-    let line = pad_right(&format!(" {hint}"), area.width as usize);
+    let line = pad_right(&format!(" {}", crate::l10n::trd(hint)), area.width as usize);
     f.render_widget(
         Paragraph::new(Line::from(Span::styled(line, theme.fkey_label)))
             .style(theme.fkey_label),

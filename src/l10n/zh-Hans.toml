@@ -367,3 +367,10 @@ code = "zh-Hans"
 "Taken" = "拍摄时间"
 "Exposure" = "曝光"
 "Image" = "图片"
+
+# -- Tool footer hint bars (mount / net / disk) --
+"Esc / Enter to close" = "Esc / Enter 关闭"
+"Tab switch   ↑↓ move   Enter actions   u unmount   r refresh   Esc close" = "Tab 切换   ↑↓ 移动   Enter 操作   u 卸载   r 刷新   Esc 关闭"
+"arrows move  ⏎ IP details  k/K kill  / filter  p proto  e estab  h loopback  Tab view  r refresh  Esc close" = "方向键 移动  ⏎ IP详情  k/K 强制结束  / 筛选  p 协议  e 已建立  h 回环  Tab 视图  r 刷新  Esc 关闭"
+"/ filter  s/S sort  p proto  e estab  h loopback  k/K kill  ⏎ details  Tab view  r refresh  Esc close" = "/ 筛选  s/S 排序  p 协议  e 已建立  h 回环  k/K 强制结束  ⏎ 详情  Tab 视图  r 刷新  Esc 关闭"
+"←↑↓→/click move   Enter/dbl-click open   g go to dir   Bksp up   Esc close" = "←↑↓→/点击 移动   Enter/双击 打开   g 前往目录   Bksp 上层   Esc 关闭"

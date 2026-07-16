@@ -371,3 +371,10 @@ rtl = true
 "Taken" = "التقطت"
 "Exposure" = "التعريض"
 "Image" = "صورة"
+
+# -- Tool footer hint bars (mount / net / disk) --
+"Esc / Enter to close" = "Esc / Enter للإغلاق"
+"Tab switch   ↑↓ move   Enter actions   u unmount   r refresh   Esc close" = "Tab تبديل   ↑↓ تحرّك   Enter إجراءات   u فكّ   r تحديث   Esc إغلاق"
+"arrows move  ⏎ IP details  k/K kill  / filter  p proto  e estab  h loopback  Tab view  r refresh  Esc close" = "الأسهم تحرّك  ⏎ تفاصيل IP  k/K إنهاء  / تصفية  p بروتوكول  e مُنشأة  h استرجاع  Tab عرض  r تحديث  Esc إغلاق"
+"/ filter  s/S sort  p proto  e estab  h loopback  k/K kill  ⏎ details  Tab view  r refresh  Esc close" = "/ تصفية  s/S فرز  p بروتوكول  e مُنشأة  h استرجاع  k/K إنهاء  ⏎ تفاصيل  Tab عرض  r تحديث  Esc إغلاق"
+"←↑↓→/click move   Enter/dbl-click open   g go to dir   Bksp up   Esc close" = "←↑↓→/نقر تحرّك   Enter/نقر مزدوج فتح   g إلى الدليل   Bksp أعلى   Esc إغلاق"

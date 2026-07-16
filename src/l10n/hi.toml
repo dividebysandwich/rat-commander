@@ -367,3 +367,10 @@ code = "hi"
 "Taken" = "लिया गया"
 "Exposure" = "एक्सपोज़र"
 "Image" = "छवि"
+
+# -- Tool footer hint bars (mount / net / disk) --
+"Esc / Enter to close" = "Esc / Enter बंद करें"
+"Tab switch   ↑↓ move   Enter actions   u unmount   r refresh   Esc close" = "Tab बदलें   ↑↓ चलें   Enter क्रियाएँ   u अनमाउंट   r रीफ़्रेश   Esc बंद"
+"arrows move  ⏎ IP details  k/K kill  / filter  p proto  e estab  h loopback  Tab view  r refresh  Esc close" = "तीर चलें  ⏎ IP विवरण  k/K समाप्त  / फ़िल्टर  p प्रोटो  e स्थापित  h लूपबैक  Tab दृश्य  r रीफ़्रेश  Esc बंद"
+"/ filter  s/S sort  p proto  e estab  h loopback  k/K kill  ⏎ details  Tab view  r refresh  Esc close" = "/ फ़िल्टर  s/S क्रमबद्ध  p प्रोटो  e स्थापित  h लूपबैक  k/K समाप्त  ⏎ विवरण  Tab दृश्य  r रीफ़्रेश  Esc बंद"
+"←↑↓→/click move   Enter/dbl-click open   g go to dir   Bksp up   Esc close" = "←↑↓→/क्लिक चलें   Enter/डबल-क्लिक खोलें   g निर्देशिका   Bksp ऊपर   Esc बंद"
