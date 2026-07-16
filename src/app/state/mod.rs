@@ -154,10 +154,10 @@ pub struct AppState {
     /// Per-side panel visibility. Ctrl-F1 / Ctrl-F2 hide the left / right panel,
     /// Norton-Commander style: a hidden panel isn't drawn and the freed area
     /// exposes the backdrop. Both may be hidden at once; the menu bar and F-key
-    /// bar always remain on screen. Transient — not persisted across sessions.
+    /// bar always remain on screen. Persisted across sessions.
     pub panel_hidden: [bool; 2],
     /// Half-height mode (Ctrl-F3): both panels shrink to the top half of the
-    /// body, exposing the backdrop beneath them. Transient — not persisted.
+    /// body, exposing the backdrop beneath them. Persisted across sessions.
     pub half_height: bool,
     /// The command-line console: a headless terminal emulator fed the captured
     /// output of commands run from the command line, drawn behind the panels so

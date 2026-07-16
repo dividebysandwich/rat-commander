@@ -124,6 +124,29 @@ pub struct Config {
     /// the command palette (Ctrl-P). (Missing from an old config → empty.)
     #[serde(default)]
     pub bookmarks: Vec<String>,
+
+    // -- Session layout, restored on the next launch (all default-on-absent) --
+    /// Each panel's last *local* directory (index 0 = left, 1 = right). Empty
+    /// when the panel was on a remote/archive location (not restorable without
+    /// credentials) or the saved directory no longer exists.
+    #[serde(default)]
+    pub panel_dirs: [String; 2],
+    /// Each panel's persistent listing filter (`Alt-Shift-I`); empty = none.
+    #[serde(default)]
+    pub panel_filters: [String; 2],
+    /// Panel split: `true` = horizontal (stacked), `false` = vertical (the
+    /// classic side-by-side default).
+    #[serde(default)]
+    pub split_horizontal: bool,
+    /// Which panels were hidden (`Ctrl-F1`/`Ctrl-F2`).
+    #[serde(default)]
+    pub panel_hidden: [bool; 2],
+    /// Half-height mode (`Ctrl-F4`).
+    #[serde(default)]
+    pub half_height: bool,
+    /// The active panel (0 = left/top, 1 = right/bottom).
+    #[serde(default)]
+    pub active_panel: usize,
 }
 
 impl Default for Config {
@@ -150,6 +173,12 @@ impl Default for Config {
             panels: [PanelView::default(); 2],
             recent_remotes: Vec::new(),
             bookmarks: Vec::new(),
+            panel_dirs: [String::new(), String::new()],
+            panel_filters: [String::new(), String::new()],
+            split_horizontal: false,
+            panel_hidden: [false, false],
+            half_height: false,
+            active_panel: 0,
         }
     }
 }

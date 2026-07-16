@@ -15,6 +15,27 @@ impl AppState {
         left.sort = config.panels[0].sort;
         right.format = config.panels[1].format;
         right.sort = config.panels[1].sort;
+        // Restore each panel's last local directory (if it still exists) and its
+        // persistent filter; `init()` reloads the listings afterward.
+        for (i, panel) in [&mut left, &mut right].into_iter().enumerate() {
+            let dir = &config.panel_dirs[i];
+            if !dir.is_empty() && std::path::Path::new(dir).is_dir() {
+                panel.cwd = VfsPath::local(dir);
+            }
+            let filter = &config.panel_filters[i];
+            if !filter.is_empty() {
+                panel.filter = Some(filter.clone());
+            }
+        }
+        // Restored layout scalars (captured before `config` is moved below).
+        let restored_active = config.active_panel.min(1);
+        let restored_split =
+            if config.split_horizontal { SplitDir::Horizontal } else { SplitDir::Vertical };
+        let restored_hidden = config.panel_hidden;
+        let restored_half = config.half_height;
+        // "Go local" should return to each panel's restored directory, not the
+        // process cwd.
+        let last_local = [left.cwd.clone(), right.cwd.clone()];
         let truecolor = config.truecolor.unwrap_or_else(detect_truecolor);
         let theme = Theme::by_name(&config.theme, truecolor);
         // Started from within another instance's Ctrl-O subshell? This instance
@@ -27,10 +48,10 @@ impl AppState {
         cmd.history = crate::config::load_command_history(config.command_history_max);
         AppState {
             panels: [left, right],
-            active: 0,
-            split: SplitDir::Vertical,
-            panel_hidden: [false, false],
-            half_height: false,
+            active: restored_active,
+            split: restored_split,
+            panel_hidden: restored_hidden,
+            half_height: restored_half,
             // Sized to a sane default; resized to the backdrop area on each draw.
             console: crate::console::Console::new(24, 80),
             cmd,
@@ -52,7 +73,7 @@ impl AppState {
             config,
             registry,
             sessions: Vec::new(),
-            last_local_cwd: [cwd.clone(), cwd],
+            last_local_cwd: last_local,
             tasks: HashMap::new(),
             task_progress: HashMap::new(),
             op_source: HashMap::new(),
@@ -92,16 +113,38 @@ impl AppState {
         }
     }
 
-    /// Copy each panel's current listing format and sort order into the config
-    /// and persist it, so they are restored on the next run. Called on exit.
+    /// Copy the current session layout — each panel's view/sort, its local
+    /// directory and filter, plus the split, hidden/half-height flags and the
+    /// active panel — into the config and persist it, so the next run opens where
+    /// this one left off. Called on exit.
     pub fn persist_panel_views(&mut self) {
+        self.capture_session();
+        let _ = self.config.save();
+    }
+
+    /// Fold the live session layout into `self.config` (without saving), so a
+    /// following `save()` persists it. Split out from [`persist_panel_views`] so
+    /// it is testable without writing to the real config file.
+    pub(in crate::app::state) fn capture_session(&mut self) {
         for i in 0..2 {
             self.config.panels[i] = crate::config::PanelView {
                 format: self.panels[i].format,
                 sort: self.panels[i].sort,
             };
+            // Only a local directory can be restored; a remote/archive location
+            // needs credentials we don't keep, so it isn't saved.
+            let cwd = &self.panels[i].cwd;
+            self.config.panel_dirs[i] = if cwd.scheme == "file" && cwd.container.is_none() {
+                cwd.path.to_string_lossy().into_owned()
+            } else {
+                String::new()
+            };
+            self.config.panel_filters[i] = self.panels[i].filter.clone().unwrap_or_default();
         }
-        let _ = self.config.save();
+        self.config.split_horizontal = matches!(self.split, SplitDir::Horizontal);
+        self.config.panel_hidden = self.panel_hidden;
+        self.config.half_height = self.half_height;
+        self.config.active_panel = self.active;
     }
 
     /// Persist the command-line history to disk (capped at the configured max),

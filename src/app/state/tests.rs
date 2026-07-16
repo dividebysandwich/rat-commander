@@ -3377,3 +3377,42 @@ async fn operations_refuse_a_non_utf8_filename() {
     );
     assert!(st.tasks.is_empty(), "no delete task was spawned");
 }
+
+/// The session layout — panel directories, filter, split, hidden/half-height and
+/// the active panel — is captured into the config on exit and restored on the
+/// next launch. Uses `capture_session` (no disk write) plus a config round-trip.
+#[tokio::test]
+async fn session_layout_is_captured_and_survives_a_config_round_trip() {
+    use crate::ui::layout::SplitDir;
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+
+    // Arrange a distinctive layout on the live state.
+    let dir = std::env::temp_dir();
+    st.panels[0].cwd = VfsPath::local(&dir);
+    st.panels[0].filter = Some("*.rs".to_string());
+    st.panels[1].cwd = VfsPath { scheme: "sftp-1".into(), path: "/remote".into(), container: None };
+    st.split = SplitDir::Horizontal;
+    st.panel_hidden = [false, true];
+    st.half_height = true;
+    st.active = 1;
+
+    st.capture_session();
+    let c = &st.config;
+    assert_eq!(c.panel_dirs[0], dir.to_string_lossy(), "a local dir is saved");
+    assert_eq!(c.panel_dirs[1], "", "a remote panel saves no directory (not restorable)");
+    assert_eq!(c.panel_filters[0], "*.rs");
+    assert!(c.split_horizontal && c.half_height);
+    assert_eq!(c.panel_hidden, [false, true]);
+    assert_eq!(c.active_panel, 1);
+
+    // The whole config survives a TOML save/load unchanged (the fields persist).
+    let text = toml::to_string_pretty(&st.config).unwrap();
+    let back: crate::config::Config = toml::from_str(&text).unwrap();
+    assert_eq!(back.panel_dirs, st.config.panel_dirs);
+    assert_eq!(back.panel_filters, st.config.panel_filters);
+    assert_eq!(back.split_horizontal, st.config.split_horizontal);
+    assert_eq!(back.panel_hidden, st.config.panel_hidden);
+    assert_eq!(back.half_height, st.config.half_height);
+    assert_eq!(back.active_panel, st.config.active_panel);
+}
