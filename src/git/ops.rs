@@ -34,6 +34,9 @@ pub async fn run_text(dir: &Path, args: &[String]) -> GitOutput {
     let mut cmd = tokio::process::Command::new("git");
     cmd.arg("-C").arg(dir).args(args);
     cmd.stdin(std::process::Stdio::null());
+    // Kill the git child if the task is aborted (Esc on the spinner), so a hung
+    // network op against an unreachable remote doesn't linger as an orphan.
+    cmd.kill_on_drop(true);
     let out = match cmd.output().await {
         Ok(o) => o,
         Err(e) => return GitOutput::failed(format!("cannot run git: {e}")),

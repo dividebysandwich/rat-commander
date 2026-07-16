@@ -1368,3 +1368,17 @@ fn input_dialog_mouse_positions_the_caret() {
         panic!("still an input dialog");
     }
 }
+
+#[test]
+fn busy_dialog_is_only_cancellable_when_marked() {
+    // A plain spinner (e.g. a disk format) swallows Esc so it can't be interrupted.
+    let plain = BusyDialog::new("Working", "Formatting…");
+    assert!(matches!(plain.handle_key(key(KeyCode::Esc)), DialogResult::None));
+
+    // A cancellable one (git network op / sync planning) reports Cancel on Esc,
+    // which the app turns into aborting the task. Other keys are still ignored.
+    let abortable = BusyDialog::new("Git", "Running git pull…").cancellable();
+    assert!(matches!(abortable.handle_key(key(KeyCode::Esc)), DialogResult::Cancel));
+    assert!(matches!(abortable.handle_key(key(KeyCode::Enter)), DialogResult::None));
+    assert!(matches!(abortable.handle_key(key(KeyCode::Char('q'))), DialogResult::None));
+}

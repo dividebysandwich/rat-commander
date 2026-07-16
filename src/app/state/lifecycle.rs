@@ -88,6 +88,7 @@ impl AppState {
             kbd_enhanced: false,
             subshell_disabled,
             send_server: None,
+            busy_task: None,
         }
     }
 

@@ -3336,3 +3336,23 @@ async fn write_file_finalizes_the_write_with_shutdown() {
         .expect("write succeeds");
     assert!(flag.load(Ordering::SeqCst), "write_file must call shutdown() to finalize the upload");
 }
+
+/// Esc on a cancellable Busy spinner aborts the task it was waiting on (so a
+/// git pull against an unreachable remote can't hang forever) and closes it.
+#[tokio::test]
+async fn esc_on_a_cancellable_busy_aborts_its_task() {
+    use crate::ui::dialog::{BusyDialog, DialogResult};
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+
+    // A task that never finishes on its own — only an abort ends it.
+    let handle = tokio::spawn(async { std::future::pending::<()>().await });
+    st.busy_task = Some(handle);
+    st.dialog = Some(Dialog::Busy(BusyDialog::new("Git", "Running git pull…").cancellable()));
+
+    // Route Esc the way the dialog would: it reports Cancel, which the app applies.
+    st.handle_dialog_result(DialogResult::Cancel).await;
+
+    assert!(st.dialog.is_none(), "the spinner is dismissed");
+    assert!(st.busy_task.is_none(), "the task handle was taken and aborted");
+}

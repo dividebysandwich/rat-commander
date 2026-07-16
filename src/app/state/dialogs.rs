@@ -42,6 +42,13 @@ impl AppState {
                 if matches!(self.dialog, Some(Dialog::SendFile(_))) {
                     self.stop_send_server();
                 }
+                // A cancellable Busy spinner (git network op / sync planning)
+                // aborts the task it was waiting on.
+                if matches!(self.dialog, Some(Dialog::Busy(_)))
+                    && let Some(h) = self.busy_task.take()
+                {
+                    h.abort();
+                }
                 self.dialog = None;
                 // Revert a live theme/language preview when Settings is cancelled.
                 if let Some(name) = self.theme_backup.take() {

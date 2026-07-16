@@ -295,6 +295,10 @@ pub struct AppState {
     /// The running "Send file over LAN" HTTP server, alive while its dialog is
     /// open; aborted (and its temp zip removed) when the dialog closes.
     send_server: Option<crate::send::SendServer>,
+    /// The task behind a cancellable Busy spinner (a git network op or sync
+    /// planning), so Esc on that spinner can abort it — otherwise an unreachable
+    /// remote would hang with no escape.
+    busy_task: Option<tokio::task::JoinHandle<()>>,
 }
 
 /// How long a lone Esc is held, waiting for a digit, before it is delivered as

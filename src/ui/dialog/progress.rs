@@ -587,11 +587,22 @@ pub struct BusyDialog {
     pub message: String,
     /// Spinner frame, advanced once per UI tick.
     frame: usize,
+    /// Whether Esc aborts the underlying task. Off for operations that must not be
+    /// interrupted mid-way (e.g. formatting a disk); on for the git network ops
+    /// and sync planning, which can otherwise hang on an unreachable remote.
+    cancellable: bool,
 }
 
 impl BusyDialog {
     pub fn new(title: impl Into<String>, message: impl Into<String>) -> Self {
-        BusyDialog { title: title.into(), message: message.into(), frame: 0 }
+        BusyDialog { title: title.into(), message: message.into(), frame: 0, cancellable: false }
+    }
+
+    /// Mark this spinner abortable: Esc reports `Cancel`, which the app turns into
+    /// aborting the task it is waiting on.
+    pub fn cancellable(mut self) -> Self {
+        self.cancellable = true;
+        self
     }
 
     /// Advance the spinner animation (called from the app's tick handler).
@@ -599,10 +610,22 @@ impl BusyDialog {
         self.frame = self.frame.wrapping_add(1);
     }
 
+    pub(crate) fn handle_key(&self, key: KeyEvent) -> DialogResult {
+        // Only a cancellable spinner reacts; a non-cancellable one still swallows
+        // everything so a stray key can't interrupt, say, a disk format.
+        if self.cancellable && matches!(key.code, KeyCode::Esc) {
+            DialogResult::Cancel
+        } else {
+            DialogResult::None
+        }
+    }
+
     pub(crate) fn render(&self, f: &mut Frame, area: Rect, theme: &Theme) {
         const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
         let w = 56u16.min(area.width.saturating_sub(4));
-        let rect = centered(area, w, 6);
+        // A cancellable spinner reserves a bottom row for the Esc hint.
+        let h = if self.cancellable { 7 } else { 6 };
+        let rect = centered(area, w, h);
         draw_shadow(f, rect, theme);
         f.render_widget(Clear, rect);
         let block = dialog_block(&self.title, theme);
@@ -612,11 +635,16 @@ impl BusyDialog {
         let base = Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg);
         let spin = SPINNER[self.frame % SPINNER.len()];
         let text = format!("{spin}  {}", self.message);
-        // Vertically center the (possibly wrapped) message within the inner box.
-        let iw = inner.width.max(1);
-        let lines = (text.chars().count() as u16).div_ceil(iw).clamp(1, inner.height);
-        let y = inner.y + inner.height.saturating_sub(lines) / 2;
-        let text_area = Rect { y, height: lines, ..inner };
+        // The message centers in the interior above any hint row.
+        let body = if self.cancellable {
+            Rect { height: inner.height.saturating_sub(1), ..inner }
+        } else {
+            inner
+        };
+        let iw = body.width.max(1);
+        let lines = (text.chars().count() as u16).div_ceil(iw).clamp(1, body.height.max(1));
+        let y = body.y + body.height.saturating_sub(lines) / 2;
+        let text_area = Rect { y, height: lines, ..body };
         f.render_widget(
             Paragraph::new(text)
                 .wrap(Wrap { trim: true })
@@ -624,6 +652,15 @@ impl BusyDialog {
                 .alignment(ratatui::layout::Alignment::Center),
             text_area,
         );
+        if self.cancellable {
+            let hint = format!("Esc  {}", crate::l10n::trd("Cancel"));
+            f.render_widget(
+                Paragraph::new(Line::from(hint))
+                    .alignment(ratatui::layout::Alignment::Center)
+                    .style(base.fg(theme.panel_border)),
+                Rect { y: inner.y + inner.height - 1, height: 1, ..inner },
+            );
+        }
     }
 }
 

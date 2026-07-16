@@ -226,7 +226,7 @@ impl AppState {
     /// on top of a failed merge would only add noise).
     fn git_sync(&mut self, dir: PathBuf) {
         let tx = self.tx.clone();
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             let mut out = ops::run_text(&dir, &ops::pull_args(false)).await;
             if out.ok {
                 let push = ops::run_text(&dir, &ops::push_args("", "", false, false, false)).await;
@@ -240,7 +240,7 @@ impl AppState {
             }
             let _ = tx.send(AppEvent::GitDone { title: "sync".into(), out }).await;
         });
-        self.busy_git("sync");
+        self.busy_git("sync", handle);
     }
 
     /// Run `git <args>` in `dir` on a background task — the network commands can
@@ -254,26 +254,31 @@ impl AppState {
         let title = title.into();
         let tx = self.tx.clone();
         let t = title.clone();
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             let out = ops::run_text(&dir, &args).await;
             let _ = tx.send(AppEvent::GitDone { title: t, out }).await;
         });
-        self.busy_git(&title);
+        self.busy_git(&title, handle);
     }
 
-    fn busy_git(&mut self, title: &str) {
-        self.dialog = Some(Dialog::Busy(BusyDialog::new("Git", format!("Running git {title}…"))));
+    /// Show the cancellable "running git…" spinner and remember `handle` so Esc on
+    /// it can abort a hung network op (see [`AppState::busy_task`]).
+    fn busy_git(&mut self, title: &str, handle: tokio::task::JoinHandle<()>) {
+        self.busy_task = Some(handle);
+        self.dialog = Some(Dialog::Busy(
+            BusyDialog::new("Git", format!("Running git {title}…")).cancellable(),
+        ));
     }
 
     /// Read the repository's branches/remotes in the background, then open the
     /// guided dialog that needs them.
     fn spawn_git_info(&mut self, form: GitInfoForm, dir: PathBuf) {
         let tx = self.tx.clone();
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             let info = Box::new(ops::repo_info(&dir).await);
             let _ = tx.send(AppEvent::GitInfo { form, info }).await;
         });
-        self.busy_git("branches");
+        self.busy_git("branches", handle);
     }
 
     /// A finished Git command: show what git said, then re-read the panels.
@@ -282,6 +287,7 @@ impl AppState {
         title: String,
         out: crate::git::ops::GitOutput,
     ) {
+        self.busy_task = None; // the task delivered its result
         // A command that succeeded silently (`add`, `restore`, …) has nothing to
         // report — just close the spinner rather than pop an empty box.
         self.dialog = if out.ok && out.text.trim().is_empty() {
@@ -300,6 +306,7 @@ impl AppState {
         form: GitInfoForm,
         info: crate::git::ops::RepoInfo,
     ) {
+        self.busy_task = None; // the task delivered its result
         let dialog = match form {
             GitInfoForm::Checkout => {
                 let choices = info.checkout_choices();

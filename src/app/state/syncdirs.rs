@@ -57,7 +57,7 @@ impl AppState {
         let (fs_b, root_b) = (self.panels[b].backend.clone(), self.panels[b].cwd.clone());
         let roots = [self.sync_label(a), self.sync_label(b)];
         let tx = self.tx.clone();
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             let result = async {
                 let ta = sync::walk(&fs_a, &root_a).await?;
                 let tb = sync::walk(&fs_b, &root_b).await?;
@@ -77,14 +77,15 @@ impl AppState {
             .map_err(|e| e.to_string());
             let _ = tx.send(AppEvent::SyncPlanned { result: result.map(Box::new) }).await;
         });
-        self.dialog = Some(Dialog::Busy(BusyDialog::new(
-            "Synchronize",
-            "Comparing directories…".to_string(),
-        )));
+        self.busy_task = Some(handle);
+        self.dialog = Some(Dialog::Busy(
+            BusyDialog::new("Synchronize", "Comparing directories…".to_string()).cancellable(),
+        ));
     }
 
     /// The plan is ready: show it. Nothing has been touched yet.
     pub(in crate::app::state) fn on_sync_planned(&mut self, result: Result<SyncPlan, String>) {
+        self.busy_task = None; // the walk delivered its result
         match result {
             Ok(plan) => self.dialog = Some(Dialog::SyncPreview(SyncPreviewDialog::new(plan))),
             Err(e) => self.show_error(format!("Cannot compare the directories: {e}")),

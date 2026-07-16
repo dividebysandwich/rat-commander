@@ -379,7 +379,7 @@ impl Dialog {
             Dialog::Input(d) => d.handle_key(key),
             Dialog::Confirm(d) => d.handle_key(key),
             Dialog::Progress(d) => d.handle_key(key),
-            Dialog::Busy(_) => DialogResult::None, // ignore keys while working
+            Dialog::Busy(d) => d.handle_key(key),
             Dialog::Goto(d) => d.handle_key(key),
             Dialog::FlashTarget(d) => d.handle_key(key),
             Dialog::FileBrowser(d) => d.handle_key(key),
