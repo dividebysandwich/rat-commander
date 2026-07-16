@@ -3356,3 +3356,24 @@ async fn esc_on_a_cancellable_busy_aborts_its_task() {
     assert!(st.dialog.is_none(), "the spinner is dismissed");
     assert!(st.busy_task.is_none(), "the task handle was taken and aborted");
 }
+
+/// A destructive op on a file whose name isn't valid UTF-8 is refused with a
+/// clear message, rather than acting on a lossily-decoded (wrong/nonexistent)
+/// path. Guards copy/move/delete/rename.
+#[tokio::test]
+async fn operations_refuse_a_non_utf8_filename() {
+    use crate::ops::OpKind;
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    // A path whose name carries the replacement char (as a lossy listing would).
+    let lossy = VfsPath::local("/tmp/ba\u{FFFD}d.bin");
+    assert!(lossy.has_lossy_name());
+
+    st.start_op(OpKind::Delete, vec![lossy], None, None, None);
+
+    assert!(
+        matches!(&st.dialog, Some(Dialog::Message(m)) if m.is_error),
+        "an error is shown instead of running the op"
+    );
+    assert!(st.tasks.is_empty(), "no delete task was spawned");
+}

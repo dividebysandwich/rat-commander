@@ -73,6 +73,22 @@ impl AppState {
             .or_else(|| (0..p.cursor).rev().find_map(&surviving))
     }
 
+    /// If any of `targets` has a non-UTF-8 (lossily-decoded) name, refuse the
+    /// operation with a clear message and return `true`. Prevents copy/move/
+    /// delete/rename from acting on the wrong (or a nonexistent) path — see
+    /// [`VfsPath::has_lossy_name`].
+    pub(in crate::app::state) fn refuse_lossy(&mut self, targets: &[VfsPath]) -> bool {
+        if let Some(bad) = targets.iter().find(|t| t.has_lossy_name()) {
+            self.show_error(format!(
+                "\"{}\" has a name that isn't valid UTF-8; rename it from a shell before operating on it",
+                bad.file_name()
+            ));
+            true
+        } else {
+            false
+        }
+    }
+
     pub(in crate::app::state) fn start_op(
         &mut self,
         kind: OpKind,
@@ -82,6 +98,9 @@ impl AppState {
         dst_name: Option<String>,
     ) {
         if sources.is_empty() {
+            return;
+        }
+        if self.refuse_lossy(&sources) {
             return;
         }
         // For a delete, remember the surviving entry just above the deleted one
@@ -225,6 +244,10 @@ impl AppState {
     /// not-yet-renamed sibling. Existing files outside the batch are never
     /// overwritten.
     pub(in crate::app::state) async fn do_multi_rename(&mut self, plan: Vec<(VfsPath, String)>) {
+        let sources: Vec<VfsPath> = plan.iter().map(|(p, _)| p.clone()).collect();
+        if self.refuse_lossy(&sources) {
+            return;
+        }
         // Drop no-ops (unchanged names).
         let jobs: Vec<(VfsPath, String)> = plan
             .into_iter()

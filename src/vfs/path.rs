@@ -112,6 +112,18 @@ impl VfsPath {
             .unwrap_or_else(|| self.path.to_string_lossy().into_owned())
     }
 
+    /// Whether this path's name didn't survive the trip from the OS — it contains
+    /// the Unicode replacement character `U+FFFD`, meaning a non-UTF-8 name was
+    /// decoded lossily when the directory was listed. Such a path can't be acted
+    /// on reliably: joining the lossy string back produces a *different* byte
+    /// sequence than the file actually has, so an operation would fail or, worse,
+    /// touch the wrong file. Callers refuse rather than guess. (The real fix — a
+    /// bytes/`OsString`-based path — is a larger change; this keeps the common
+    /// case safe in the meantime.)
+    pub fn has_lossy_name(&self) -> bool {
+        self.path.to_string_lossy().contains('\u{FFFD}')
+    }
+
     /// The parent path. At the root of an archive, this exits the archive back
     /// to the directory containing the archive file on local disk.
     pub fn parent(&self) -> Option<VfsPath> {
@@ -169,6 +181,13 @@ impl VfsPath {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn has_lossy_name_flags_the_replacement_char() {
+        assert!(!VfsPath::local("/home/user/file.txt").has_lossy_name());
+        assert!(!VfsPath::local("/home/user/naïve.txt").has_lossy_name(), "valid UTF-8 is fine");
+        assert!(VfsPath::local("/home/user/ba\u{FFFD}d").has_lossy_name(), "a lossy-decoded name is flagged");
+    }
+
     use super::*;
 
     fn remote(path: &str) -> VfsPath {
