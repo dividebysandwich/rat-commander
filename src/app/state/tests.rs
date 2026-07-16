@@ -1559,6 +1559,71 @@ async fn delete_anchor_targets_next_file() {
     std::fs::remove_dir_all(&root).ok();
 }
 
+/// A file operation on the active panel must not disturb an unrelated selection
+/// (or the cursor) sitting on the *inactive* panel: only the panel whose files
+/// the op consumed has its marks cleared.
+#[tokio::test]
+async fn delete_on_active_panel_leaves_inactive_selection_and_cursor() {
+    use crate::ui::dialog::Submit;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("rc_delkeep_{}_{nanos}", std::process::id()));
+    let left = root.join("left");
+    let right = root.join("right");
+    std::fs::create_dir_all(&left).unwrap();
+    std::fs::create_dir_all(&right).unwrap();
+    for n in ["a.txt", "b.txt", "c.txt"] {
+        std::fs::write(left.join(n), b"data").unwrap();
+    }
+    for n in ["x.txt", "y.txt", "z.txt"] {
+        std::fs::write(right.join(n), b"data").unwrap();
+    }
+
+    let (tx, mut rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::local(&left);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+    st.panels[1].cwd = VfsPath::local(&right);
+    st.panels[1].backend = st.registry.local();
+    st.panels[1].reload().await.unwrap();
+
+    // The inactive panel (1) carries an unrelated selection and a cursor parked
+    // on a specific entry.
+    st.panels[1].selection.mark("y.txt");
+    st.panels[1].selection.mark("z.txt");
+    let cursor_name = "y.txt";
+    st.panels[1].cursor =
+        st.panels[1].entries.iter().position(|e| e.name == cursor_name).unwrap();
+
+    // The active panel (0) marks its own files and deletes them.
+    st.panels[0].selection.mark("a.txt");
+    st.panels[0].selection.mark("b.txt");
+    let targets = st.panels[0].operation_targets();
+    assert_eq!(targets.len(), 2, "two files marked on the active panel");
+    st.handle_submit(Submit::Delete(targets)).await;
+    drain_taskdone(&mut st, &mut rx).await;
+
+    // The deleted files are gone, and the active panel's marks were consumed.
+    assert!(!left.join("a.txt").exists() && !left.join("b.txt").exists());
+    assert!(st.panels[0].selection.is_empty(), "active panel's selection cleared");
+
+    // The inactive panel is untouched: its selection survives...
+    assert!(st.panels[1].selection.is_marked("y.txt"), "inactive selection kept (y)");
+    assert!(st.panels[1].selection.is_marked("z.txt"), "inactive selection kept (z)");
+    // ...and its cursor still sits on the same entry.
+    assert_eq!(
+        st.panels[1].current_entry().map(|e| e.name.as_str()),
+        Some(cursor_name),
+        "inactive panel's cursor left in place",
+    );
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
 #[tokio::test]
 async fn right_drag_inverts_selection_across_files() {
     use ratatui::Terminal;

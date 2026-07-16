@@ -204,6 +204,13 @@ pub struct AppState {
     /// and the "Background operations" list keep updating even when the task's
     /// progress dialog is not the foreground one.
     pub(in crate::app::state) task_progress: HashMap<TaskId, BgTransfer>,
+    /// For each file operation that consumed a panel's marked set (copy/move/
+    /// delete/compress/archive), the index of the panel the selection came from
+    /// (the active panel when the op started). When the task finishes, only that
+    /// panel's selection is dropped — so an unrelated selection sitting on the
+    /// *other* (inactive) panel is left untouched. Ops that consume no selection
+    /// (sync, checksum, view-fetch) record nothing here.
+    op_source: HashMap<TaskId, usize>,
     next_task_id: TaskId,
     next_session_id: usize,
     tx: AppSender,

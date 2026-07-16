@@ -92,6 +92,9 @@ impl AppState {
         }
         let id = self.next_task_id;
         self.next_task_id += 1;
+        // The sources are the active panel's marked set (or its cursor entry), so
+        // that panel's selection is the one to drop once the op finishes.
+        self.op_source.insert(id, self.active);
         let verb = match kind {
             OpKind::Copy => "Copying",
             OpKind::Move => "Moving",
@@ -377,6 +380,9 @@ impl AppState {
     {
         let id = self.next_task_id;
         self.next_task_id += 1;
+        // Compress / archive-add / archive-remove all act on the active panel's
+        // marked set, so its selection is the one to drop when the op finishes.
+        self.op_source.insert(id, self.active);
         let tx = self.tx.clone();
         tokio::spawn(async move {
             let outcome = match tokio::task::spawn_blocking(f).await {

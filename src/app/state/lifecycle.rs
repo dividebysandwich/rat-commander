@@ -55,6 +55,7 @@ impl AppState {
             last_local_cwd: [cwd.clone(), cwd],
             tasks: HashMap::new(),
             task_progress: HashMap::new(),
+            op_source: HashMap::new(),
             next_task_id: 1,
             next_session_id: 0,
             tx,
@@ -334,8 +335,13 @@ impl AppState {
                 if let TaskOutcome::Failed(msg) = outcome {
                     self.dialog = Some(Dialog::Message(MessageDialog::error(msg)));
                 }
-                // Drop selections that were just operated on, then refresh.
-                for p in self.panels.iter_mut() {
+                // Drop only the selection that was just operated on: the marked
+                // set on the panel the op's sources came from. A selection sitting
+                // on the *other* (inactive) panel is unrelated to this op and is
+                // left alone, along with its cursor (the reload keeps it in place).
+                if let Some(src) = self.op_source.remove(&id)
+                    && let Some(p) = self.panels.get_mut(src)
+                {
                     p.selection.clear();
                 }
                 self.reload_all().await;
