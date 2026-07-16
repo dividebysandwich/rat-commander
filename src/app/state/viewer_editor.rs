@@ -270,8 +270,7 @@ impl AppState {
         );
         self.dialog = Some(Dialog::Progress(ProgressDialog::new(id, "Reading")));
 
-        let safe: String = name.chars().map(|c| if c == '/' { '_' } else { c }).collect();
-        let temp = std::env::temp_dir().join(format!("rc_fetch_{}_{id}_{safe}", std::process::id()));
+        let temp = crate::util::temp::rc_temp_path("fetch");
         let tx = self.tx.clone();
         let orig_path = path.clone();
         tokio::spawn(async move {

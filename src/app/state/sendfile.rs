@@ -42,7 +42,7 @@ impl AppState {
         let download_name = format!("{stem}.zip");
         let id = self.next_task_id;
         self.next_task_id += 1;
-        let dest = std::env::temp_dir().join(format!("rc-send-{}-{}.zip", std::process::id(), id));
+        let dest = crate::util::temp::rc_temp_path("send").with_extension("zip");
         let local: Vec<PathBuf> = sources.iter().map(|s| s.path.clone()).collect();
         let tx = self.tx.clone();
         tokio::spawn(async move {

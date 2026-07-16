@@ -7,6 +7,7 @@ pub mod error;
 pub mod img;
 pub mod qr;
 pub mod sysinfo;
+pub mod temp;
 pub mod text;
 
 pub use error::{Error, Result};

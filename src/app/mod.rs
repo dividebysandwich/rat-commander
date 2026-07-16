@@ -29,6 +29,11 @@ pub async fn run(startup: crate::Startup) -> Result<()> {
     // Load user themes (generating themes.toml from the presets on first run)
     // before the initial theme is derived from the config.
     crate::ui::theme::load_user_themes();
+    // Reclaim scratch files a previous run leaked (e.g. an in-flight remote fetch
+    // whose delivering event was dropped when the app quit). Runs before any temp
+    // of our own is created, and only touches old ones, so a concurrent instance
+    // is undisturbed.
+    crate::util::temp::sweep_stale();
     let (tx, mut rx) = async_bridge::channel();
     let mut state = AppState::new(tx);
     // Generate/discover the `lang/` files and activate the configured language

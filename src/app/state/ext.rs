@@ -117,8 +117,7 @@ impl AppState {
         } else {
             std::env::temp_dir()
         };
-        let safe: String = name.chars().map(|c| if c == '/' { '_' } else { c }).collect();
-        let temp = std::env::temp_dir().join(format!("rc_extview_{}_{id}_{safe}", std::process::id()));
+        let temp = crate::util::temp::rc_temp_path("extview");
         let tx = self.tx.clone();
         tokio::spawn(async move {
             match run_capture(&cmd, &dir, &temp, &cancel).await {
