@@ -22,7 +22,17 @@ pub struct UserMenuEntry {
 pub fn load_or_create() -> Vec<UserMenuEntry> {
     if let Some(path) = paths::menu_file() {
         match std::fs::read_to_string(&path) {
-            Ok(text) => return parse(&text),
+            Ok(text) => {
+                // Repair the historical compress-command bug in any menu file
+                // shipped before the fix (see [`fix_compress_commands`]). Best
+                // effort on the write; parse the corrected text either way so
+                // F2 works this session even if the file can't be rewritten.
+                if let Some(fixed) = fix_compress_commands(&text) {
+                    let _ = std::fs::write(&path, &fixed);
+                    return parse(&fixed);
+                }
+                return parse(&text);
+            }
             Err(_) => {
                 // Create the default menu (best effort).
                 if let Some(parent) = path.parent() {
@@ -34,6 +44,52 @@ pub fn load_or_create() -> Vec<UserMenuEntry> {
         }
     }
     parse(DEFAULT_MENU)
+}
+
+/// The `tar` lines shipped (before the fix) by the four "Compress the current
+/// subdirectory" entries. Each ran from *inside* the panel's own directory, so
+/// `basename %d` named a sibling that didn't exist there
+/// (`tar: <dir>: Cannot stat`).
+const BUGGY_COMPRESS_LINES: &[&str] = &[
+    "tar cf - \"$Pwd\" | gzip -f9 > \"$Pwd.tar.gz\"",
+    "tar cf - \"$Pwd\" | bzip2 -f9 > \"$Pwd.tar.bz2\"",
+    "tar cf - \"$Pwd\" | xz -f9 > \"$Pwd.tar.xz\"",
+    "tar cf - \"$Pwd\" | zstd -19 -o \"$Pwd.tar.zst\"",
+];
+
+/// Repair the compress-command bug in an existing menu file: prepend `cd ..` so
+/// `tar` runs from the parent directory. Only the exact shipped-buggy lines are
+/// touched, and only when a preceding command hasn't already `cd`'d away, so a
+/// customised or already-fixed menu is left untouched. Idempotent — the fixed
+/// line no longer matches. Returns the corrected text, or `None` if unchanged.
+fn fix_compress_commands(text: &str) -> Option<String> {
+    let mut changed = false;
+    let mut prev_cmd = "";
+    let fixed: Vec<String> = text
+        .lines()
+        .map(|line| {
+            let trimmed = line.trim();
+            let fix = BUGGY_COMPRESS_LINES.contains(&trimmed) && !prev_cmd.starts_with("cd ");
+            if !trimmed.is_empty() {
+                prev_cmd = trimmed;
+            }
+            if fix {
+                changed = true;
+                let indent = &line[..line.len() - line.trim_start().len()];
+                format!("{indent}cd .. && {trimmed}")
+            } else {
+                line.to_string()
+            }
+        })
+        .collect();
+    if !changed {
+        return None;
+    }
+    let mut out = fixed.join("\n");
+    if text.ends_with('\n') {
+        out.push('\n');
+    }
+    Some(out)
 }
 
 /// Ensure the F2 user `menu` file exists on disk (writing the default if it
@@ -109,19 +165,19 @@ pub const DEFAULT_MENU: &str = r#"# rat-commander user menu (Midnight Commander 
 
 3      Compress the current subdirectory (tar.gz)
         Pwd=`basename "%d"`
-        tar cf - "$Pwd" | gzip -f9 > "$Pwd.tar.gz"
+        cd .. && tar cf - "$Pwd" | gzip -f9 > "$Pwd.tar.gz"
 
 4      Compress the current subdirectory (tar.bz2)
         Pwd=`basename "%d"`
-        tar cf - "$Pwd" | bzip2 -f9 > "$Pwd.tar.bz2"
+        cd .. && tar cf - "$Pwd" | bzip2 -f9 > "$Pwd.tar.bz2"
 
 5      Compress the current subdirectory (tar.xz)
         Pwd=`basename "%d"`
-        tar cf - "$Pwd" | xz -f9 > "$Pwd.tar.xz"
+        cd .. && tar cf - "$Pwd" | xz -f9 > "$Pwd.tar.xz"
 
 6      Compress the current subdirectory (tar.zst)
         Pwd=`basename "%d"`
-        tar cf - "$Pwd" | zstd -19 -o "$Pwd.tar.zst"
+        cd .. && tar cf - "$Pwd" | zstd -19 -o "$Pwd.tar.zst"
 
 m      View manual page
         man -P cat "%f" | ${PAGER:-less}
@@ -167,5 +223,49 @@ mod tests {
         assert_eq!(e.len(), 1);
         assert_eq!(e[0].hotkey, 'x');
         assert_eq!(e[0].command, "echo hi");
+    }
+
+    /// The default compress commands must `cd ..` so `tar` runs from the parent
+    /// (the panel's own directory is the cwd, so `basename %d` names a sibling
+    /// that isn't there). Regression guard for the original bug report.
+    #[test]
+    fn default_compress_commands_cd_up_first() {
+        for hk in ['3', '4', '5', '6'] {
+            let e = parse(DEFAULT_MENU).into_iter().find(|e| e.hotkey == hk).unwrap();
+            assert!(
+                e.command.contains("cd .. && tar cf - \"$Pwd\""),
+                "entry {hk} must cd up before tar: {:?}",
+                e.command
+            );
+        }
+        // And the fixed default is stable under a re-run of the migration.
+        assert!(fix_compress_commands(DEFAULT_MENU).is_none(), "default is already fixed");
+    }
+
+    #[test]
+    fn migration_fixes_the_buggy_tar_lines() {
+        let buggy = "3      Compress the current subdirectory (tar.gz)\n        Pwd=`basename \"%d\"`\n        tar cf - \"$Pwd\" | gzip -f9 > \"$Pwd.tar.gz\"\n";
+        let fixed = fix_compress_commands(buggy).expect("buggy text is rewritten");
+        assert!(fixed.contains("        cd .. && tar cf - \"$Pwd\" | gzip -f9 > \"$Pwd.tar.gz\""));
+        assert!(fixed.ends_with('\n'), "trailing newline preserved");
+        // Idempotent: the corrected text is not rewritten again.
+        assert!(fix_compress_commands(&fixed).is_none());
+    }
+
+    #[test]
+    fn migration_preserves_indentation() {
+        // A tab-indented custom copy is fixed with its own indentation kept.
+        let buggy = "x Zip it\n\ttar cf - \"$Pwd\" | xz -f9 > \"$Pwd.tar.xz\"\n";
+        let fixed = fix_compress_commands(buggy).unwrap();
+        assert!(fixed.contains("\tcd .. && tar cf - \"$Pwd\" | xz -f9 > \"$Pwd.tar.xz\""));
+    }
+
+    #[test]
+    fn migration_leaves_already_fixed_menus_alone() {
+        // MC-style fix on a separate line — must not add a second `cd ..`.
+        let mc_style = "        Pwd=`basename \"%d\"`\n        cd ..\n        tar cf - \"$Pwd\" | gzip -f9 > \"$Pwd.tar.gz\"\n";
+        assert!(fix_compress_commands(mc_style).is_none());
+        // An unrelated menu is untouched.
+        assert!(fix_compress_commands("x Title\n\techo hi\n").is_none());
     }
 }
