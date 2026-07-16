@@ -185,11 +185,7 @@ fn render_pane(f: &mut Frame, area: Rect, nv: &mut NetView, pane: usize, theme: 
     }
 
     let cursor = nv.cursor[pane];
-    if cursor < nv.offset[pane] {
-        nv.offset[pane] = cursor;
-    } else if vr > 0 && cursor >= nv.offset[pane] + vr {
-        nv.offset[pane] = cursor + 1 - vr;
-    }
+    nv.offset[pane] = crate::util::scroll::scroll_to_visible(nv.offset[pane], cursor, vr);
     let off = nv.offset[pane];
     for (i, text) in rows.iter().enumerate().skip(off).take(vr) {
         let y = list.y + (i - off) as u16;
@@ -610,11 +606,7 @@ fn render_overview(f: &mut Frame, area: Rect, nv: &mut NetView, theme: &Theme, g
     let visible = grid.height as usize;
     if let Some((_, _, r)) = nv.overview_nodes.get(nv.overview_cursor) {
         let sy = r.y as usize;
-        if sy < nv.overview_scroll {
-            nv.overview_scroll = sy;
-        } else if sy >= nv.overview_scroll + visible {
-            nv.overview_scroll = sy + 1 - visible;
-        }
+        nv.overview_scroll = crate::util::scroll::scroll_to_visible(nv.overview_scroll, sy, visible);
     }
     nv.overview_scroll = nv.overview_scroll.min(total_h.saturating_sub(visible));
     let scroll = nv.overview_scroll;

@@ -119,11 +119,7 @@ impl DirHistoryDialog {
 
         self.view_h = inner.height as usize;
         // Scroll only when the cursor would leave the window, so it moves freely.
-        if self.cursor < self.offset {
-            self.offset = self.cursor;
-        } else if self.cursor >= self.offset + self.view_h {
-            self.offset = self.cursor + 1 - self.view_h;
-        }
+        self.offset = crate::util::scroll::scroll_to_visible(self.offset, self.cursor, self.view_h);
         self.offset = self.offset.min(self.entries.len().saturating_sub(self.view_h));
 
         let base = Style::default().fg(theme.dialog_fg).bg(theme.dialog_bg);

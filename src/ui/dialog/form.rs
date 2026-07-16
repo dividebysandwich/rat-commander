@@ -1328,11 +1328,7 @@ impl FormDialog {
             if let Field::Choice { options, sel, top, open: true, .. } = field {
                 let field_y = rows[i].y;
                 let visible = choice_visible_rows(inner, area, field_y, options.len());
-                if *sel < *top {
-                    *top = *sel;
-                } else if *sel >= *top + visible {
-                    *top = *sel + 1 - visible;
-                }
+                *top = crate::util::scroll::scroll_to_visible(*top, *sel, visible);
                 render_choice_dropdown(f, inner, area, field_y, options, *sel, *top, theme);
             }
         }

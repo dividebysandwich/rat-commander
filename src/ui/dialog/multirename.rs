@@ -424,11 +424,7 @@ impl MultiRenameDialog {
         f.buffer_mut().set_string(divider_x, hdr.y, "│", dim);
 
         self.list_rows = (list.height as usize).max(1);
-        if self.cursor < self.top {
-            self.top = self.cursor;
-        } else if self.cursor >= self.top + self.list_rows {
-            self.top = self.cursor + 1 - self.list_rows;
-        }
+        self.top = crate::util::scroll::scroll_to_visible(self.top, self.cursor, self.list_rows);
         self.list_left = left;
         self.list_right = right;
 

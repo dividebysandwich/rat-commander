@@ -33,7 +33,7 @@ impl UserMenuDialog {
         let height = (self.entries.len() as u16 + 2).min(max_h.max(3));
         let rect = centered(area, width, height);
         let rows = rect.height.saturating_sub(2) as usize;
-        let first = if self.cursor < rows { 0 } else { self.cursor + 1 - rows };
+        let first = crate::util::scroll::scroll_to_visible(0, self.cursor, rows);
         (rect, first)
     }
 

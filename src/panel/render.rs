@@ -393,11 +393,7 @@ fn ensure_visible(cursor: usize, offset: &mut usize, height: usize) {
     if height == 0 {
         return;
     }
-    if cursor < *offset {
-        *offset = cursor;
-    } else if cursor >= *offset + height {
-        *offset = cursor + 1 - height;
-    }
+    *offset = crate::util::scroll::scroll_to_visible(*offset, cursor, height);
 }
 
 /// Column widths for the full-format listing — `(name_w, size_w, time_w)` — for
@@ -549,11 +545,7 @@ fn render_brief(
     // column boundary — a multiple of `rows`).
     let cursor_col = panel.cursor / rows;
     let mut first_col = panel.offset / rows;
-    if cursor_col < first_col {
-        first_col = cursor_col;
-    } else if cursor_col >= first_col + columns {
-        first_col = cursor_col + 1 - columns;
-    }
+    first_col = crate::util::scroll::scroll_to_visible(first_col, cursor_col, columns);
     panel.offset = first_col * rows;
 
     let mut lines: Vec<Line> = Vec::with_capacity(rows);

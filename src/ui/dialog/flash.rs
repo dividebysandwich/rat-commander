@@ -161,11 +161,7 @@ impl FlashTargetDialog {
         let list = rows[2];
         let lw = list.width as usize;
         self.list_rows = (list.height as usize).max(1);
-        if self.cursor < self.top {
-            self.top = self.cursor;
-        } else if self.cursor >= self.top + self.list_rows {
-            self.top = self.cursor + 1 - self.list_rows;
-        }
+        self.top = crate::util::scroll::scroll_to_visible(self.top, self.cursor, self.list_rows);
         self.list_area = list;
         let dim = Style::default().fg(theme.panel_border).bg(theme.dialog_bg);
         let mut lines: Vec<Line> = Vec::with_capacity(self.list_rows);
@@ -475,11 +471,7 @@ impl FileBrowserDialog {
         let list = rows[3];
         let lw = list.width as usize;
         self.list_rows = (list.height as usize).max(1);
-        if self.cursor < self.top {
-            self.top = self.cursor;
-        } else if self.cursor >= self.top + self.list_rows {
-            self.top = self.cursor + 1 - self.list_rows;
-        }
+        self.top = crate::util::scroll::scroll_to_visible(self.top, self.cursor, self.list_rows);
         self.list_area = list;
         let dir_style = Style::default().fg(theme.dir_fg).bg(theme.dialog_bg);
         let mut lines: Vec<Line> = Vec::with_capacity(self.list_rows);
@@ -756,11 +748,7 @@ impl ImageSaveDialog {
         let list = rows[2];
         let lw = list.width as usize;
         self.list_rows = (list.height as usize).max(1);
-        if self.cursor < self.top {
-            self.top = self.cursor;
-        } else if self.cursor >= self.top + self.list_rows {
-            self.top = self.cursor + 1 - self.list_rows;
-        }
+        self.top = crate::util::scroll::scroll_to_visible(self.top, self.cursor, self.list_rows);
         self.list_area = list;
         let dir_style = Style::default().fg(theme.dir_fg).bg(theme.dialog_bg);
         let mut lines: Vec<Line> = Vec::with_capacity(self.list_rows);

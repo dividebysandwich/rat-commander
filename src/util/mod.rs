@@ -6,6 +6,7 @@ pub mod checksum;
 pub mod error;
 pub mod img;
 pub mod qr;
+pub mod scroll;
 pub mod sysinfo;
 pub mod temp;
 pub mod text;

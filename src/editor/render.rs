@@ -261,16 +261,8 @@ fn render_hex_footer(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme)
 fn ensure_visible(ed: &mut EditorState) {
     let line = ed.buf.char_to_line(ed.cursor);
     let col = ed.cursor - ed.buf.line_to_char(line);
-    if line < ed.top_line {
-        ed.top_line = line;
-    } else if ed.view_rows > 0 && line >= ed.top_line + ed.view_rows {
-        ed.top_line = line + 1 - ed.view_rows;
-    }
-    if col < ed.left_col {
-        ed.left_col = col;
-    } else if ed.view_cols > 0 && col >= ed.left_col + ed.view_cols {
-        ed.left_col = col + 1 - ed.view_cols;
-    }
+    ed.top_line = crate::util::scroll::scroll_to_visible(ed.top_line, line, ed.view_rows);
+    ed.left_col = crate::util::scroll::scroll_to_visible(ed.left_col, col, ed.view_cols);
 }
 
 fn render_status(f: &mut Frame, area: Rect, ed: &EditorState, theme: &Theme) {

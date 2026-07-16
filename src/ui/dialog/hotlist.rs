@@ -161,11 +161,7 @@ impl HotlistDialog {
         };
         self.list_area = list;
         let visible = list.height as usize;
-        if self.cursor < self.offset {
-            self.offset = self.cursor;
-        } else if self.cursor >= self.offset + visible {
-            self.offset = self.cursor + 1 - visible;
-        }
+        self.offset = crate::util::scroll::scroll_to_visible(self.offset, self.cursor, visible);
 
         let mut lines: Vec<Line> = Vec::with_capacity(visible);
         if self.entries.is_empty() {

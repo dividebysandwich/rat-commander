@@ -104,11 +104,7 @@ fn render_outline(f: &mut Frame, area: Rect, v: &mut ViewerState, theme: &Theme)
     let rows = inner.height as usize;
 
     // Keep the selection within the visible window, then clamp the scroll offset.
-    if v.outline_sel < v.outline_top {
-        v.outline_top = v.outline_sel;
-    } else if rows > 0 && v.outline_sel >= v.outline_top + rows {
-        v.outline_top = v.outline_sel + 1 - rows;
-    }
+    v.outline_top = crate::util::scroll::scroll_to_visible(v.outline_top, v.outline_sel, rows);
     v.outline_top = v.outline_top.min(items.len().saturating_sub(rows));
 
     let width = inner.width as usize;

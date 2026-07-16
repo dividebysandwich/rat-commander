@@ -298,11 +298,7 @@ impl CommandPaletteDialog {
         self.list_area = list;
         let visible = list.height as usize;
         // Keep the selection within the visible window.
-        if self.sel < self.offset {
-            self.offset = self.sel;
-        } else if self.sel >= self.offset + visible {
-            self.offset = self.sel + 1 - visible;
-        }
+        self.offset = crate::util::scroll::scroll_to_visible(self.offset, self.sel, visible);
 
         let mut lines: Vec<Line> = Vec::with_capacity(visible);
         for (row, hit) in self.filtered.iter().enumerate().skip(self.offset).take(visible) {

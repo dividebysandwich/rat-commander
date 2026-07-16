@@ -166,11 +166,7 @@ fn render_item_list(f: &mut Frame, area: Rect, ed: &mut ThemeEditor, theme: &The
         return;
     }
     // Keep the selected item within the visible window.
-    if ed.item < ed.item_top {
-        ed.item_top = ed.item;
-    } else if ed.item >= ed.item_top + h {
-        ed.item_top = ed.item + 1 - h;
-    }
+    ed.item_top = crate::util::scroll::scroll_to_visible(ed.item_top, ed.item, h);
     let max_top = THEME_FIELDS.len().saturating_sub(h);
     ed.item_top = ed.item_top.min(max_top);
 

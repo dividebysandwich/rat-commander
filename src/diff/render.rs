@@ -29,11 +29,7 @@ pub fn render(f: &mut Frame, area: Rect, dv: &mut DiffView, theme: &Theme) {
     render_status(f, status, dv, theme);
 
     dv.view_rows = body.height as usize;
-    if dv.cursor < dv.top {
-        dv.top = dv.cursor;
-    } else if dv.cursor >= dv.top + dv.view_rows {
-        dv.top = dv.cursor + 1 - dv.view_rows;
-    }
+    dv.top = crate::util::scroll::scroll_to_visible(dv.top, dv.cursor, dv.view_rows);
 
     let base_bg = theme.panel_bg;
     let absent_bg = mix(base_bg, theme.panel_border, 0.5);

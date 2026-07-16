@@ -626,11 +626,7 @@ fn render_table(f: &mut Frame, area: Rect, pv: &mut ProcView, theme: &Theme) {
     let rows = body.height as usize;
     pv.view_rows = rows;
     // Keep the cursor visible.
-    if pv.cursor < pv.offset {
-        pv.offset = pv.cursor;
-    } else if pv.cursor >= pv.offset + rows {
-        pv.offset = pv.cursor + 1 - rows;
-    }
+    pv.offset = crate::util::scroll::scroll_to_visible(pv.offset, pv.cursor, rows);
 
     let normal = Style::default().fg(theme.panel_fg).bg(theme.panel_bg);
     let mut lines: Vec<Line> = Vec::with_capacity(rows);
