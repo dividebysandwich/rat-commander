@@ -357,6 +357,20 @@ async fn go_local_restores_remembered_dir_not_process_cwd() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+/// On startup the initially-active panel opens at the current directory (where
+/// rc was launched), not its last-saved directory.
+#[tokio::test]
+async fn startup_active_panel_opens_at_current_directory() {
+    let (tx, _rx) = async_bridge::channel();
+    let st = AppState::new(tx);
+    let cwd = std::env::current_dir().unwrap();
+    assert_eq!(
+        st.panels[st.active].cwd,
+        VfsPath::local(&cwd),
+        "the active panel starts at the process cwd regardless of the saved session"
+    );
+}
+
 #[test]
 fn other_panel_is_remote_treats_archive_as_local() {
     let (tx, _rx) = async_bridge::channel();

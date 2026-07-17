@@ -1395,8 +1395,10 @@ Configuration files live in your platform config directory
   history; set it to `0` to disable history. Finally it remembers the **session
   layout** — each panel's last directory, listing filter, visibility and
   half-height state, the split direction, and which side was active — and
-  restores it on the next launch (a panel whose saved directory is gone falls
-  back to the working directory).
+  restores it on the next launch. The one exception is the initially-active
+  panel, which opens at the current directory (where `rc` was launched) so you
+  land where you were working; the other panel restores its saved directory (or
+  the working directory if that directory is gone).
 - **`history`** — the persistent command-line history, one command per line
   (recalled with `Alt-P` / `Alt-N` / `Alt-H`), trimmed to `command_history_max`.
 - **`editor-positions.toml`** — the editor's cursor-position memory for the last

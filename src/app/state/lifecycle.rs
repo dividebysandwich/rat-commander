@@ -15,26 +15,30 @@ impl AppState {
         left.sort = config.panels[0].sort;
         right.format = config.panels[1].format;
         right.sort = config.panels[1].sort;
-        // Restore each panel's last local directory (if it still exists) and its
-        // persistent filter; `init()` reloads the listings afterward.
+        // Restored layout scalars (captured before `config` is moved below).
+        let restored_active = config.active_panel.min(1);
+        // The initially-active panel opens at the current directory (where rc was
+        // launched), so you land where you were working; the *other* panel restores
+        // its last local directory (if it still exists). Each panel's persistent
+        // filter is restored either way. `init()` reloads the listings afterward.
         for (i, panel) in [&mut left, &mut right].into_iter().enumerate() {
-            let dir = &config.panel_dirs[i];
-            if !dir.is_empty() && std::path::Path::new(dir).is_dir() {
-                panel.cwd = VfsPath::local(dir);
+            if i != restored_active {
+                let dir = &config.panel_dirs[i];
+                if !dir.is_empty() && std::path::Path::new(dir).is_dir() {
+                    panel.cwd = VfsPath::local(dir);
+                }
             }
             let filter = &config.panel_filters[i];
             if !filter.is_empty() {
                 panel.filter = Some(filter.clone());
             }
         }
-        // Restored layout scalars (captured before `config` is moved below).
-        let restored_active = config.active_panel.min(1);
         let restored_split =
             if config.split_horizontal { SplitDir::Horizontal } else { SplitDir::Vertical };
         let restored_hidden = config.panel_hidden;
         let restored_half = config.half_height;
-        // "Go local" should return to each panel's restored directory, not the
-        // process cwd.
+        // "Go local" returns each panel to where it started — the active panel's
+        // current directory, the other's restored directory.
         let last_local = [left.cwd.clone(), right.cwd.clone()];
         let truecolor = config.truecolor.unwrap_or_else(detect_truecolor);
         let theme = Theme::by_name(&config.theme, truecolor);

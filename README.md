@@ -311,10 +311,11 @@ Settings dialog), **`themes.toml`** (editable color themes), **`lang/`**
 Midnight Commander format). See the
 **[user manual](doc/MANUAL.md#configuration)** for details.
 
-**Session layout** is remembered between runs: on the next launch each panel
-reopens at its last directory (falling back to the working directory if it is
-gone), with its split direction, visibility, active side and listing filter
-restored. When no external editor or viewer is configured, `rc` falls back to
+**Session layout** is remembered between runs: on the next launch the initially
+active panel opens at the current directory (where you launched `rc`), the other
+panel reopens at its last directory (falling back to the working directory if it
+is gone), and the split direction, visibility, active side and listing filters
+are restored. When no external editor or viewer is configured, `rc` falls back to
 **`$VISUAL`** then **`$EDITOR`** for editing and **`$PAGER`** for viewing before
 using the built-in ones.
 
