@@ -25,6 +25,8 @@ pub enum InputPurpose {
     NetworkPassword,
     /// Set the persistent listing filter on panel `side` (blank clears it).
     PanelFilter(usize),
+    /// Answer a `%{…}` prompt of a user-menu command (any text, blank allowed).
+    MenuPrompt,
 }
 
 pub struct InputDialog {
@@ -102,6 +104,11 @@ impl InputDialog {
                         pattern: self.buffer.trim().to_string(),
                     });
                 }
+                // A `%{…}` menu prompt substitutes exactly what was typed (which
+                // may legitimately be empty), verbatim — no trimming or quoting.
+                if let InputPurpose::MenuPrompt = self.purpose {
+                    return DialogResult::Submit(Submit::MenuPrompt(self.buffer.clone()));
+                }
                 let text = self.buffer.trim().to_string();
                 if text.is_empty() {
                     return DialogResult::Cancel;
@@ -119,7 +126,8 @@ impl InputDialog {
                     | InputPurpose::FlashPassword
                     | InputPurpose::ImagePassword
                     | InputPurpose::NetworkPassword
-                    | InputPurpose::PanelFilter(_) => unreachable!(),
+                    | InputPurpose::PanelFilter(_)
+                    | InputPurpose::MenuPrompt => unreachable!(),
                 };
                 DialogResult::Submit(submit)
             }

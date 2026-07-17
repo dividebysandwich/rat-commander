@@ -60,6 +60,18 @@ pub enum Flow {
     SubShell,
 }
 
+/// A user-menu (F2) command paused while its `%{…}` interactive prompts are
+/// answered one input dialog at a time. Once `answers` covers every `label`, the
+/// template is expanded (with the answers substituted) and run.
+struct PendingMenu {
+    /// The raw command template, macros still unexpanded.
+    template: String,
+    /// The `%{label}` prompt labels, in the order they appear.
+    labels: Vec<String>,
+    /// Answers collected so far — one per already-shown prompt.
+    answers: Vec<String>,
+}
+
 /// What a mouse point/drag on a panel should do to the entry under it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PointAction {
@@ -249,6 +261,9 @@ pub struct AppState {
     /// A command to run in a suspended foreground shell after the dialog closes
     /// (expanded) — the F2 user menu on a local panel, so its output is visible.
     pending_run_fg: Option<String>,
+    /// A user-menu command paused while its `%{…}` interactive prompts are being
+    /// answered one dialog at a time; it runs once the last answer is in.
+    pending_menu: Option<PendingMenu>,
     /// Set when a confirmed quit should propagate out as `Flow::Quit`.
     pending_quit: bool,
     /// When a lone Esc has been pressed and we're waiting to see whether the

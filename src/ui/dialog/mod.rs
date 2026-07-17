@@ -212,6 +212,8 @@ pub enum Submit {
     Connect(usize, RemoteCreds),
     /// Run a user-menu (F2) command template (macros expanded by the app).
     UserCommand(String),
+    /// An answer typed into a `%{…}` interactive prompt of a user-menu command.
+    MenuPrompt(String),
     /// Kill a process from the process explorer (`force` ⇒ SIGKILL).
     KillProcess { pid: i32, force: bool },
     /// Compare the two panels' directories and mark the differing files.

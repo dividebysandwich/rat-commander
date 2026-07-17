@@ -50,6 +50,8 @@ impl AppState {
                     h.abort();
                 }
                 self.dialog = None;
+                // Abandon a user-menu command whose `%{…}` prompt was cancelled.
+                self.pending_menu = None;
                 // Revert a live theme/language preview when Settings is cancelled.
                 if let Some(name) = self.theme_backup.take() {
                     self.theme = Theme::by_name(&name, self.truecolor);
@@ -178,17 +180,17 @@ impl AppState {
             Submit::Checksum { path, kind, expected } => self.start_checksum(path, kind, expected),
             Submit::Connect(side, creds) => self.connect_remote(side, creds).await,
             Submit::UserCommand(tpl) => {
-                let cmd = self.expand_macros(&tpl);
-                // On a local panel, run F2 menu commands in the foreground
-                // (MC-style) so the user watches them and sees any errors. On a
-                // remote/archive panel keep the behind-the-panels console, which
-                // on an SFTP/SCP panel runs the command on the remote host.
-                if self.console_cwd().scheme == "file" {
-                    self.pending_run_fg = Some(cmd);
+                let labels = super::keys::menu_prompts(&tpl);
+                if labels.is_empty() {
+                    self.queue_menu_command(self.expand_macros(&tpl));
                 } else {
-                    self.pending_run = Some(cmd);
+                    // The command has `%{…}` prompts: ask for each in turn, then
+                    // run once the last answer is in (see `advance_menu_prompt`).
+                    self.pending_menu = Some(PendingMenu { template: tpl, labels, answers: Vec::new() });
+                    self.open_menu_prompt();
                 }
             }
+            Submit::MenuPrompt(answer) => self.advance_menu_prompt(answer),
             Submit::KillProcess { pid, force } => self.kill_process(pid, force),
             Submit::CompareDirs(mode) => self.compare_dirs(mode).await,
             Submit::FindDuplicates(crit) => self.start_find_duplicates(crit),
@@ -382,6 +384,54 @@ impl AppState {
             // return their Flow), so they never reach here.
             Submit::Palette(_) => {}
         }
+    }
+
+    /// Queue an expanded user-menu command to run after the dialog closes. On a
+    /// local panel it runs in a suspended foreground shell (MC-style, so its
+    /// output is visible); on a remote/archive panel it goes to the
+    /// behind-the-panels console (which, on SFTP/SCP, runs it on the remote host).
+    fn queue_menu_command(&mut self, cmd: String) {
+        if self.console_cwd().scheme == "file" {
+            self.pending_run_fg = Some(cmd);
+        } else {
+            self.pending_run = Some(cmd);
+        }
+    }
+
+    /// Open an input dialog for the next unanswered `%{…}` prompt of the pending
+    /// user-menu command, if any.
+    fn open_menu_prompt(&mut self) {
+        let label = self
+            .pending_menu
+            .as_ref()
+            .and_then(|pm| pm.labels.get(pm.answers.len()).cloned());
+        if let Some(label) = label {
+            self.dialog = Some(Dialog::Input(InputDialog::new(
+                "User menu",
+                label,
+                "",
+                InputPurpose::MenuPrompt,
+            )));
+        }
+    }
+
+    /// Record one `%{…}` prompt answer. If more prompts remain, open the next;
+    /// otherwise substitute every answer into the template and queue it to run.
+    fn advance_menu_prompt(&mut self, answer: String) {
+        let (answered, total) = match self.pending_menu.as_mut() {
+            Some(pm) => {
+                pm.answers.push(answer);
+                (pm.answers.len(), pm.labels.len())
+            }
+            None => return, // a stray prompt with no pending command — ignore
+        };
+        if answered < total {
+            self.open_menu_prompt();
+            return;
+        }
+        let pm = self.pending_menu.take().expect("pending menu present");
+        let cmd = self.expand_macros_with(&pm.template, &pm.answers);
+        self.queue_menu_command(cmd);
     }
 
     fn apply_select(

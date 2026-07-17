@@ -742,6 +742,14 @@ impl AppState {
 
     /// Expand mc-style menu macros against the active panel.
     pub(in crate::app::state) fn expand_macros(&self, tpl: &str) -> String {
+        self.expand_macros_with(tpl, &[])
+    }
+
+    /// Expand a user-menu command template. `answers` supplies the substitutions
+    /// for the `%{…}` interactive prompts, in the order they appear (collected
+    /// beforehand via [`menu_prompts`]); a `%{…}` with no matching answer is
+    /// dropped.
+    pub(in crate::app::state) fn expand_macros_with(&self, tpl: &str, answers: &[String]) -> String {
         use crate::vfs::remote::shell_quote;
         let p = &self.panels[self.active];
         let cwd = p.cwd.path.to_string_lossy().into_owned();
@@ -758,7 +766,8 @@ impl AppState {
             tagged.clone()
         };
 
-        // Scan for %X macros (%% → literal %).
+        // Scan for %X macros (%% → literal %; %{label} → the next prompt answer).
+        let mut answers = answers.iter();
         let mut out = String::with_capacity(tpl.len());
         let mut chars = tpl.chars().peekable();
         while let Some(c) = chars.next() {
@@ -773,6 +782,17 @@ impl AppState {
                 Some('x') => out.push_str(&ext),
                 Some('t') => out.push_str(&tagged),
                 Some('s') => out.push_str(&selected),
+                Some('{') => {
+                    // Interactive prompt: drop the `label}`, substitute its answer.
+                    for lc in chars.by_ref() {
+                        if lc == '}' {
+                            break;
+                        }
+                    }
+                    if let Some(a) = answers.next() {
+                        out.push_str(a);
+                    }
+                }
                 Some(other) => {
                     out.push('%');
                     out.push(other);
@@ -838,4 +858,33 @@ fn shell_arg(name: &str) -> String {
     } else {
         crate::vfs::remote::shell_quote(name)
     }
+}
+
+/// The labels of every `%{…}` interactive prompt in a user-menu command `tpl`,
+/// in the order they appear (`%%` escapes a literal percent, so `%%{x}` is not a
+/// prompt). The app pops one input dialog per label, then substitutes the typed
+/// answers back into the template.
+pub(in crate::app::state) fn menu_prompts(tpl: &str) -> Vec<String> {
+    let mut labels = Vec::new();
+    let mut chars = tpl.chars();
+    while let Some(c) = chars.next() {
+        if c != '%' {
+            continue;
+        }
+        match chars.next() {
+            Some('%') => {} // an escaped percent is not a prompt
+            Some('{') => {
+                let mut label = String::new();
+                for lc in chars.by_ref() {
+                    if lc == '}' {
+                        break;
+                    }
+                    label.push(lc);
+                }
+                labels.push(label);
+            }
+            _ => {}
+        }
+    }
+    labels
 }

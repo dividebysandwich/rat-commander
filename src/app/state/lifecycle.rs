@@ -93,6 +93,7 @@ impl AppState {
             ext_rules: crate::ext::ExtRules::load_or_create(),
             pending_run: None,
             pending_run_fg: None,
+            pending_menu: None,
             pending_quit: false,
             alt_hint: false,
             pending_esc: None,

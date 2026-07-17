@@ -2620,6 +2620,95 @@ async fn user_menu_command_runs_in_the_foreground_on_a_local_panel() {
     assert!(st.dialog.is_none(), "the menu dialog is dismissed");
 }
 
+#[test]
+fn menu_prompts_extracts_labels_in_order() {
+    use super::keys::menu_prompts;
+    assert!(menu_prompts("echo %f").is_empty());
+    assert_eq!(menu_prompts("CMD=%{Enter command}"), vec!["Enter command".to_string()]);
+    assert_eq!(
+        menu_prompts("%{First} then %{Second}"),
+        vec!["First".to_string(), "Second".to_string()]
+    );
+    // `%%` escapes a literal percent, so `%%{x}` is not a prompt.
+    assert_eq!(menu_prompts("100%%{x} %{Real}"), vec!["Real".to_string()]);
+}
+
+/// A `%{…}` prompt opens an input dialog; answering it substitutes the typed
+/// text verbatim and runs the command (foreground, on a local panel).
+#[tokio::test]
+async fn user_menu_prompt_asks_then_runs_with_the_answer() {
+    use crate::ui::dialog::{Dialog, DialogResult, Submit};
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    let flow = st
+        .handle_dialog_result(DialogResult::Submit(Submit::UserCommand(
+            "CMD=%{Enter command}\necho $CMD".into(),
+        )))
+        .await;
+    assert!(matches!(flow, Flow::Continue), "the command waits for its prompt");
+    match &st.dialog {
+        Some(Dialog::Input(d)) => assert_eq!(d.prompt, "Enter command", "prompt label shown"),
+        _ => panic!("a %{{…}} prompt should open an input dialog"),
+    }
+    let flow = st
+        .handle_dialog_result(DialogResult::Submit(Submit::MenuPrompt("ls -la".into())))
+        .await;
+    match flow {
+        Flow::RunCommandForeground(cmd) => {
+            assert!(cmd.contains("CMD=ls -la"), "answer substituted verbatim: {cmd}");
+            assert!(!cmd.contains("%{"), "no prompt macro remains: {cmd}");
+        }
+        _ => panic!("the completed command should run in the foreground"),
+    }
+    assert!(st.dialog.is_none() && st.pending_menu.is_none(), "state is cleaned up");
+}
+
+/// Multiple `%{…}` prompts are asked one dialog at a time, then all substituted.
+#[tokio::test]
+async fn user_menu_multiple_prompts_are_asked_in_sequence() {
+    use crate::ui::dialog::{Dialog, DialogResult, Submit};
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    let flow = st
+        .handle_dialog_result(DialogResult::Submit(Submit::UserCommand("echo %{One} %{Two}".into())))
+        .await;
+    assert!(matches!(flow, Flow::Continue));
+    match &st.dialog {
+        Some(Dialog::Input(d)) => assert_eq!(d.prompt, "One"),
+        _ => panic!("first prompt"),
+    }
+    let flow = st
+        .handle_dialog_result(DialogResult::Submit(Submit::MenuPrompt("a".into())))
+        .await;
+    assert!(matches!(flow, Flow::Continue), "still asking the second prompt");
+    match &st.dialog {
+        Some(Dialog::Input(d)) => assert_eq!(d.prompt, "Two"),
+        _ => panic!("second prompt"),
+    }
+    let flow = st
+        .handle_dialog_result(DialogResult::Submit(Submit::MenuPrompt("b".into())))
+        .await;
+    match flow {
+        Flow::RunCommandForeground(cmd) => assert_eq!(cmd, "echo a b"),
+        _ => panic!("runs once both answers are in"),
+    }
+}
+
+/// Cancelling a `%{…}` prompt abandons the whole command.
+#[tokio::test]
+async fn cancelling_a_menu_prompt_abandons_the_command() {
+    use crate::ui::dialog::{DialogResult, Submit};
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.handle_dialog_result(DialogResult::Submit(Submit::UserCommand("echo %{Ask}".into())))
+        .await;
+    assert!(st.pending_menu.is_some(), "a prompt is pending");
+    let flow = st.handle_dialog_result(DialogResult::Cancel).await;
+    assert!(matches!(flow, Flow::Continue));
+    assert!(st.pending_menu.is_none(), "cancel abandons the pending command");
+    assert!(st.pending_run.is_none() && st.pending_run_fg.is_none(), "nothing is queued to run");
+}
+
 /// Pressing Enter on an executable file with no MIME handler runs it directly
 /// (ELF binaries, scripts) rather than trying to open it with an application.
 #[cfg(all(unix, target_os = "linux"))]

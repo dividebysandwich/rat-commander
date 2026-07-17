@@ -7,7 +7,8 @@
 //! are comments. mc condition lines (`+ …`) and default lines (`= …`) are
 //! recognised and skipped (entries are always shown). Macros expanded before
 //! running: `%f`/`%p` current file, `%d` current dir, `%t` tagged files,
-//! `%s` tagged-or-current, `%%` a literal percent.
+//! `%s` tagged-or-current, `%{prompt}` ask the user (an input dialog whose
+//! answer is substituted verbatim), `%%` a literal percent.
 
 use crate::config::paths;
 
@@ -159,9 +160,11 @@ pub const DEFAULT_MENU: &str = r#"# rat-commander user menu (Midnight Commander 
 # A line starting in column 0 with a letter/digit is a menu entry; that
 # character is the hotkey. Indented lines below it are the shell commands.
 # Macros: %f current file, %d current directory, %t tagged files, %% percent.
+# %{Prompt text} pops up a dialog and is replaced by what you type.
 
 @      Do something on the current file
-        %f
+        CMD=%{Enter command}
+        $CMD %f
 
 3      Compress the current subdirectory (tar.gz)
         Pwd=`basename "%d"`
