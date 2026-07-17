@@ -968,9 +968,11 @@ suspended — there is no persistent behind-the-panels session.
 
 **F2** opens a configurable **user menu** of shell commands. It is created with
 sensible defaults on first run and uses the Midnight Commander `menu` file
-format (see *Configuration* below). Each entry can run commands against the
-current file, the current directory or the tagged files via macros. Useful for
-one-key access to your own scripts and recurring tasks.
+format (see *Configuration* below). Each entry runs commands against the current
+file, the current directory, the other panel or the tagged files via macros, and
+can be shown or defaulted **conditionally** — only when files are tagged, for a
+matching file type or name, and so on. Useful for one-key access to your own
+scripts and recurring tasks.
 
 
 ## The command palette (Ctrl-P)
@@ -1514,19 +1516,41 @@ with sensible per-theme values, preserving each theme's appearance.
 
 The `menu` file uses the Midnight Commander format. A line starting in column 0
 is a menu entry whose first character is its hotkey; the indented lines below it
-are the shell commands to run:
+are the shell commands to run. Lines starting with `#` are comments.
 
 ```
 # a comment
+= t d
 3      Compress the current subdirectory (tar.gz)
-        Pwd=`basename "%d"`
-        tar cf - "$Pwd" | gzip -f9 > "$Pwd.tar.gz"
+        Pwd=`basename %d`
+        cd .. && tar cf - "$Pwd" | gzip -f9 > "$Pwd.tar.gz"
 ```
 
-Macros expand before the command runs: `%f` / `%p` the current file, `%d` the
-current directory, `%t` the tagged files, `%s` the tagged-or-current files, and
-`%%` a literal percent. (Condition lines `+ …` / `= …` are accepted and ignored;
-entries always show.)
+**Condition lines** may precede an entry: `+ <cond>` shows the entry only when the
+condition is true, `= <cond>` marks the default (highlighted) entry, and `=+` /
+`+=` do both — evaluated against the panels when you press F2. Sub-conditions,
+combined **left-to-right** (no precedence): `f` / `F <pat>` the current /
+other-panel file matches a pattern, `d` / `D <pat>` the current / other directory,
+`t` / `T <types>` the file type, `x <path>` an executable exists, `!` negates,
+`&` / `|` combine. Type chars: `n` not-dir, `r` regular, `d` dir, `l` link,
+`c` / `b` char / block device, `f` fifo, `s` socket, `x` executable, `t` tagged.
+A first line `shell_patterns=0` switches `f` / `d` patterns from shell globs to
+regular expressions. For example, `+ ! t t` shows an entry only when nothing is
+tagged; `+ t t` only when something is.
+
+**Macros** expand before the command runs: `%f` / `%p` the current file, `%d` the
+current directory, `%s` the tagged-or-current files, `%t` the tagged files; the
+uppercase `%F` / `%P` / `%D` / `%S` / `%T` are the same for the *other* panel;
+`%u` is the tagged files (untagged afterwards); `%x` the extension; `%%` a literal
+percent. Value macros are **shell-quoted** by default, so write them **unquoted** —
+`cat %f`, not `cat "%f"`; `%0f` turns quoting off and `%1f` forces it.
+`%{Prompt text}` pops up a dialog and inserts what you type; `%view{…}` is accepted
+(the command then runs in the foreground shell). Menu commands run in a **suspended
+foreground shell**, so their output is visible and interactive `read` prompts work.
+
+A `menu` written for an older version that wrapped macros in quotes (`"%f"`) is
+**migrated automatically** on first load — the quotes are dropped and a one-time
+`menu.bak` backup of the original is kept beside it.
 
 ### The rc.ext file format
 

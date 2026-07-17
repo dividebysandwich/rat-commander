@@ -1316,21 +1316,22 @@ fn select_dialog_mouse_ticks_boxes_and_submits() {
 fn user_menu_mouse_click_activates_entry() {
     use crate::usermenu::UserMenuEntry;
     let entries = vec![
-        UserMenuEntry { hotkey: 'a', title: "Alpha".into(), command: "echo a".into() },
-        UserMenuEntry { hotkey: 'b', title: "Beta".into(), command: "echo b".into() },
-        UserMenuEntry { hotkey: 'c', title: "Gamma".into(), command: "echo c".into() },
+        UserMenuEntry { hotkey: 'a', title: "Alpha".into(), command: "echo a".into(), ..Default::default() },
+        UserMenuEntry { hotkey: 'b', title: "Beta".into(), command: "echo b".into(), ..Default::default() },
+        UserMenuEntry { hotkey: 'c', title: "Gamma".into(), command: "echo c".into(), ..Default::default() },
     ];
     // 80x24 → box 64x5 at {8,9}; inner.y = 10, so entry 1 is at row 11.
     let area = Rect::new(0, 0, 80, 24);
-    let mut dlg = Dialog::UserMenu(UserMenuDialog::new(entries));
+    let mut dlg = Dialog::UserMenu(UserMenuDialog::with_cursor(entries, 0));
     match dlg.handle_click(area, 20, 11) {
         DialogResult::Submit(Submit::UserCommand(cmd)) => assert_eq!(cmd, "echo b"),
         _ => panic!("clicking an entry should run it"),
     }
     // A click below the list does nothing.
-    let mut dlg = Dialog::UserMenu(UserMenuDialog::new(vec![
-        UserMenuEntry { hotkey: 'a', title: "Alpha".into(), command: "echo a".into() },
-    ]));
+    let mut dlg = Dialog::UserMenu(UserMenuDialog::with_cursor(
+        vec![UserMenuEntry { hotkey: 'a', title: "Alpha".into(), command: "echo a".into(), ..Default::default() }],
+        0,
+    ));
     assert!(matches!(dlg.handle_click(area, 20, 23), DialogResult::None));
 }
 

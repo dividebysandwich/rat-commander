@@ -183,6 +183,9 @@ impl AppState {
                 let labels = super::keys::menu_prompts(&tpl);
                 if labels.is_empty() {
                     self.queue_menu_command(self.expand_macros(&tpl));
+                    if super::keys::menu_uses_untag(&tpl) {
+                        self.active_panel().selection.clear();
+                    }
                 } else {
                     // The command has `%{…}` prompts: ask for each in turn, then
                     // run once the last answer is in (see `advance_menu_prompt`).
@@ -432,6 +435,9 @@ impl AppState {
         let pm = self.pending_menu.take().expect("pending menu present");
         let cmd = self.expand_macros_with(&pm.template, &pm.answers);
         self.queue_menu_command(cmd);
+        if super::keys::menu_uses_untag(&pm.template) {
+            self.active_panel().selection.clear();
+        }
     }
 
     fn apply_select(

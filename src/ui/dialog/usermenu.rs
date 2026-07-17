@@ -14,8 +14,21 @@ pub struct UserMenuDialog {
 }
 
 impl UserMenuDialog {
-    pub fn new(entries: Vec<UserMenuEntry>) -> Self {
-        UserMenuDialog { entries, cursor: 0 }
+    /// Build a menu dialog starting on `cursor` (the mc `=` default entry),
+    /// clamped to the entry range.
+    pub fn with_cursor(entries: Vec<UserMenuEntry>, cursor: usize) -> Self {
+        let cursor = cursor.min(entries.len().saturating_sub(1));
+        UserMenuDialog { entries, cursor }
+    }
+
+    #[cfg(test)]
+    pub fn hotkeys(&self) -> Vec<char> {
+        self.entries.iter().map(|e| e.hotkey).collect()
+    }
+
+    #[cfg(test)]
+    pub fn selected_hotkey(&self) -> Option<char> {
+        self.entries.get(self.cursor).map(|e| e.hotkey)
     }
 
     fn submit_current(&self) -> DialogResult {

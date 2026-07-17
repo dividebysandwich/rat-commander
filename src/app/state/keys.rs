@@ -733,11 +733,58 @@ impl AppState {
         self.menu = Some(MenuBarState::new(active, &self.session_list(), self.side_remote()));
     }
 
-    fn open_user_menu(&mut self) {
-        if self.user_menu.is_empty() {
+    pub(in crate::app::state) fn open_user_menu(&mut self) {
+        if self.user_menu.entries.is_empty() {
             return self.show_error("No user-menu entries (see the config 'menu' file)");
         }
-        self.dialog = Some(Dialog::UserMenu(UserMenuDialog::new(self.user_menu.clone())));
+        let ctx = self.build_menu_context();
+        let sp = self.user_menu.shell_patterns;
+        // Keep entries whose `+` inclusion condition passes (or that have none).
+        let shown: Vec<_> = self
+            .user_menu
+            .entries
+            .iter()
+            .filter(|e| e.include.as_deref().is_none_or(|c| crate::usermenu::eval_condition(c, &ctx, sp)))
+            .cloned()
+            .collect();
+        if shown.is_empty() {
+            return self.show_error("No user-menu entries apply here (see the 'menu' file)");
+        }
+        // Default entry = the first shown entry whose `=` condition passes.
+        let default = shown
+            .iter()
+            .position(|e| e.default.as_deref().is_some_and(|c| crate::usermenu::eval_condition(c, &ctx, sp)))
+            .unwrap_or(0);
+        self.dialog = Some(Dialog::UserMenu(UserMenuDialog::with_cursor(shown, default)));
+    }
+
+    /// Assemble the file/panel facts an mc menu condition (`f`/`t`/`x`/…) can
+    /// inspect, from the active and other panels.
+    fn build_menu_context(&self) -> crate::usermenu::MenuContext {
+        use crate::vfs::VfsKind;
+        let file_cond = |p: &crate::panel::Panel| {
+            p.current_entry().map(|e| crate::usermenu::FileCond {
+                name: e.name.clone(),
+                is_regular: e.kind == VfsKind::File,
+                is_dir: e.kind == VfsKind::Dir,
+                is_link: e.kind == VfsKind::Symlink,
+                is_exec: e.is_executable(),
+                is_char: e.is_char_device(),
+                is_block: e.is_block_device(),
+                is_fifo: e.is_fifo(),
+                is_socket: e.is_socket(),
+            })
+        };
+        let active = &self.panels[self.active];
+        let other = &self.panels[self.other_index()];
+        crate::usermenu::MenuContext {
+            file: file_cond(active),
+            other_file: file_cond(other),
+            dir: active.cwd.path.to_string_lossy().into_owned(),
+            other_dir: other.cwd.path.to_string_lossy().into_owned(),
+            tagged: !active.selection.is_empty(),
+            other_tagged: !other.selection.is_empty(),
+        }
     }
 
     /// Expand mc-style menu macros against the active panel.
@@ -745,52 +792,110 @@ impl AppState {
         self.expand_macros_with(tpl, &[])
     }
 
-    /// Expand a user-menu command template. `answers` supplies the substitutions
-    /// for the `%{…}` interactive prompts, in the order they appear (collected
-    /// beforehand via [`menu_prompts`]); a `%{…}` with no matching answer is
-    /// dropped.
+    /// Expand a user-menu command template against the panels. `answers` supplies
+    /// the `%{…}` interactive-prompt substitutions in order (collected via
+    /// [`menu_prompts`]); a `%{…}` with no matching answer is dropped.
+    ///
+    /// Mc-compatible macros: `%f`/`%p` current file, `%d` current dir, `%s`
+    /// tagged-or-current, `%t` tagged files; the uppercase `%F`/`%P`/`%D`/`%S`/`%T`
+    /// read the other panel; `%u` is the tagged list (the caller untags afterwards
+    /// — see [`menu_uses_untag`]); `%x` is the extension. Value macros are
+    /// shell-quoted by default; `%0X` turns quoting off, `%1X` forces it.
+    /// `%view{…}` is stripped. `%%` is a literal percent.
     pub(in crate::app::state) fn expand_macros_with(&self, tpl: &str, answers: &[String]) -> String {
-        use crate::vfs::remote::shell_quote;
-        let p = &self.panels[self.active];
-        let cwd = p.cwd.path.to_string_lossy().into_owned();
-        let cur = p.current_entry().map(|e| e.name.clone()).unwrap_or_default();
-        let ext = p
-            .current_entry()
-            .map(|e| e.extension().to_string())
-            .unwrap_or_default();
-        let marked: Vec<String> = p.selection.marked_names(&p.entries).iter().map(|n| shell_quote(n)).collect();
-        let tagged = marked.join(" ");
-        let selected = if marked.is_empty() {
-            shell_quote(&cur)
-        } else {
-            tagged.clone()
+        let quote = crate::vfs::remote::shell_quote;
+
+        struct Vals {
+            file: String,
+            dir: String,
+            ext: String,
+            tagged: Vec<String>,
+        }
+        let vals = |p: &crate::panel::Panel| Vals {
+            file: p.current_entry().map(|e| e.name.clone()).unwrap_or_default(),
+            dir: p.cwd.path.to_string_lossy().into_owned(),
+            ext: p.current_entry().map(|e| e.extension().to_string()).unwrap_or_default(),
+            tagged: p.selection.marked_names(&p.entries).iter().map(|s| s.to_string()).collect(),
+        };
+        let a = vals(&self.panels[self.active]);
+        let b = vals(&self.panels[self.other_index()]);
+
+        // Emit a value / a tagged list, honoring the default and any %<digit> override.
+        let emit = |out: &mut String, value: &str, default_quote: bool, qo: Option<bool>| {
+            if qo.unwrap_or(default_quote) {
+                out.push_str(&quote(value));
+            } else {
+                out.push_str(value);
+            }
+        };
+        let emit_list = |out: &mut String, list: &[String], qo: Option<bool>| {
+            let q = qo.unwrap_or(true);
+            let parts: Vec<String> = list.iter().map(|n| if q { quote(n) } else { n.clone() }).collect();
+            out.push_str(&parts.join(" "));
         };
 
-        // Scan for %X macros (%% → literal %; %{label} → the next prompt answer).
         let mut answers = answers.iter();
         let mut out = String::with_capacity(tpl.len());
-        let mut chars = tpl.chars().peekable();
-        while let Some(c) = chars.next() {
-            if c != '%' {
-                out.push(c);
+        let mut rest = tpl;
+        while let Some(pos) = rest.find('%') {
+            out.push_str(&rest[..pos]);
+            rest = &rest[pos + 1..];
+
+            // Optional %<digit> quoting override, only when it prefixes a value macro.
+            let mut qo: Option<bool> = None;
+            let mut cs = rest.chars();
+            if let Some(d) = cs.next().and_then(|c| c.to_digit(10))
+                && cs.next().is_some_and(|l| "fpdstuxFPDST".contains(l))
+            {
+                qo = Some(d != 0);
+                rest = &rest[1..];
+            }
+
+            // %view / %view{kw,…}: strip the directive, emit nothing.
+            if let Some(after) = rest.strip_prefix("view") {
+                rest = after;
+                if let Some(brace) = rest.strip_prefix('{') {
+                    rest = brace.find('}').map_or("", |end| &brace[end + 1..]);
+                }
                 continue;
             }
-            match chars.next() {
+
+            let mut mc = rest.chars();
+            let letter = mc.next();
+            rest = mc.as_str();
+            match letter {
                 Some('%') => out.push('%'),
-                Some('f') | Some('p') => out.push_str(&cur),
-                Some('d') => out.push_str(&cwd),
-                Some('x') => out.push_str(&ext),
-                Some('t') => out.push_str(&tagged),
-                Some('s') => out.push_str(&selected),
                 Some('{') => {
-                    // Interactive prompt: drop the `label}`, substitute its answer.
-                    for lc in chars.by_ref() {
-                        if lc == '}' {
-                            break;
+                    // Interactive prompt: substitute the next answer, drop `label}`.
+                    match rest.find('}') {
+                        Some(end) => {
+                            if let Some(ans) = answers.next() {
+                                out.push_str(ans);
+                            }
+                            rest = &rest[end + 1..];
                         }
+                        None => rest = "",
                     }
-                    if let Some(a) = answers.next() {
-                        out.push_str(a);
+                }
+                Some('f') | Some('p') => emit(&mut out, &a.file, true, qo),
+                Some('F') | Some('P') => emit(&mut out, &b.file, true, qo),
+                Some('d') => emit(&mut out, &a.dir, true, qo),
+                Some('D') => emit(&mut out, &b.dir, true, qo),
+                Some('x') => emit(&mut out, &a.ext, false, qo),
+                Some('t') | Some('u') => emit_list(&mut out, &a.tagged, qo),
+                Some('T') => emit_list(&mut out, &b.tagged, qo),
+                Some('s') => {
+                    if a.tagged.is_empty() {
+                        emit(&mut out, &a.file, true, qo);
+                    } else {
+                        emit_list(&mut out, &a.tagged, qo);
+                    }
+                }
+                Some('S') => {
+                    if b.tagged.is_empty() {
+                        emit(&mut out, &b.file, true, qo);
+                    } else {
+                        emit_list(&mut out, &b.tagged, qo);
                     }
                 }
                 Some(other) => {
@@ -800,6 +905,7 @@ impl AppState {
                 None => out.push('%'),
             }
         }
+        out.push_str(rest);
         out
     }
 
@@ -887,4 +993,20 @@ pub(in crate::app::state) fn menu_prompts(tpl: &str) -> Vec<String> {
         }
     }
     labels
+}
+
+/// Whether `tpl` uses the `%u` macro (the tagged files, which mc untags on
+/// return), so the caller can clear the selection once the command is queued.
+pub(in crate::app::state) fn menu_uses_untag(tpl: &str) -> bool {
+    let mut chars = tpl.chars();
+    while let Some(c) = chars.next() {
+        if c == '%' {
+            match chars.next() {
+                Some('%') => {} // an escaped percent is not a macro
+                Some('u') => return true,
+                _ => {}
+            }
+        }
+    }
+    false
 }

@@ -72,6 +72,25 @@ impl VfsEntry {
             None => "",
         }
     }
+
+    /// The `st_mode` file-type bits (`S_IFMT`), when the backend supplied `mode`.
+    /// `VfsKind` collapses devices/fifos/sockets into `Other`, so the mode is the
+    /// only way to tell them apart (used by mc `t c/b/f/s` menu conditions).
+    fn ifmt(&self) -> Option<u32> {
+        self.mode.map(|m| m & 0o170000)
+    }
+    pub fn is_char_device(&self) -> bool {
+        self.ifmt() == Some(0o020000)
+    }
+    pub fn is_block_device(&self) -> bool {
+        self.ifmt() == Some(0o060000)
+    }
+    pub fn is_fifo(&self) -> bool {
+        self.ifmt() == Some(0o010000)
+    }
+    pub fn is_socket(&self) -> bool {
+        self.ifmt() == Some(0o140000)
+    }
 }
 
 /// What a backend can and cannot do. Drives which menu items / dialogs are

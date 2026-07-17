@@ -23,7 +23,7 @@ use crate::ui::dialog::{
     SyncPreviewDialog,
     ShellHistoryDialog, Submit, UserMenuDialog,
 };
-use crate::usermenu::{self, UserMenuEntry};
+use crate::usermenu::{self, UserMenu};
 use crate::ui::layout::SplitDir;
 use crate::ui::menu::{MenuAction, MenuBarState, MenuSignal};
 use crate::ui::theme::Theme;
@@ -251,8 +251,8 @@ pub struct AppState {
     pub gfx: Option<crate::ui::graphics::Gfx>,
     /// `graphics` preference to restore if the settings dialog is cancelled.
     graphics_backup: Option<String>,
-    /// F2 user-menu entries (loaded from the config `menu` file).
-    user_menu: Vec<UserMenuEntry>,
+    /// The F2 user menu — entries + pattern mode, from the config `menu` file.
+    user_menu: UserMenu,
     /// File-association rules (loaded from the config `rc.ext` file), consulted
     /// on Enter/F3/F4 to run Open/View/Edit actions and mount extfs scripts.
     ext_rules: crate::ext::ExtRules,

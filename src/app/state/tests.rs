@@ -2709,6 +2709,56 @@ async fn cancelling_a_menu_prompt_abandons_the_command() {
     assert!(st.pending_run.is_none() && st.pending_run_fg.is_none(), "nothing is queued to run");
 }
 
+/// mc `+ <cond>` filters which entries show and `= <cond>` picks the default,
+/// evaluated against the panel at F2-press time.
+#[tokio::test]
+async fn user_menu_conditions_filter_and_default() {
+    use crate::ui::dialog::Dialog;
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.user_menu = crate::usermenu::parse(
+        "+ ! t t\na Current\n\techo cur\n+ t t\nb Tagged\n\techo tag\nc Always\n\techo always\n= t t\nd Default\n\techo d\n",
+    );
+    // Nothing tagged: the `+ ! t t` entry shows, the `+ t t` one is hidden, and
+    // no `=` condition matches so the default is the first entry.
+    st.open_user_menu();
+    match &st.dialog {
+        Some(Dialog::UserMenu(d)) => {
+            assert_eq!(d.hotkeys(), vec!['a', 'c', 'd']);
+            assert_eq!(d.selected_hotkey(), Some('a'));
+        }
+        _ => panic!("menu should open"),
+    }
+    // With a tagged file the sets flip and `= t t` selects the default.
+    st.panels[st.active].selection.mark("x");
+    st.open_user_menu();
+    match &st.dialog {
+        Some(Dialog::UserMenu(d)) => {
+            assert_eq!(d.hotkeys(), vec!['b', 'c', 'd']);
+            assert_eq!(d.selected_hotkey(), Some('d'));
+        }
+        _ => panic!("menu should open"),
+    }
+}
+
+/// Value macros shell-quote by default (matching mc); `%0f` opts out and
+/// `%view{…}` is stripped.
+#[tokio::test]
+async fn user_menu_macros_quote_and_strip_view() {
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.panels[st.active].entries = vec![mk_entry("my file.txt")];
+    st.panels[st.active].cursor = 0;
+    // %f is quoted by default, so the space is protected.
+    assert!(!st.expand_macros("cat %f").contains("cat my file.txt"), "%f quoted");
+    // %0f opts out of quoting.
+    assert!(st.expand_macros("cat %0f").contains("cat my file.txt"), "%0f raw");
+    // %view{…} is stripped; the rest of the command survives.
+    let v = st.expand_macros("%view{ascii,nroff} roff %f");
+    assert!(!v.contains("%view") && !v.contains("{ascii"), "view stripped: {v}");
+    assert!(v.trim_start().starts_with("roff "), "command runs: {v}");
+}
+
 /// Pressing Enter on an executable file with no MIME handler runs it directly
 /// (ELF binaries, scripts) rather than trying to open it with an application.
 #[cfg(all(unix, target_os = "linux"))]
