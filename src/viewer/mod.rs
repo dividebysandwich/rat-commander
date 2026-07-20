@@ -389,12 +389,48 @@ impl ViewerState {
         self.data_len().div_ceil(16)
     }
 
+    /// The largest allowed scroll offset: the top line that puts the end of the
+    /// content on the last screen row, so the view can never scroll past the end
+    /// into blank space. While a text file's line index is still partial the true
+    /// end is unknown and there is nothing to clamp against yet (`usize::MAX`);
+    /// callers only ever `.min()` against this.
     fn max_top(&self) -> usize {
+        if self.mode == ViewMode::Text && !self.fully_indexed() {
+            return usize::MAX;
+        }
         let total = match self.mode {
             ViewMode::Text => self.line_count(),
             ViewMode::Hex => self.hex_rows(),
         };
-        total.saturating_sub(1)
+        let rows = self.view_rows.max(1);
+        let simple = total.saturating_sub(rows);
+        if self.mode == ViewMode::Hex || !self.wrap {
+            return simple;
+        }
+        // Wrapped text: a logical line can span several visual rows. Every line
+        // is at least one row, so the answer lies in the window `simple..total`;
+        // measure those lines and take the largest top whose lines still reach
+        // the bottom row of the screen.
+        let width = self.view_cols.max(1);
+        let md = self.markdown_active();
+        let mut in_code = md && self.in_code_fence_at(simple);
+        let mut heights = Vec::with_capacity(total - simple);
+        for i in simple..total {
+            let line = self.line_str(i);
+            heights.push(if md {
+                markdown_rows(&line, &mut in_code, width)
+            } else {
+                line.chars().count().div_ceil(width).max(1)
+            });
+        }
+        let mut acc = 0usize;
+        for (off, h) in heights.iter().enumerate().rev() {
+            acc += h;
+            if acc >= rows {
+                return simple + off;
+            }
+        }
+        simple // shorter than one screen: no scrolling at all
     }
 
     /// Seed the F7 prompt's pre-filled term from the app-wide search memory.
@@ -803,9 +839,9 @@ impl ViewerState {
             ViewMode::Text => {
                 // The match may lie beyond the indexed region; index up to it.
                 self.extend_to_byte(off + 1);
-                self.top = self.byte_to_line(off);
+                self.top = self.byte_to_line(off).min(self.max_top());
             }
-            ViewMode::Hex => self.top = off / 16,
+            ViewMode::Hex => self.top = (off / 16).min(self.max_top()),
         }
     }
 
@@ -917,6 +953,24 @@ impl Drop for ViewerState {
             let _ = std::fs::remove_file(path);
         }
     }
+}
+
+/// Visual rows `line` occupies in the wrapped Markdown approximation at `width`
+/// columns, toggling the code-fence state across calls — mirrors how
+/// `render_markdown` lays lines out.
+fn markdown_rows(line: &str, in_code: &mut bool, width: usize) -> usize {
+    if markdown::is_fence(line) {
+        *in_code = !*in_code;
+        return 1; // drawn as a one-row box border
+    }
+    if *in_code {
+        // The code box borders and padding take four columns (see
+        // `push_code_line`); below that width the line isn't wrapped at all.
+        let code_w = width.saturating_sub(4);
+        return if code_w == 0 { 1 } else { line.chars().count().div_ceil(code_w).max(1) };
+    }
+    let chars: Vec<char> = line.chars().collect();
+    markdown::display_len(&chars).div_ceil(width).max(1)
 }
 
 /// Whether `name` looks like a Markdown file (by extension).
@@ -1504,6 +1558,67 @@ mod tests {
         assert_eq!(v.top, 3, "wheel down scrolls three lines");
         v.handle_mouse(mouse(MouseEventKind::ScrollUp, 5, 5));
         assert_eq!(v.top, 0, "wheel up scrolls three lines back");
+    }
+
+    #[test]
+    fn end_scrolls_to_the_last_full_page_not_past_it() {
+        let mut v = ViewerState::new("t".into(), many_lines(100)); // 101 line starts
+        with_layout(&mut v); // 10 rows on screen
+        let press = |v: &mut ViewerState, code| {
+            v.handle_key(KeyEvent::new(code, KeyModifiers::NONE));
+        };
+        press(&mut v, KeyCode::End);
+        assert_eq!(v.top, 91, "END keeps the last screenful in view (101 lines - 10 rows)");
+        // No form of scrolling can push the view past the end of the file.
+        press(&mut v, KeyCode::Down);
+        assert_eq!(v.top, 91);
+        press(&mut v, KeyCode::PageDown);
+        assert_eq!(v.top, 91);
+        v.handle_mouse(mouse(MouseEventKind::ScrollDown, 5, 5));
+        assert_eq!(v.top, 91);
+        // A goto beyond the end clamps the same way.
+        assert!(v.goto("100", GotoMode::Percent));
+        assert_eq!(v.top, 91);
+        press(&mut v, KeyCode::Home);
+        assert_eq!(v.top, 0);
+    }
+
+    #[test]
+    fn end_accounts_for_wrapped_lines() {
+        // 20 lines of 100 chars wrap to 3 rows each at 40 columns; the trailing
+        // empty line is 1 row. From line 17 the tail is 3+3+3+1 = 10 rows —
+        // exactly one screen — so that is as far down as the view may go.
+        let data = format!("{}\n", "x".repeat(100)).repeat(20).into_bytes();
+        let mut v = ViewerState::new("t".into(), data);
+        with_layout(&mut v); // 10 rows × 40 cols
+        v.wrap = true;
+        let press = |v: &mut ViewerState, code| {
+            v.handle_key(KeyEvent::new(code, KeyModifiers::NONE));
+        };
+        press(&mut v, KeyCode::End);
+        assert_eq!(v.top, 17, "wrapped visual rows are counted, not logical lines");
+        press(&mut v, KeyCode::Down);
+        assert_eq!(v.top, 17, "cannot scroll past the end with wrap on");
+        // Without wrap the same file scrolls one line per row: 21 lines - 10 rows.
+        v.wrap = false;
+        press(&mut v, KeyCode::End);
+        assert_eq!(v.top, 11);
+    }
+
+    #[test]
+    fn render_pulls_the_view_back_to_the_last_full_page() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let mut v = ViewerState::new("t".into(), many_lines(20)); // 21 line starts
+        with_layout(&mut v);
+        v.top = 20; // where the old END (or a shrunken window) could have left it
+        let theme = crate::ui::theme::Theme::mc();
+        let mut t = Terminal::new(TestBackend::new(50, 12)).unwrap(); // 10 content rows
+        t.draw(|f| crate::viewer::render::render(f, f.area(), &mut v, &theme, None)).unwrap();
+        assert_eq!(v.top, 11, "drawing clamps the view to the last full screen");
+        let b = t.backend().buffer();
+        let row: String = (0..b.area.width).map(|x| b[(x, 9)].symbol().to_string()).collect();
+        assert!(row.contains("line19"), "the file's last text stays visible: {row:?}");
     }
 
     #[test]

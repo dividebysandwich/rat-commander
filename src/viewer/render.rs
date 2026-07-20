@@ -37,6 +37,17 @@ pub fn render(
     v.content_area = content;
     v.footer_area = footer;
 
+    // Make sure the lines about to be drawn (plus one past, so the last line's
+    // extent is known) are indexed — the rest of the file stays unscanned — and
+    // pull the view back if a resize or jump left it beyond the last full
+    // screen, so blank space never shows below the end of the file.
+    if v.active_image().is_none() {
+        if v.mode == ViewMode::Text {
+            v.extend_to_line(v.top + v.view_rows);
+        }
+        v.top = v.top.min(v.max_top());
+    }
+
     render_header(f, header, v, theme);
     // An image file shows the decoded image fullscreen (pixel graphics where
     // available, else half-block cell art); F8 toggles to the raw text/hex.
@@ -44,12 +55,6 @@ pub fn render(
         render_image(f, content, v, theme, gfx);
         render_footer(f, footer, v, theme);
         return;
-    }
-
-    // Make sure the lines about to be drawn (plus one past, so the last line's
-    // extent is known) are indexed — the rest of the file stays unscanned.
-    if v.mode == ViewMode::Text {
-        v.extend_to_line(v.top + v.view_rows);
     }
     match v.mode {
         ViewMode::Hex => render_hex(f, content, v, theme),

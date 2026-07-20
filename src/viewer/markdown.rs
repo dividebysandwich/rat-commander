@@ -97,6 +97,15 @@ pub fn render_line(chars: &[char], theme: &Theme) -> (Vec<char>, Vec<Style>) {
     (out.c, out.s)
 }
 
+/// Display width (in chars) of a line as [`render_line`] would draw it. The
+/// theme only ever picks colors — never which characters are emitted — so a
+/// fixed throwaway theme serves callers that have none at hand (the viewer's
+/// wrap-aware scroll clamping).
+pub fn display_len(chars: &[char]) -> usize {
+    static THEME: std::sync::OnceLock<Theme> = std::sync::OnceLock::new();
+    render_line(chars, THEME.get_or_init(Theme::mc)).0.len()
+}
+
 /// Accumulates the rendered characters and their styles.
 struct Out {
     c: Vec<char>,
