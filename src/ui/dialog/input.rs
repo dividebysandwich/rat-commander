@@ -274,4 +274,19 @@ mod tests {
         d.handle_key(ctrl('y'));
         assert_eq!(d.buffer_cursor(), ("hello", 5));
     }
+
+    #[test]
+    fn shift_alone_keeps_the_mark_so_a_capital_replaces_the_text() {
+        use ratatui::crossterm::event::ModifierKeyCode;
+        let mut d = InputDialog::new("t", "p", "old.txt", InputPurpose::MkDir);
+        // The enhanced keyboard protocol reports the Shift press on its own,
+        // before the capital it produces.
+        d.handle_key(KeyEvent::new(
+            KeyCode::Modifier(ModifierKeyCode::LeftShift),
+            KeyModifiers::SHIFT,
+        ));
+        assert!(d.selected, "a lone Shift leaves the field marked");
+        d.handle_key(KeyEvent::new(KeyCode::Char('N'), KeyModifiers::SHIFT));
+        assert_eq!(d.buffer_cursor(), ("N", 1));
+    }
 }

@@ -44,6 +44,15 @@ pub(crate) fn edit_text_marked(
     key: KeyEvent,
 ) {
     use ratatui::crossterm::event::KeyModifiers;
+    // A modifier or lock key pressed on its own (reported as a key of its own
+    // under the enhanced keyboard protocol) edits nothing, so it must leave the
+    // mark alone — Shift is on its way to typing a capital that replaces it.
+    if matches!(
+        key.code,
+        KeyCode::Modifier(_) | KeyCode::CapsLock | KeyCode::NumLock | KeyCode::ScrollLock
+    ) {
+        return;
+    }
     if *selected {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         let alt = key.modifiers.contains(KeyModifiers::ALT);
