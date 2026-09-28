@@ -82,6 +82,19 @@ impl AppState {
         self.enter_on(side, target).await;
     }
 
+    /// The console shell moved to `dir` on its own — a `cd` inside a compound
+    /// command line, a script, `pushd` — so bring the active panel along, as the
+    /// shell's working directory and the panel's are meant to be one and the
+    /// same. Only a panel on the local disk follows: the local shell has no say
+    /// over an archive or remote panel.
+    pub(crate) async fn follow_shell_dir(&mut self, dir: std::path::PathBuf) {
+        let cwd = &self.panels[self.active].cwd;
+        if !cwd.is_plain_local() || cwd.path == dir {
+            return;
+        }
+        self.goto_dir(VfsPath::local(dir)).await;
+    }
+
     /// Alt-I: point the *other* panel at the active panel's directory, so both
     /// show the same place (Midnight Commander's "panel sync").
     pub(in crate::app::state) async fn sync_other_panel(&mut self) {

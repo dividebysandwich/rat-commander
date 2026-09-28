@@ -1322,11 +1322,32 @@ async fn find_duplicates_marks_by_criteria() {
 
 #[test]
 fn parse_cd_recognizes_the_builtin() {
-    assert_eq!(parse_cd("cd"), Some(""));
-    assert_eq!(parse_cd("cd /tmp"), Some("/tmp"));
-    assert_eq!(parse_cd("  cd   foo  "), Some("foo"));
+    let some = |s: &str| Some(s.to_string());
+    assert_eq!(parse_cd("cd"), some(""));
+    assert_eq!(parse_cd("cd /tmp"), some("/tmp"));
+    assert_eq!(parse_cd("  cd   foo  "), some("foo"));
+    assert_eq!(parse_cd("cd\tfoo"), some("foo"));
+    assert_eq!(parse_cd("cd -"), some("-"));
+    assert_eq!(parse_cd("cd ~/src"), some("~/src"));
     assert_eq!(parse_cd("cdfoo"), None);
     assert_eq!(parse_cd("ls"), None);
+}
+
+#[test]
+fn parse_cd_unquotes_and_leaves_shell_syntax_to_the_shell() {
+    let some = |s: &str| Some(s.to_string());
+    assert_eq!(parse_cd("cd 'My Files'"), some("My Files"));
+    assert_eq!(parse_cd("cd \"a \\\"b\\\" c\""), some("a \"b\" c"));
+    assert_eq!(parse_cd("cd My\\ Files"), some("My Files"));
+    // Compound lines, expansions and extra words are the shell's to run.
+    assert_eq!(parse_cd("cd /tmp && ls"), None);
+    assert_eq!(parse_cd("cd /tmp; ls"), None);
+    assert_eq!(parse_cd("cd $HOME"), None);
+    assert_eq!(parse_cd("cd \"$HOME\""), None);
+    assert_eq!(parse_cd("cd /us*"), None);
+    assert_eq!(parse_cd("cd ~root"), None);
+    assert_eq!(parse_cd("cd a b"), None);
+    assert_eq!(parse_cd("cd 'unterminated"), None);
 }
 
 #[test]
@@ -1355,9 +1376,27 @@ async fn cd_changes_active_panel_directory() {
     // `cd ..` ascends back.
     st.change_dir("..").await;
     assert_eq!(st.panels[0].cwd.path, root);
-    // cd to a non-existent directory leaves the panel where it is.
+    // cd to a non-existent directory leaves the panel where it is, and says so.
     st.change_dir("nope").await;
     assert_eq!(st.panels[0].cwd.path, root);
+    assert!(st.dialog.is_some(), "a failed cd reports it");
+    st.dialog = None;
+    // `cd -` returns to the directory before.
+    st.change_dir("child").await;
+    st.change_dir("-").await;
+    assert_eq!(st.panels[0].cwd.path, root);
+
+    // Inside an archive, an absolute path leaves for the local disk and `..`
+    // at the archive's root steps out beside the archive.
+    let zip = root.join("a.zip");
+    st.panels[0].cwd = VfsPath::archive(&zip, "/");
+    st.change_dir(&root.join("child").to_string_lossy()).await;
+    assert_eq!(st.panels[0].cwd, VfsPath::local(root.join("child")));
+    assert_eq!(
+        walk_path(VfsPath::archive(&zip, "/"), "../child"),
+        VfsPath::local(root.join("child"))
+    );
+    assert_eq!(walk_path(VfsPath::archive(&zip, "/d/e"), "../f"), VfsPath::archive(&zip, "/d/f"));
 
     std::fs::remove_dir_all(&root).ok();
 }

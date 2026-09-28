@@ -265,7 +265,13 @@ async fn run_loop(term: &mut Term, state: &mut AppState, rx: &mut AppReceiver) -
                 }
             }
             Some(app_event) = rx.recv() => {
+                let console = matches!(app_event, event::AppEvent::ConsoleOutput);
                 state.apply_event(app_event).await;
+                // The console shell printed something — possibly the prompt
+                // after a `cd`. Bring the active panel to wherever it went.
+                if console && let Some(dir) = shells.local_moved() {
+                    state.follow_shell_dir(dir).await;
+                }
             }
             _ = frames.tick(), if state.wants_frames() => {
                 state.on_frame();
@@ -477,6 +483,26 @@ fn interactive_shell() -> tokio::process::Command {
 struct Shells {
     local: Option<crate::shell::Subshell>,
     remote: std::collections::HashMap<String, crate::shell::RemoteShell>,
+    /// The local shell's working directory as last observed (Linux only; it is
+    /// read from `/proc`), so a move the shell makes can be spotted.
+    local_seen: Option<std::path::PathBuf>,
+    /// A `cd` we sent to put the shell in the panel's directory and have not yet
+    /// seen land — a move that is ours, not one for the panel to follow.
+    local_sent: Option<std::path::PathBuf>,
+}
+
+impl Shells {
+    /// The directory the local shell has moved to by itself since last looked
+    /// at, if any: not one we sent it to, and not where it already was.
+    fn local_moved(&mut self) -> Option<std::path::PathBuf> {
+        let now = self.local.as_ref()?.child_cwd()?;
+        if self.local_seen.as_ref() == Some(&now) {
+            return None;
+        }
+        self.local_seen = Some(now.clone());
+        let ours = self.local_sent.take().is_some_and(|sent| sent == now);
+        (!ours).then_some(now)
+    }
 }
 
 /// If the active panel is on an SSH remote (SFTP/SCP), the session scheme to run
@@ -565,10 +591,16 @@ async fn run_command(
     // Run in the active panel's directory: cd there first, but only when the
     // shell isn't already sitting in it (its live cwd is read from /proc on
     // Linux; elsewhere we always cd, which is correct if noisier).
+    // Note where the shell is before the command runs: whatever directory it
+    // ends up in other than that (and other than our own `cd`) is one the
+    // command took it to, and the panel follows (see `Shells::local_moved`).
+    shells.local_seen = sh.child_cwd();
+    shells.local_sent = None;
     if let Some(dir) = target
-        && sh.child_cwd().as_deref() != Some(dir.as_path())
+        && shells.local_seen.as_deref() != Some(dir.as_path())
     {
         sh.send_line(&format!("cd {}", crate::vfs::remote::shell_quote(&dir.to_string_lossy())));
+        shells.local_sent = Some(dir);
     }
     sh.send_line(cmd);
     Ok(())
@@ -776,7 +808,9 @@ async fn toggle_subshell(term: &mut Term, state: &mut AppState, shells: &mut She
     take_terminal_back(term, state)?;
 
     // Follow the shell's directory change back into the active panel (Linux).
-    if let Some(dir) = shells.local.as_ref().and_then(|s| s.child_cwd()) {
+    shells.local_sent = None;
+    shells.local_seen = shells.local.as_ref().and_then(|s| s.child_cwd());
+    if let Some(dir) = shells.local_seen.clone() {
         let p = &mut state.panels[state.active];
         if p.cwd.scheme == "file" && dir != p.cwd.path {
             p.cwd = crate::vfs::VfsPath::local(dir);

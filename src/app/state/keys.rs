@@ -530,7 +530,7 @@ impl AppState {
                     // A built-in `cd` changes the active panel instead of being
                     // run in a (throwaway) subshell where it would have no effect.
                     if let Some(arg) = parse_cd(&cmd) {
-                        self.change_dir(arg).await;
+                        self.change_dir(&arg).await;
                         return Flow::Continue;
                     }
                     return Flow::RunCommand(cmd);
@@ -1000,39 +1000,58 @@ impl AppState {
     }
 
     /// Handle a `cd` typed at the command line: change the active panel's
-    /// directory. Supports `cd` / `cd ~` (home), `cd /abs`, `cd rel`, and `cd ..`.
-    /// If the target can't be listed, the panel stays put (no blocking error).
+    /// directory. Supports `cd` / `cd ~` (home), `cd /abs`, `cd rel`, `cd ..`
+    /// and `cd -` (back to the previous directory). Inside an archive an absolute
+    /// path or `~` leaves for the local disk, and `..` at the archive's root steps
+    /// out of it; on a remote session an absolute path stays on that host.
     pub(in crate::app::state) async fn change_dir(&mut self, arg: &str) {
         let arg = arg.trim();
+        if arg == "-" {
+            return self.go_back(self.active).await;
+        }
         let cur = self.panels[self.active].cwd.clone();
+        let home = arg.is_empty() || arg == "~" || arg.starts_with("~/");
 
-        let newcwd: VfsPath = if cur.scheme == "file" {
+        let newcwd: VfsPath = if cur.is_remote() {
+            if home {
+                return; // the remote home isn't known here
+            }
+            let base = if arg.starts_with('/') {
+                VfsPath { scheme: cur.scheme.clone(), path: PathBuf::from("/"), container: None }
+            } else {
+                cur
+            };
+            walk_path(base, arg)
+        } else if cur.is_plain_local()
+            || home
+            || Path::new(arg).is_absolute()
+            || arg.starts_with('/')
+        {
             let target: PathBuf = if arg.is_empty() || arg == "~" {
                 home_dir()
             } else if let Some(rest) = arg.strip_prefix("~/") {
                 home_dir().join(rest)
             } else {
                 let raw = Path::new(arg);
-                if raw.is_absolute() { raw.to_path_buf() } else { cur.path.join(raw) }
+                if raw.is_absolute() || !cur.is_plain_local() {
+                    raw.to_path_buf()
+                } else {
+                    cur.path.join(raw)
+                }
             };
             VfsPath::local(normalize_path(&target))
         } else {
-            // Inside an archive/remote backend: support `..` and relative joins.
-            match arg {
-                "" | "~" => return,
-                ".." => match cur.parent() {
-                    Some(p) => p,
-                    None => return,
-                },
-                _ => cur.join(arg),
-            }
+            // Relative, inside an archive or extfs mount.
+            walk_path(cur, arg)
         };
 
         let backend = match self.registry.resolve(&newcwd) {
             Ok(b) => b,
             Err(e) => return self.show_error(format!("Cannot open location: {e}")),
         };
-        self.active_panel().try_enter(newcwd, backend, None).await;
+        if !self.active_panel().try_enter(newcwd, backend, None).await {
+            self.show_error(format!("cd: cannot change to {arg}"));
+        }
     }
 
     fn open_menu(&mut self) {

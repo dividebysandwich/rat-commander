@@ -456,14 +456,54 @@ fn esc_key() -> KeyEvent {
     KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)
 }
 
-/// Parse a command-line `cd` built-in. Returns the (possibly empty) argument
-/// when `cmd` is exactly the `cd` command, or `None` for anything else.
-fn parse_cd(cmd: &str) -> Option<&str> {
+/// Parse a command-line `cd` built-in. Returns the (possibly empty) argument,
+/// with its shell quoting removed, when `cmd` is a plain `cd` to one directory.
+/// Anything the shell itself has to interpret — a second word, `&&` or `;`, a
+/// variable, a glob, `~user` — returns `None` so the line goes to the console
+/// shell, whose directory change the active panel then follows.
+fn parse_cd(cmd: &str) -> Option<String> {
     let t = cmd.trim();
     if t == "cd" {
-        return Some("");
+        return Some(String::new());
     }
-    t.strip_prefix("cd ").map(str::trim)
+    let rest = t.strip_prefix("cd")?;
+    if !rest.starts_with(char::is_whitespace) {
+        return None;
+    }
+    let rest = rest.trim();
+    if rest.starts_with('~') && !(rest == "~" || rest.starts_with("~/")) {
+        return None;
+    }
+    let mut word = String::new();
+    let mut chars = rest.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '\'' => loop {
+                match chars.next()? {
+                    '\'' => break,
+                    c => word.push(c),
+                }
+            },
+            '"' => loop {
+                match chars.next()? {
+                    '"' => break,
+                    '$' | '`' => return None,
+                    '\\' => match chars.next()? {
+                        c @ ('"' | '\\') => word.push(c),
+                        c => {
+                            word.push('\\');
+                            word.push(c);
+                        }
+                    },
+                    c => word.push(c),
+                }
+            },
+            '\\' => word.push(chars.next()?),
+            c if c.is_whitespace() || "$`;&|<>(){}[]*?!#".contains(c) => return None,
+            c => word.push(c),
+        }
+    }
+    Some(word)
 }
 
 /// The top-menu index whose title starts with `c` (case-insensitive): L→0 Left,
@@ -622,6 +662,17 @@ fn normalize_path(p: &Path) -> PathBuf {
         out.push("/");
     }
     out
+}
+
+/// Follow a relative `/`-separated path from `base` one component at a time, so
+/// `..` goes through [`VfsPath::parent`] — which steps out of an archive at its
+/// root — rather than being joined literally onto a backend path.
+fn walk_path(base: VfsPath, rel: &str) -> VfsPath {
+    rel.split('/').fold(base, |at, comp| match comp {
+        "" | "." => at,
+        ".." => at.parent().unwrap_or(at),
+        name => at.join(name),
+    })
 }
 
 /// Detect 24-bit color support from the environment.
