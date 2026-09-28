@@ -710,29 +710,16 @@ impl AppState {
             self.show_error(crate::l10n::tr("That panel's filesystem is read-only"));
             return;
         }
-        // Destination is a native archive and the sources are ordinary local
-        // files → rebuild the archive once with all of them, which is far
-        // cheaper than the generic engine's rebuild-per-file. Anything else
-        // (sources inside another archive, an extfs mount or a remote host) has
-        // no local path to read, so it takes the generic path below and streams
-        // through `open_read`/`open_write` like any other backend pair.
-        let other_cwd = self.panels[self.other_index()].cwd.clone();
-        if other_cwd.is_native_archive() && self.panels[self.active].cwd.scheme == "file" {
-            self.begin_archive_add(ArchiveAdd { kind, sources, dest: other_cwd });
-            return;
-        }
         // Prefill the destination panel's path. For a remote panel, show the
         // "scheme://path" form so the copy targets that backend; deleting the
-        // "scheme://" prefix redirects the copy to a local path.
+        // "scheme://" prefix redirects the copy to a local path. An archive is
+        // shown as "archive.zip!/dir" for the same reason: kept, the sources go
+        // into the archive; replaced by a plain path, they go to the disk.
         let cwd = &self.panels[self.other_index()].cwd;
         let dest = if cwd.scheme == "file" {
             cwd.path.to_string_lossy().into_owned()
-        } else if cwd.is_archive() {
-            // Container-backed (an archive or an extfs mount): the destination is
-            // a path *inside* the container, so prefill that. `display()`'s
-            // "archive.zip!/dir" form would be taken literally and produce a
-            // member actually named "…/archive.zip!/dir".
-            cwd.posix_path()
+        } else if let Some(prefix) = container_dest_prefix(cwd) {
+            format!("{prefix}{}", cwd.posix_path())
         } else {
             cwd.display()
         };

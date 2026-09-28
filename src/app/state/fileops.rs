@@ -15,6 +15,16 @@ impl AppState {
         let other = self.other_index();
         let active = self.active;
         let target = dest_vfspath(dest, &self.panels[other].cwd, &self.panels[active].cwd);
+        // Into a native archive from ordinary local files → rebuild the archive
+        // once with all of them, which is far cheaper than the generic engine's
+        // rebuild-per-file. Anything else (sources inside another archive, an
+        // extfs mount or a remote host) has no local path to read, so it takes
+        // the generic path below and streams through `open_read`/`open_write`
+        // like any other backend pair.
+        if target.is_native_archive() && sources.iter().all(|s| s.is_plain_local()) {
+            self.begin_archive_add(ArchiveAdd { kind, sources, dest: target });
+            return;
+        }
         let dst_fs = match self.registry.resolve(&target) {
             Ok(b) => b,
             Err(e) => {

@@ -551,6 +551,22 @@ fn split_scheme(s: &str) -> Option<(&str, &str)> {
 ///   process cwd). This lets the user override a remote destination to a local
 ///   one simply by deleting the `scheme://` prefix from the prefilled field.
 fn dest_vfspath(dest: &str, other_cwd: &VfsPath, active_cwd: &VfsPath) -> VfsPath {
+    // "archive.zip!/dir" — the form the prompt is prefilled with for a panel
+    // inside an archive — lands inside that archive.
+    for cwd in [other_cwd, active_cwd] {
+        if let Some(inner) = container_dest_prefix(cwd).and_then(|p| dest.strip_prefix(&p)) {
+            return resolve_dest_on(if inner.is_empty() { "/" } else { inner }, cwd);
+        }
+    }
+    if other_cwd.is_archive() {
+        // The archive prefix was removed → a place on the local disk, as for
+        // a remote destination below.
+        return if Path::new(dest).is_absolute() {
+            VfsPath::local(dest)
+        } else {
+            resolve_dest_on(dest, active_cwd)
+        };
+    }
     if let Some((scheme, rest)) = split_scheme(dest) {
         let base_path = [other_cwd, active_cwd]
             .into_iter()
@@ -580,6 +596,12 @@ fn dest_vfspath(dest: &str, other_cwd: &VfsPath, active_cwd: &VfsPath) -> VfsPat
         // the opposite panel.
         resolve_dest_on(dest, active_cwd)
     }
+}
+
+/// The `"archive.zip!"` prefix that names a path inside `cwd`'s archive (or
+/// extfs mount) in a copy/move destination, or `None` when `cwd` is not in one.
+fn container_dest_prefix(cwd: &VfsPath) -> Option<String> {
+    cwd.container.as_ref().map(|c| format!("{}!", c.to_string_lossy()))
 }
 
 /// Resolve a typed destination string onto the destination panel's backend
