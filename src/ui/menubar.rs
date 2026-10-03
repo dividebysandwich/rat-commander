@@ -8,12 +8,12 @@ use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Paragraph, RenderDirection, Sparkline};
+use ratatui::widgets::{Block, Paragraph};
 
 /// Minimum terminal width before the system-status widget is shown.
 pub const STATUS_MIN_WIDTH: u16 = 100;
 /// Width reserved for the system-status widget.
-pub const STATUS_WIDTH: u16 = 34;
+pub const STATUS_WIDTH: u16 = 36;
 
 pub const TITLES: [&str; 5] = ["Left", "File", "Command", "Options", "Right"];
 
@@ -130,51 +130,65 @@ pub fn render_mini_progress(
     }
 }
 
-/// Render the CPU-histogram + memory status widget into `area` (one row).
+/// Render the CPU-histogram + memory status widget into `area` (one row):
+/// `CPU ▁▂▁▃… nn%  MEM nn%`. Labels share one colour and figures another, so
+/// the two read as a pair; the CPU figure and each bar take their load colour.
 pub fn render_status(f: &mut Frame, area: Rect, s: &SysSampler, theme: &Theme) {
-    if area.width < 16 {
+    if area.width < 20 {
         return;
     }
     // Opaque background so the widget reads over the gradient bar.
     f.render_widget(Block::default().style(Style::default().bg(theme.panel_bg)), area);
 
-    let cpu_label_w: u16 = 5; // "CPU "
-    let mem_w: u16 = 9; // " MEM nnn%"
-    let spark_w = area.width.saturating_sub(cpu_label_w + mem_w);
+    let cpu_label_w: u16 = 4; // "CPU "
+    let cpu_pct_w: u16 = 5; // " nnn%"
+    let mem_w: u16 = 10; // "  MEM nnn%"
+    let spark_w = area.width.saturating_sub(cpu_label_w + cpu_pct_w + mem_w);
 
-    let label_style = Style::default().fg(theme.panel_fg).bg(theme.panel_bg);
-    f.render_widget(
-        Paragraph::new(Span::styled("CPU ", label_style)),
-        Rect { width: cpu_label_w, ..area },
-    );
-
-    // Color the histogram by current load: green → yellow → red.
-    let load = s.cpu_last();
-    let spark_color = if load >= 80 {
-        theme.error_fg
-    } else if load >= 50 {
-        theme.header_fg
-    } else {
-        theme.exec_fg
+    let label = Style::default().fg(theme.panel_fg).bg(theme.panel_bg);
+    let figure = Style::default().fg(theme.panel_border_active).bg(theme.panel_bg);
+    let load_color = |v: u64| {
+        if v >= 80 {
+            theme.error_fg
+        } else if v >= 50 {
+            theme.header_fg
+        } else {
+            theme.exec_fg
+        }
     };
-    // Feed the samples newest-first and draw right-to-left, so the most recent
-    // load sits at the right edge and older samples scroll off to the left. (The
-    // widget only draws `width` bars from the front of the data; feeding it
-    // oldest-first drew the *oldest* bars and hid the newest until they aged in.)
-    let data: Vec<u64> = s.cpu_history.iter().rev().copied().collect();
-    let spark = Sparkline::default()
-        .data(data)
-        .direction(RenderDirection::RightToLeft)
-        .max(100)
-        .style(Style::default().fg(spark_color).bg(theme.panel_bg));
-    f.render_widget(spark, Rect { x: area.x + cpu_label_w, width: spark_w, ..area });
+    let (x, y) = (area.x, area.y);
+    let buf = f.buffer_mut();
+    buf.set_string(x, y, "CPU ", label);
 
-    let mem = format!(" MEM{:>3}%", s.mem_percent());
-    let mem_style = Style::default().fg(theme.panel_border_active).bg(theme.panel_bg);
-    f.render_widget(
-        Paragraph::new(Span::styled(mem, mem_style)),
-        Rect { x: area.x + cpu_label_w + spark_w, width: mem_w, ..area },
-    );
+    // One column per sample, newest at the right edge. A sample too small for
+    // even the lowest bar (and a column with no sample yet) draws a dim `▁`
+    // track, so an idle machine reads as idle rather than as missing data.
+    const BARS: [&str; 8] = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
+    let track = Style::default().fg(theme.panel_border).bg(theme.panel_bg);
+    let w = spark_w as usize;
+    let skip = s.cpu_history.len().saturating_sub(w);
+    let pad = w.saturating_sub(s.cpu_history.len());
+    for col in 0..w {
+        let cx = x + cpu_label_w + col as u16;
+        let sample = col.checked_sub(pad).and_then(|i| s.cpu_history.get(skip + i)).copied();
+        let level = sample.map_or(0, |v| (v.min(100) * 8).div_ceil(100) as usize);
+        match (sample, level) {
+            (Some(v), 1..) => {
+                let style = Style::default().fg(load_color(v)).bg(theme.panel_bg);
+                buf.set_string(cx, y, BARS[level - 1], style);
+            }
+            _ => {
+                buf.set_string(cx, y, BARS[0], track);
+            }
+        }
+    }
+
+    let load = s.cpu_last();
+    let pct_x = x + cpu_label_w + spark_w;
+    buf.set_string(pct_x, y, format!("{load:>4}%"), figure.fg(load_color(load)));
+    let mem_x = pct_x + cpu_pct_w;
+    buf.set_string(mem_x, y, "  MEM", label);
+    buf.set_string(mem_x + 5, y, format!("{:>4}%", s.mem_percent()), figure);
 }
 
 #[cfg(test)]
@@ -198,25 +212,69 @@ mod tests {
         assert_eq!(hotkey_cells(true), 5, "armed bar accents L/F/C/O/R");
     }
 
+    fn status_buffer(s: &SysSampler) -> (ratatui::buffer::Buffer, crate::ui::theme::Theme) {
+        let theme = crate::ui::theme::Theme::mc();
+        let mut t = Terminal::new(TestBackend::new(STATUS_WIDTH, 1)).unwrap();
+        t.draw(|f| render_status(f, f.area(), s, &theme)).unwrap();
+        (t.backend().buffer().clone(), theme)
+    }
+
+    fn row_text(b: &ratatui::buffer::Buffer) -> String {
+        (0..b.area.width).map(|x| b[(x, 0u16)].symbol().to_string()).collect()
+    }
+
     /// The CPU sparkline anchors the *newest* sample at its right edge — older
     /// (leftmost) samples must not eclipse a fresh spike, which was the bug.
     #[test]
     fn cpu_sparkline_shows_newest_at_the_right() {
-        let theme = crate::ui::theme::Theme::mc();
-        let mut s = crate::util::sysinfo::SysSampler::new();
+        let mut s = SysSampler::new();
         // Low history with a fresh 100% spike as the newest (back) sample.
         for _ in 0..crate::util::sysinfo::HISTORY - 1 {
             s.cpu_history.push_back(0);
         }
         s.cpu_history.push_back(100);
 
-        // Width 34 = STATUS_WIDTH: sparkline occupies x = 5 .. 25 (label 5, mem 9).
-        let mut t = Terminal::new(TestBackend::new(34, 1)).unwrap();
-        t.draw(|f| render_status(f, f.area(), &s, &theme)).unwrap();
-        let b = t.backend().buffer();
-        let rightmost = b[(24u16, 0u16)].symbol().to_string(); // last sparkline cell
-        let leftmost = b[(5u16, 0u16)].symbol().to_string(); // oldest visible cell
-        assert_eq!(rightmost, "█", "the 100% spike renders as a full bar at the right edge");
-        assert_ne!(leftmost, "█", "older (0%) samples stay low on the left");
+        // Sparkline occupies x = 4 .. STATUS_WIDTH - 15 (label 4, pct 5, mem 10).
+        let (b, _) = status_buffer(&s);
+        let last = STATUS_WIDTH - 16;
+        assert_eq!(b[(last, 0u16)].symbol(), "█", "the 100% spike is a full bar at the right");
+        assert_ne!(b[(4u16, 0u16)].symbol(), "█", "older (0%) samples stay low on the left");
+        assert!(row_text(&b).contains(" 100%"), "the current load is shown as a figure");
+    }
+
+    /// An idle machine (and one with no samples yet) still draws a visible
+    /// track and a figure, rather than a blank gap after "CPU".
+    #[test]
+    fn idle_cpu_draws_a_track_and_a_percentage() {
+        let mut s = SysSampler::new();
+        for _ in 0..5 {
+            s.cpu_history.push_back(2);
+        }
+        let (b, theme) = status_buffer(&s);
+        let spark: Vec<_> = (4..STATUS_WIDTH - 15).map(|x| &b[(x, 0u16)]).collect();
+        assert!(spark.iter().all(|c| c.symbol() == "▁"), "{}", row_text(&b));
+        assert!(spark.iter().any(|c| c.fg == theme.exec_fg), "small loads still show");
+        assert!(spark.iter().any(|c| c.fg == theme.panel_border), "empty columns are a dim track");
+        assert!(row_text(&b).contains("   2%"), "{}", row_text(&b));
+
+        let (b, _) = status_buffer(&SysSampler::new());
+        assert!(row_text(&b).starts_with("CPU ▁▁▁"), "{}", row_text(&b));
+    }
+
+    /// "CPU" and "MEM" share the label colour, the two figures the figure colour.
+    #[test]
+    fn cpu_and_mem_labels_match() {
+        let mut s = SysSampler::new();
+        s.mem_used_kb = 14;
+        s.mem_total_kb = 100;
+        let (b, theme) = status_buffer(&s);
+        let text = row_text(&b);
+        let cpu = text.find("CPU").unwrap() as u16;
+        let mem = text.chars().collect::<Vec<_>>().iter().position(|&c| c == 'M').unwrap() as u16;
+        assert_eq!(b[(cpu, 0u16)].fg, theme.panel_fg);
+        assert_eq!(b[(mem, 0u16)].fg, theme.panel_fg);
+        let pct = STATUS_WIDTH - 3; // the "14" of " 14%"
+        assert_eq!(b[(pct, 0u16)].fg, theme.panel_border_active);
+        assert!(text.ends_with("MEM  14%"), "{text}");
     }
 }
