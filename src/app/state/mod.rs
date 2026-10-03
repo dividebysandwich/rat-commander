@@ -759,6 +759,16 @@ async fn load_view_image(path: &Path) -> Option<crate::viewer::ViewerImage> {
     }
     let bytes = tokio::fs::read(path).await.ok()?;
     tokio::task::spawn_blocking(move || {
+        if crate::util::img::is_svg_bytes(&bytes) {
+            // A vector has no pixel size of its own to keep, so a small one is
+            // drawn larger to stay crisp. It goes on white, as a browser shows
+            // it: most SVGs assume a page behind them, and dark strokes on a
+            // transparent ground would vanish into a dark theme.
+            let (mut img, orig) = crate::util::img::render_svg(&bytes, VIEW_IMAGE_MAX_EDGE, 1024)?;
+            crate::util::img::flatten_onto(&mut img, [255, 255, 255]);
+            let sig = crate::util::img::image_sig(&img);
+            return Some(crate::viewer::ViewerImage { img, sig, orig });
+        }
         let full = image::load_from_memory(&bytes).ok()?;
         let orig = (full.width(), full.height());
         let img = full.thumbnail(VIEW_IMAGE_MAX_EDGE, VIEW_IMAGE_MAX_EDGE).to_rgba8();

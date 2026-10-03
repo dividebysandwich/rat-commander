@@ -1132,12 +1132,15 @@ loading it into an editor.
 **Operation and options.**
 
 - **Image view** — opening a supported image (`.png`, `.jpg`/`.jpeg`, `.gif`,
-  `.bmp`, `.webp`) shows it **fullscreen**, centred: a true-pixel image on
+  `.bmp`, `.webp`, and vector `.svg`/`.svgz`) shows it **fullscreen**, centred: a true-pixel image on
   terminals with a graphics protocol (Kitty / Sixel / iTerm2), or **half-block
   cell art** otherwise. The header shows the original pixel dimensions. Press
   **F8** to toggle between the image and the **raw** bytes (as text/hex), and
   **F4** switches that raw view between text and hex. If a file can't be decoded
-  as an image, the viewer just opens it as raw text/hex as usual.
+  as an image, the viewer just opens it as raw text/hex as usual. An SVG is
+  drawn on white, as a browser shows it, and a small one is scaled up to stay
+  sharp; only images embedded in the file itself are drawn, never ones it
+  names by path.
 - **Model view** — opening a 3D model (`.stl`, binary or ASCII, and `.obj`)
   shows the mesh **fullscreen** as a shaded solid you can turn: `← → ↑ ↓`
   **orbit**, `+` / `-` **zoom**, `Home` re-frames it, and dragging with the mouse
@@ -2887,7 +2890,7 @@ directory, and `Alt-T` skips over the format on a remote panel.
 *`Alt-T` until the grid appears, or Left / Right menu → Thumbnails view*
 
 A panel format showing the directory as a **grid of pictures**, each over its
-name: **images** (`.png`, `.jpg`, `.gif`, `.bmp`, `.webp`) as thumbnails, **3D
+name: **images** (`.png`, `.jpg`, `.gif`, `.bmp`, `.webp`, `.svg`) as thumbnails, **3D
 models** (`.stl`, `.obj`) rendered the way the model viewer first shows them, and
 everything else — directories included — by its type (a Nerd Font icon when
 those are on, otherwise `DIR` or the extension).

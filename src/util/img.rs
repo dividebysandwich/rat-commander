@@ -13,7 +13,114 @@ use ratatui::widgets::Paragraph;
 /// Whether `name`'s extension is a decodable image format.
 pub fn is_image_name(name: &str) -> bool {
     let ext = name.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
-    matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "gif" | "bmp" | "webp")
+    matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "gif" | "bmp" | "webp" | "svg" | "svgz")
+}
+
+/// Largest SVG (bytes, compressed or not) rendered for a thumbnail or the
+/// Details preview. A vector file is cheap on disk but not to rasterize — a
+/// detailed map of a few megabytes takes seconds — so the cap sits well below
+/// the raster formats'.
+pub const SVG_PREVIEW_MAX: usize = 4 * 1024 * 1024;
+/// Most bytes a `.svgz` is inflated to.
+const SVG_INFLATE_MAX: u64 = 32 * 1024 * 1024;
+
+/// Whether `bytes` are an SVG document: gzip (an `.svgz`), or an `<svg` element
+/// near the start, after any XML declaration, comments and doctype.
+pub fn is_svg_bytes(bytes: &[u8]) -> bool {
+    if bytes.starts_with(&[0x1f, 0x8b]) {
+        // A gzip stream is only an SVG once inflated; peek at its head.
+        use std::io::Read;
+        let mut head = Vec::new();
+        let _ = flate2::read::GzDecoder::new(bytes).take(4096).read_to_end(&mut head);
+        return !head.starts_with(&[0x1f, 0x8b]) && is_svg_bytes(&head);
+    }
+    let head = &bytes[..bytes.len().min(4096)];
+    memchr::memmem::find(head, b"<svg").is_some()
+        && head.iter().find(|b| !b.is_ascii_whitespace()).is_some_and(|&b| b == b'<' || b == 0xEF)
+}
+
+/// Rasterize an SVG (or gzipped `.svgz`) so its longest edge is its own size
+/// clamped to `min_edge..=max_edge` — a small icon is scaled up to stay crisp,
+/// a huge poster down. Returns the picture and the document's own size in px.
+///
+/// Only `data:` images embedded in the file are drawn: an `<image href>` naming
+/// a path is ignored, so viewing an SVG can't make the program read other files.
+pub fn render_svg(bytes: &[u8], max_edge: u32, min_edge: u32) -> Option<(RgbaImage, (u32, u32))> {
+    use resvg::{tiny_skia, usvg};
+    let inflated;
+    let data = if bytes.starts_with(&[0x1f, 0x8b]) {
+        use std::io::Read;
+        let mut out = Vec::new();
+        flate2::read::GzDecoder::new(bytes).take(SVG_INFLATE_MAX).read_to_end(&mut out).ok()?;
+        inflated = out;
+        &inflated[..]
+    } else {
+        bytes
+    };
+    let opt = usvg::Options {
+        resources_dir: None,
+        fontdb: svg_fonts(),
+        image_href_resolver: usvg::ImageHrefResolver {
+            resolve_data: usvg::ImageHrefResolver::default_data_resolver(),
+            resolve_string: Box::new(|_, _| None),
+        },
+        ..Default::default()
+    };
+    let tree = usvg::Tree::from_data(data, &opt).ok()?;
+    let size = tree.size();
+    let (w, h) = (size.width(), size.height());
+    let longest = w.max(h);
+    if !(longest.is_finite() && longest > 0.0) {
+        return None;
+    }
+    let target = longest.clamp(min_edge.max(1) as f32, max_edge.max(1) as f32);
+    let scale = target / longest;
+    let pw = ((w * scale).round() as u32).max(1);
+    let ph = ((h * scale).round() as u32).max(1);
+    let mut pixmap = tiny_skia::Pixmap::new(pw, ph)?;
+    resvg::render(&tree, tiny_skia::Transform::from_scale(scale, scale), &mut pixmap.as_mut());
+    let raw: Vec<u8> = pixmap
+        .pixels()
+        .iter()
+        .flat_map(|p| {
+            let c = p.demultiply();
+            [c.red(), c.green(), c.blue(), c.alpha()]
+        })
+        .collect();
+    let img = RgbaImage::from_raw(pw, ph, raw)?;
+    Some((img, (w.round() as u32, h.round() as u32)))
+}
+
+/// Composite `img` over an opaque `bg`, leaving every pixel fully opaque.
+pub fn flatten_onto(img: &mut RgbaImage, bg: [u8; 3]) {
+    for p in img.pixels_mut() {
+        let a = p[3] as u32;
+        for (c, b) in p.0.iter_mut().zip(bg) {
+            *c = ((*c as u32 * a + b as u32 * (255 - a) + 127) / 255) as u8;
+        }
+        p[3] = 255;
+    }
+}
+
+/// The fonts SVG text is drawn with: the system's, loaded once. Where there are
+/// none (a minimal install), the embedded Ubuntu face stands in for every
+/// generic family so text still shows.
+fn svg_fonts() -> std::sync::Arc<resvg::usvg::fontdb::Database> {
+    use std::sync::{Arc, LazyLock};
+    static DB: LazyLock<Arc<resvg::usvg::fontdb::Database>> = LazyLock::new(|| {
+        let mut db = resvg::usvg::fontdb::Database::new();
+        db.load_system_fonts();
+        if db.is_empty() {
+            db.load_font_data(epaint_default_fonts::UBUNTU_LIGHT.to_vec());
+            db.set_serif_family("Ubuntu");
+            db.set_sans_serif_family("Ubuntu");
+            db.set_monospace_family("Ubuntu");
+            db.set_cursive_family("Ubuntu");
+            db.set_fantasy_family("Ubuntu");
+        }
+        Arc::new(db)
+    });
+    DB.clone()
 }
 
 /// Decode `bytes` and shrink to at most `max_edge` px on the longest side
@@ -21,6 +128,13 @@ pub fn is_image_name(name: &str) -> bool {
 /// is used when present (cheap) before falling back to a full-resolution decode.
 /// `None` on any decode failure.
 pub fn decode_scaled(bytes: &[u8], max_edge: u32, prefer_embedded: bool) -> Option<RgbaImage> {
+    // A vector has no resolution to preserve, so it fills the box asked for.
+    if is_svg_bytes(bytes) {
+        if bytes.len() > SVG_PREVIEW_MAX {
+            return None;
+        }
+        return render_svg(bytes, max_edge, max_edge).map(|(img, _)| img);
+    }
     let decoded = if prefer_embedded {
         embedded_thumbnail(bytes)
             .and_then(|t| image::load_from_memory(&t).ok())
@@ -348,6 +462,62 @@ mod tests {
         assert!(
             !is_image_name("notes.txt") && !is_image_name("archive.zip") && !is_image_name("noext")
         );
+    }
+
+    const RED_SVG: &[u8] = br##"<?xml version="1.0"?>
+<!-- a red square -->
+<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">
+  <rect width="10" height="10" fill="#ff0000"/>
+</svg>"##;
+
+    fn gzip(data: &[u8]) -> Vec<u8> {
+        use std::io::Write;
+        let mut e = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        e.write_all(data).unwrap();
+        e.finish().unwrap()
+    }
+
+    #[test]
+    fn svg_is_an_image_by_name_and_by_content() {
+        assert!(is_image_name("logo.SVG") && is_image_name("icons.svgz"));
+        assert!(is_svg_bytes(RED_SVG) && is_svg_bytes(&gzip(RED_SVG)));
+        assert!(!is_svg_bytes(b"plain text mentioning <svg later"));
+        assert!(!is_svg_bytes(&gzip(b"not an svg at all")));
+    }
+
+    #[test]
+    fn svg_renders_scaled_up_to_the_minimum_edge() {
+        let (img, orig) = render_svg(RED_SVG, 2000, 64).expect("renders");
+        assert_eq!(orig, (10, 10));
+        assert_eq!((img.width(), img.height()), (64, 64), "a 10 px icon is drawn at 64 px");
+        assert_eq!(img.get_pixel(32, 32).0, [255, 0, 0, 255]);
+        let (z, _) = render_svg(&gzip(RED_SVG), 32, 32).expect("svgz renders");
+        assert_eq!(z.get_pixel(5, 5).0, [255, 0, 0, 255]);
+        // Thumbnails and the Details preview go through decode_scaled.
+        let t = decode_scaled(RED_SVG, 40, true).expect("decode_scaled takes SVG");
+        assert_eq!(t.width(), 40);
+    }
+
+    #[test]
+    fn svg_does_not_load_images_from_paths() {
+        let dir = std::env::temp_dir().join(format!("rc-svg-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let png = dir.join("green.png");
+        image::RgbaImage::from_pixel(4, 4, image::Rgba([0, 255, 0, 255])).save(&png).unwrap();
+        let svg = format!(
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><image href="{}" width="4" height="4"/></svg>"#,
+            png.display()
+        );
+        let (img, _) = render_svg(svg.as_bytes(), 4, 4).expect("renders");
+        assert_eq!(img.get_pixel(2, 2).0[3], 0, "the file the href names is not read");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn flatten_composites_over_the_background() {
+        let mut img = RgbaImage::from_pixel(1, 1, image::Rgba([0, 0, 0, 0]));
+        flatten_onto(&mut img, [255, 255, 255]);
+        assert_eq!(img.get_pixel(0, 0).0, [255, 255, 255, 255]);
     }
 
     #[test]

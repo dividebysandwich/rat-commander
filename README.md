@@ -42,7 +42,8 @@ The installed executable is named **`rc`** for quick typing.
   growing file like `tail -f` — pausing while you scroll back, and surviving
   truncation and log rotation — with log lines coloured by severity. **Git
   blame** (`b`) shows who last changed each line, shaded by age; `Enter` on a
-  line opens the tree as it was at that commit. Opens **images** fullscreen —
+  line opens the tree as it was at that commit. Opens **images** (SVG
+  included) fullscreen —
   true-pixel where the terminal supports graphics, half-block art otherwise
   (F8 toggles to the raw bytes).
 - **3D model viewer (F3)** — press F3 on an `.stl` or `.obj` and the mesh opens
