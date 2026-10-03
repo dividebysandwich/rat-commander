@@ -8,6 +8,7 @@
 
 pub mod binary;
 pub mod certs;
+pub mod doc;
 pub mod fingerprint;
 pub mod loglevel;
 pub mod markdown;
@@ -309,6 +310,10 @@ pub struct ViewerState {
     sheet_render: bool,
     /// The table view's record index and grid, built the first time it shows.
     table: Option<table::TableView>,
+    /// The text is a document's prose (the document view's): the Markdown
+    /// render takes its headings and lists but none of its inline markup, and
+    /// wraps at word boundaries rather than at the last column.
+    prose: bool,
     pub wrap: bool,
     /// Top visible logical line (text) or top 16-byte row (hex).
     top: usize,
@@ -377,6 +382,10 @@ pub struct ViewerState {
     certs: Option<Box<certs::CertView>>,
     /// Whether that (vs. the raw text) is showing — toggled with F8.
     show_certs: bool,
+    /// What a document (Word, PDF, a spreadsheet…) reads as — see [`doc`].
+    doc: Option<Box<doc::DocView>>,
+    /// Whether that (vs. the raw bytes) is showing — toggled with F8.
+    show_doc: bool,
 }
 
 impl ViewerState {
@@ -407,6 +416,7 @@ impl ViewerState {
             is_sheet,
             sheet_render: is_sheet,
             table: None,
+            prose: false,
             wrap: false,
             top: 0,
             h_offset: 0,
@@ -437,6 +447,8 @@ impl ViewerState {
             binary: None,
             certs: None,
             show_certs: false,
+            doc: None,
+            show_doc: false,
         }
     }
 
@@ -470,6 +482,7 @@ impl ViewerState {
             is_sheet,
             sheet_render: is_sheet,
             table: None,
+            prose: false,
             wrap: false,
             top: 0,
             h_offset: 0,
@@ -500,6 +513,8 @@ impl ViewerState {
             binary: None,
             certs: None,
             show_certs: false,
+            doc: None,
+            show_doc: false,
         }
     }
 
@@ -923,7 +938,7 @@ impl ViewerState {
         for i in simple..total {
             let line = self.line_str(i);
             heights.push(if md {
-                markdown_rows(&line, &mut in_code, width)
+                markdown_rows(&line, &mut in_code, width, self.prose)
             } else {
                 line.chars().count().div_ceil(width).max(1)
             });
@@ -940,6 +955,9 @@ impl ViewerState {
 
     /// Seed the F7 prompt's pre-filled term from the app-wide search memory.
     pub fn set_search_seed(&mut self, seed: String) {
+        if let Some(d) = self.doc.as_deref_mut() {
+            d.current_mut().set_search_seed(seed.clone());
+        }
         self.search_seed = seed;
     }
 
@@ -951,7 +969,10 @@ impl ViewerState {
 
     /// The last search term (for writing back to the app-wide search memory).
     pub fn search_seed(&self) -> &str {
-        &self.search_seed
+        match self.doc_part() {
+            Some(p) => p.search_seed(),
+            None => &self.search_seed,
+        }
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> ViewerSignal {
@@ -961,6 +982,10 @@ impl ViewerState {
     }
 
     fn route_key(&mut self, key: KeyEvent) -> ViewerSignal {
+        // A document shows in place of the file, and has its keys.
+        if self.show_doc && self.doc.is_some() {
+            return self.handle_doc_key(key);
+        }
         // While the outline navigator is open it captures navigation keys.
         if self.outline_open {
             return self.handle_outline_key(key);
@@ -1098,6 +1123,11 @@ impl ViewerState {
             KeyCode::F(5) => return ViewerSignal::OpenGoto,
             // F6 (Markdown files in text mode): open the document outline.
             KeyCode::F(6) if self.is_markdown && self.mode == ViewMode::Text => self.open_outline(),
+            // F8 (documents): back from the bytes to the document.
+            KeyCode::F(8) if self.doc.is_some() => {
+                self.show_doc = true;
+                self.mode = ViewMode::Text;
+            }
             // F8 (certificate and key files): back to the certificates.
             KeyCode::F(8) if self.certs.is_some() => self.show_certs = true,
             // F8 (audio files): back from the raw text/hex to the audio view.
@@ -1166,6 +1196,10 @@ impl ViewerState {
                 Some(i) => self.activate_fkey(i),
                 None => ViewerSignal::Stay,
             };
+        }
+
+        if let Some(p) = self.doc_part_mut() {
+            return p.handle_mouse(ev);
         }
 
         // The audio view's picture, progress row and buttons.
@@ -1546,6 +1580,9 @@ impl ViewerState {
     }
 
     pub(crate) fn footer_labels(&self) -> [&'static str; 10] {
+        if let Some(labels) = self.doc_footer_labels() {
+            return labels;
+        }
         let wrap = if self.wrap { "Unwrap" } else { "Wrap" };
         // Names the mode F4 moves *to*, cycling Text → Hex → Map (→ Binary).
         let mode = match self.next_mode() {
@@ -1583,6 +1620,8 @@ impl ViewerState {
         // mode, "Raw" shows the source and "Render" the approximation.
         let f8 = if self.mode == ViewMode::Map {
             if self.map_by_class { "Density" } else { "Bytes" }
+        } else if self.doc.is_some() {
+            "Document"
         } else if self.certs.is_some() {
             "Certs"
         } else if self.audio.is_some() {
@@ -1747,6 +1786,9 @@ impl ViewerState {
     /// parsed (so the caller can flag bad input). In text mode positions are
     /// logical lines; in hex mode they are 16-byte rows.
     pub fn goto(&mut self, value: &str, mode: GotoMode) -> bool {
+        if let Some(parsed) = self.doc_goto(value, mode) {
+            return parsed;
+        }
         let v = value.trim();
         if self.mode == ViewMode::Binary {
             return self.goto_binary(v, mode);
@@ -1857,6 +1899,9 @@ impl ViewerState {
     /// last hit — which is what makes pressing F7-Enter again walk the file —
     /// while any change of term or option restarts from the top.
     pub fn apply_search(&mut self, p: &crate::ui::dialog::SearchReplaceParams) {
+        if let Some(part) = self.doc_part_mut() {
+            return part.apply_search(p);
+        }
         let want = ViewSearch {
             query: p.search.clone(),
             regex: p.regex,
@@ -2094,7 +2139,7 @@ impl Drop for ViewerState {
 /// Visual rows `line` occupies in the wrapped Markdown approximation at `width`
 /// columns, toggling the code-fence state across calls — mirrors how
 /// `render_markdown` lays lines out.
-fn markdown_rows(line: &str, in_code: &mut bool, width: usize) -> usize {
+fn markdown_rows(line: &str, in_code: &mut bool, width: usize, prose: bool) -> usize {
     if markdown::is_fence(line) {
         *in_code = !*in_code;
         return 1; // drawn as a one-row box border
@@ -2106,6 +2151,10 @@ fn markdown_rows(line: &str, in_code: &mut bool, width: usize) -> usize {
         return if code_w == 0 { 1 } else { line.chars().count().div_ceil(code_w).max(1) };
     }
     let chars: Vec<char> = line.chars().collect();
+    if prose {
+        let (shown, _) = markdown::render_line_with(&chars, &markdown::NO_THEME, false);
+        return markdown::word_rows(&shown, width).len();
+    }
     markdown::display_len(&chars).div_ceil(width).max(1)
 }
 

@@ -662,6 +662,12 @@ rtl = true
 
 # -- Viewer: table view (CSV/TSV) --
 "Table" = "جدول"
+"Document" = "سند"
+"Sheet" = "برگه"
+"Slide" = "اسلاید"
+"Page" = "صفحه"
+"(no text on this page)" = "(این صفحه متنی ندارد)"
+"(truncated)" = "(کوتاه‌شده)"
 "Header" = "سرستون"
 
 # -- Editor: spreadsheet grid (CSV/TSV) --

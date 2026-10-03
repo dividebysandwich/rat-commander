@@ -868,6 +868,9 @@ impl AppState {
                                 // host opens in Binary mode, as a local one does.
                                 open_binary(&mut v, &temp).await;
                                 open_certs(&mut v, &temp).await;
+                                // So does a document, read from the temp copy
+                                // under its original name.
+                                self.attach_doc(&mut v, &temp).await;
                                 // Audio from an archive or a remote host is
                                 // drawn and played from the temp copy.
                                 if let Some(av) = load_view_audio(

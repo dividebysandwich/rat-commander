@@ -20,6 +20,17 @@ pub fn render(
     if area.height < 3 {
         return;
     }
+    // A document draws as its own viewer; the footer is this one's, so F4 and
+    // F8 name the way back to the bytes, and its rects are this one's too, so
+    // a click on the bar comes here first.
+    if let Some(part) = v.doc_part_mut() {
+        render(f, area, part, theme, gfx);
+        let (content, footer) = (part.content_area, part.footer_area);
+        v.content_area = content;
+        v.footer_area = footer;
+        render_footer(f, footer, v, theme);
+        return;
+    }
     let header = Rect { height: 1, ..area };
     let content = Rect { y: area.y + 1, height: area.height - 2, ..area };
     let footer = Rect { y: area.y + area.height - 1, height: 1, ..area };
@@ -1197,7 +1208,7 @@ fn render_markdown(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
         }
 
         // Ordinary Markdown line: markup is stripped, leaving display text + styles.
-        let (chars, mut styles) = super::markdown::render_line(&raw, theme);
+        let (chars, mut styles) = super::markdown::render_line_with(&raw, theme, !v.prose);
         // Tint the `#` of any hex-color token, regardless of the Markdown styling.
         for (i, color) in crate::ui::hexcolor::hex_color_hashes(&chars) {
             if i < styles.len() {
@@ -1205,7 +1216,14 @@ fn render_markdown(f: &mut Frame, area: Rect, v: &ViewerState, theme: &Theme) {
             }
         }
 
-        if v.wrap {
+        if v.wrap && v.prose {
+            for (start, end) in super::markdown::word_rows(&chars, width) {
+                if lines.len() >= rows {
+                    break;
+                }
+                lines.push(build_styled(&chars[start..end], start, &styles, default));
+            }
+        } else if v.wrap {
             if chars.is_empty() {
                 lines.push(build_styled(&[], 0, &styles, default));
             } else {

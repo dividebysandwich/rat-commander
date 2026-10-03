@@ -658,6 +658,12 @@ code = "ja"
 
 # -- Viewer: table view (CSV/TSV) --
 "Table" = "表"
+"Document" = "文書"
+"Sheet" = "シート"
+"Slide" = "スライド"
+"Page" = "ページ"
+"(no text on this page)" = "(このページにテキストはありません)"
+"(truncated)" = "(切り詰め)"
 "Header" = "見出し"
 
 # -- Editor: spreadsheet grid (CSV/TSV) --

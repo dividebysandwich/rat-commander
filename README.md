@@ -45,7 +45,11 @@ The installed executable is named **`rc`** for quick typing.
   line opens the tree as it was at that commit. Opens **images** (SVG
   included) fullscreen —
   true-pixel where the terminal supports graphics, half-block art otherwise
-  (F8 toggles to the raw bytes).
+  (F8 toggles to the raw bytes). Opens **documents** on what they read as:
+  Word, PowerPoint, OpenDocument, EPUB and PDF as text with headings, lists and
+  tables (F6 jumps between sections, slides or pages), and Excel and
+  OpenDocument **spreadsheets** in the table view, sheet by sheet — no office
+  suite needed.
 - **3D model viewer (F3)** — press F3 on an `.stl` or `.obj` and the mesh opens
   as a solid you can **orbit** with the arrow keys (or by dragging), zoom with
   `+`/`-` and re-frame with `Home`. Binary and ASCII STL and Wavefront OBJ are

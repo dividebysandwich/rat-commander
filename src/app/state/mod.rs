@@ -825,6 +825,46 @@ pub(in crate::app::state) async fn load_view_audio(
     Some(view)
 }
 
+/// Read a document for the viewer's document view: the text of a Word,
+/// PowerPoint, OpenDocument, EPUB or PDF file, or a spreadsheet's sheets.
+/// `name` (the original file name — a fetched temp copy may have none) says
+/// which kind. `None` when it is not a document, or too large to read; an
+/// error when it is one that could not be read. The reading itself runs on a
+/// guarded thread of its own (see `doc::extract_guarded`).
+async fn load_view_doc(
+    path: &Path,
+    name: &str,
+) -> Option<Result<crate::viewer::doc::DocView, String>> {
+    let kind = crate::doc::doc_kind(name)?;
+    let meta = tokio::fs::metadata(path).await.ok()?;
+    if meta.len() > crate::doc::MAX_INPUT {
+        return None;
+    }
+    let bytes = tokio::fs::read(path).await.ok()?;
+    let read = crate::doc::extract_guarded(bytes, kind).await;
+    Some(read.map(|x| crate::viewer::doc::DocView::new(name, kind, x)))
+}
+
+impl AppState {
+    /// Show what the document at `file` reads as, when `v` is one (and did not
+    /// open as a binary). One that cannot be read opens on its bytes, with the
+    /// reason in a message.
+    async fn attach_doc(&mut self, v: &mut crate::viewer::ViewerState, file: &Path) {
+        if v.is_binary_mode() {
+            return;
+        }
+        match load_view_doc(file, &v.name).await {
+            Some(Ok(d)) => v.set_doc(d),
+            Some(Err(e)) => {
+                // A reader that panicked has written to the terminal.
+                self.force_clear = true;
+                self.show_error(format!("Cannot read the document: {e}"));
+            }
+            None => {}
+        }
+    }
+}
+
 /// How long F3 waits for a binary's analysis before showing the viewer anyway.
 /// Enough for an ordinary executable to open straight into its lists; a large
 /// debug build keeps analysing behind an "Analyzing…" screen instead.

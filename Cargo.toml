@@ -146,6 +146,14 @@ image = { version = "0.25.10", default-features = false, features = ["png", "jpe
 # tiny-skia rasterizes. Pure Rust (no C, cross-compile OK). `svgz` is left out
 # because we inflate `.svgz` ourselves, with a cap, through the flate2 above.
 resvg = { version = "0.48.1", default-features = false, features = ["text", "system-fonts", "memmap-fonts", "raster-images"] }
+# The viewer's document view. Spreadsheets (.xlsx/.xlsm/.xlsb/.xls/.ods) are
+# read by calamine into the table view; pure Rust, and it shares the zip and
+# quick-xml already above, so it brings little of its own. Word, PowerPoint,
+# OpenDocument text and EPUB need no crate beyond those two.
+calamine = { version = "0.36.1", default-features = false }
+# PDF text for the document view: lopdf underneath, plus the font decoding that
+# turns glyph codes back into text. Pure Rust (no poppler, no pdfium).
+pdf-extract = "0.12.1"
 # Pure-Rust EXIF parser, used to pull a JPEG's embedded thumbnail for the Details
 # preview so we don't decode a full-resolution photo just to shrink it.
 kamadak-exif = "0.6.1"

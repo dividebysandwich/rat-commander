@@ -253,18 +253,21 @@ used to share now lives on `Alt-T`.
 - `F2` — Toggle line wrap (in an **audio view**: switch Spectrogram / Waveform;
   in a **table**: turn the header row on or off)
 - `F4` — Cycle text / hex / byte-map mode (and the binary view, for an
-  executable or library)
+  executable or library); in a **document view**, show the file's bytes in hex
 - `F5` — Goto (line / percent / byte offset)
 - `F6` — (Markdown files) show the document outline — a tree of the headings.
   Use `↑ ↓` / `PgUp PgDn` / `Home End` or the mouse to pick a heading, `Enter`
   (or a click) to jump to it, `Esc` / `F6` to dismiss. Opening this manual with
-  `F1` lands on its outline.
+  `F1` lands on its outline. In a **document view**, the document's outline (its
+  headings, slides or pages); for a spreadsheet, the next sheet (`Shift-F6` the
+  previous one)
 - `F7` — Search
 - `F8` — (Markdown files) toggle Raw / Render; (CSV / TSV files) toggle Table /
   Raw; (image files) toggle Image / Raw;
   (model files) toggle Model / Raw; (audio files) toggle Audio / Raw; (byte map)
   toggle Density / Bytes colouring; (binary view) toggle demangled / raw symbol
-  names; (certificate and key files) toggle Certs / Raw
+  names; (certificate and key files) toggle Certs / Raw; (documents and
+  spreadsheets) toggle Document / Raw
 - In an **audio view**: `Space` play / pause, `s` stop, `← →` seek 5 s,
   `PgUp PgDn` seek 30 s, `Home End` jump to the start / end, `+ -` or `↑ ↓`
   change the volume; click or drag on the picture to seek
@@ -276,6 +279,8 @@ used to share now lives on `Alt-T`.
   the first / last field of the record, `Ctrl-Home Ctrl-End` to the first / last
   record, `Tab` / `Shift-Tab` step through the cells, `<` `>` (or `Ctrl-← →`)
   narrow and widen the column; a click picks a cell
+- In a **spreadsheet**: `]` / `[` (or `Ctrl-PgDn` / `Ctrl-PgUp`, or `F6` /
+  `Shift-F6`) switch to the next / previous sheet; each keeps its own cursor
 - In the **binary view**: `Tab` / `Shift-Tab` or `1`–`7` switch lists, `Enter`
   opens the hex view at the highlighted row, `Esc` drops a *Find all* filter
 - In the **certificate view**: `Tab` / `Shift-Tab` or `1`–`6` switch tabs,
@@ -1141,6 +1146,28 @@ loading it into an editor.
   drawn on white, as a browser shows it, and a small one is scaled up to stay
   sharp; only images embedded in the file itself are drawn, never ones it
   names by path.
+- **Document view** — opening a document shows what it **reads as** rather than
+  its bytes: **Word** (`.docx`), **PowerPoint** (`.pptx`), **OpenDocument** text
+  and presentations (`.odt`, `.odp`), **EPUB** books and **PDF** files open as
+  text with their headings, lists and tables, and **spreadsheets** (`.xlsx`,
+  `.xlsm`, `.xlsb`, `.xls`, `.ods`) open in the table view, one sheet at a time.
+  - Headings are coloured and make up the **F6 outline**, so a long report, a
+    book's chapters, a deck's slides (*Slide 3: Title*) or a PDF's pages (*Page
+    12*) are a keystroke apart. Text wraps at word boundaries, and **F7**
+    searches it.
+  - Tables are drawn with box lines, and long cells wrap inside their column.
+  - A spreadsheet shows its cells' values (a formula shows what it last
+    computed), with dates written as dates. The header names the sheet;
+    `]` / `[` (or `F6` / `Shift-F6`, `Ctrl-PgDn` / `Ctrl-PgUp`) move between
+    sheets, and each keeps its own place.
+  - **F8** switches to the file's raw bytes and back, and **F4** shows them in
+    hex.
+  - A document that cannot be read (damaged, encrypted, or one that takes the
+    reader more than 30 seconds) opens on its bytes, with the reason in a
+    message. A PDF is read for its text only, so a scanned page says it has
+    none.
+  - Everything is read by the program itself, with no office suite or PDF tool
+    installed, and documents from archives and remote hosts open the same way.
 - **Model view** — opening a 3D model (`.stl`, binary or ASCII, and `.obj`)
   shows the mesh **fullscreen** as a shaded solid you can turn: `← → ↑ ↓`
   **orbit**, `+` / `-` **zoom**, `Home` re-frames it, and dragging with the mouse

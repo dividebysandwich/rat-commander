@@ -11,6 +11,7 @@ mod console;
 mod details;
 mod diff;
 mod disk;
+mod doc;
 mod drive;
 mod editor;
 mod ext;

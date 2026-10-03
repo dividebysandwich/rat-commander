@@ -658,6 +658,12 @@ code = "sk"
 
 # -- Viewer: table view (CSV/TSV) --
 "Table" = "Tabuľka"
+"Document" = "Dokument"
+"Sheet" = "Hárok"
+"Slide" = "Snímka"
+"Page" = "Strana"
+"(no text on this page)" = "(na tejto strane nie je text)"
+"(truncated)" = "(skrátené)"
 "Header" = "Hlavička"
 
 # -- Editor: spreadsheet grid (CSV/TSV) --

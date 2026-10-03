@@ -658,6 +658,12 @@ code = "hu"
 
 # -- Viewer: table view (CSV/TSV) --
 "Table" = "Táblázat"
+"Document" = "Dokumentum"
+"Sheet" = "Munkalap"
+"Slide" = "Dia"
+"Page" = "Oldal"
+"(no text on this page)" = "(ezen az oldalon nincs szöveg)"
+"(truncated)" = "(csonkítva)"
 "Header" = "Fejléc"
 
 # -- Editor: spreadsheet grid (CSV/TSV) --

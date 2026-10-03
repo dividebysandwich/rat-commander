@@ -658,6 +658,12 @@ code = "sr"
 
 # -- Viewer: table view (CSV/TSV) --
 "Table" = "Tabela"
+"Document" = "Dokument"
+"Sheet" = "List"
+"Slide" = "Slajd"
+"Page" = "Strana"
+"(no text on this page)" = "(nema teksta na ovoj strani)"
+"(truncated)" = "(skraćeno)"
 "Header" = "Zaglav."
 
 # -- Editor: spreadsheet grid (CSV/TSV) --

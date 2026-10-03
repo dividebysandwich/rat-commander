@@ -591,6 +591,9 @@ impl AppState {
                     if hit.is_none() {
                         open_binary(&mut v, &path.path).await;
                         open_certs(&mut v, &path.path).await;
+                        // A document (Word, PDF, a spreadsheet…) opens on what
+                        // it reads as; F8 switches to the bytes.
+                        self.attach_doc(&mut v, &path.path).await;
                     }
                     // A supported image opens showing the decoded image fullscreen
                     // (it falls back to the raw text/hex view if it can't decode).

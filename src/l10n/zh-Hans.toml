@@ -658,6 +658,12 @@ code = "zh-Hans"
 
 # -- Viewer: table view (CSV/TSV) --
 "Table" = "表格"
+"Document" = "文档"
+"Sheet" = "工作表"
+"Slide" = "幻灯片"
+"Page" = "页"
+"(no text on this page)" = "(此页没有文字)"
+"(truncated)" = "(已截断)"
 "Header" = "标题行"
 
 # -- Editor: spreadsheet grid (CSV/TSV) --

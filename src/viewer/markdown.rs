@@ -14,6 +14,13 @@ use ratatui::style::{Color, Modifier, Style};
 /// Render one Markdown source line into `(display_chars, per-char styles)` with
 /// the markup markers removed.
 pub fn render_line(chars: &[char], theme: &Theme) -> (Vec<char>, Vec<Style>) {
+    render_line_with(chars, theme, true)
+}
+
+/// [`render_line`], with inline markup (`` ` ``, `*`, `[text](url)`) honoured
+/// only when `inline` — a document's prose shows its own asterisks as written,
+/// while its headings and list items still render.
+pub fn render_line_with(chars: &[char], theme: &Theme, inline: bool) -> (Vec<char>, Vec<Style>) {
     let base = Style::default().fg(theme.text_fg).bg(theme.panel_bg);
     let dim = base.fg(theme.panel_border);
     let mut out = Out { c: Vec::with_capacity(chars.len()), s: Vec::with_capacity(chars.len()) };
@@ -39,7 +46,7 @@ pub fn render_line(chars: &[char], theme: &Theme) -> (Vec<char>, Vec<Style>) {
         if chars.get(start) == Some(&' ') {
             start += 1;
         }
-        emit_inline(chars, start, head, &mut out, theme);
+        emit(chars, start, head, &mut out, theme, inline);
         return (out.c, out.s);
     }
 
@@ -73,7 +80,7 @@ pub fn render_line(chars: &[char], theme: &Theme) -> (Vec<char>, Vec<Style>) {
             start += 1;
         }
         let quote = dim.add_modifier(Modifier::ITALIC);
-        emit_inline(chars, start, quote, &mut out, theme);
+        emit(chars, start, quote, &mut out, theme, inline);
         return (out.c, out.s);
     }
 
@@ -89,11 +96,11 @@ pub fn render_line(chars: &[char], theme: &Theme) -> (Vec<char>, Vec<Style>) {
             }
             out.push(' ', base);
         }
-        emit_inline(chars, indent + n, base, &mut out, theme);
+        emit(chars, indent + n, base, &mut out, theme, inline);
         return (out.c, out.s);
     }
 
-    emit_inline(chars, indent, base, &mut out, theme);
+    emit(chars, indent, base, &mut out, theme, inline);
     (out.c, out.s)
 }
 
@@ -102,8 +109,39 @@ pub fn render_line(chars: &[char], theme: &Theme) -> (Vec<char>, Vec<Style>) {
 /// fixed throwaway theme serves callers that have none at hand (the viewer's
 /// wrap-aware scroll clamping).
 pub fn display_len(chars: &[char]) -> usize {
-    static THEME: std::sync::OnceLock<Theme> = std::sync::OnceLock::new();
-    render_line(chars, THEME.get_or_init(Theme::mc)).0.len()
+    render_line(chars, &NO_THEME).0.len()
+}
+
+/// The throwaway theme measuring uses (see [`display_len`]).
+pub static NO_THEME: std::sync::LazyLock<Theme> = std::sync::LazyLock::new(Theme::mc);
+
+/// Where a line of `chars` breaks when wrapped at word boundaries to `width`
+/// columns: the `(start, end)` of each row. A row ends after a space where one
+/// fits; a word wider than a whole row is cut where the row ends.
+pub fn word_rows(chars: &[char], width: usize) -> Vec<(usize, usize)> {
+    let width = width.max(1);
+    let mut rows = Vec::new();
+    let mut start = 0;
+    while chars.len() - start > width {
+        let limit = start + width;
+        let end = (start + 1..=limit).rev().find(|&i| chars[i - 1] == ' ').unwrap_or(limit);
+        rows.push((start, end));
+        start = end;
+    }
+    rows.push((start, chars.len()));
+    rows
+}
+
+/// Emit `chars[start..]` with inline markup applied, or as plain text when
+/// `inline` is off.
+fn emit(chars: &[char], start: usize, base: Style, out: &mut Out, theme: &Theme, inline: bool) {
+    if inline {
+        emit_inline(chars, start, base, out, theme);
+    } else {
+        for &c in &chars[start.min(chars.len())..] {
+            out.push(c, base);
+        }
+    }
 }
 
 /// Accumulates the rendered characters and their styles.

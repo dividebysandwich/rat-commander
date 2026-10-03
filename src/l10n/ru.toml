@@ -658,6 +658,12 @@ code = "ru"
 
 # -- Viewer: table view (CSV/TSV) --
 "Table" = "Таблица"
+"Document" = "Документ"
+"Sheet" = "Лист"
+"Slide" = "Слайд"
+"Page" = "Страница"
+"(no text on this page)" = "(на этой странице нет текста)"
+"(truncated)" = "(обрезано)"
 "Header" = "Шапка"
 
 # -- Editor: spreadsheet grid (CSV/TSV) --

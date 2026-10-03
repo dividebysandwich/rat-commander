@@ -658,6 +658,12 @@ code = "uk"
 
 # -- Viewer: table view (CSV/TSV) --
 "Table" = "Таблиця"
+"Document" = "Документ"
+"Sheet" = "Аркуш"
+"Slide" = "Слайд"
+"Page" = "Сторінка"
+"(no text on this page)" = "(на цій сторінці немає тексту)"
+"(truncated)" = "(обрізано)"
 "Header" = "Шапка"
 
 # -- Editor: spreadsheet grid (CSV/TSV) --

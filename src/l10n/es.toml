@@ -658,6 +658,12 @@ code = "es"
 
 # -- Viewer: table view (CSV/TSV) --
 "Table" = "Tabla"
+"Document" = "Documento"
+"Sheet" = "Hoja"
+"Slide" = "Diapositiva"
+"Page" = "Página"
+"(no text on this page)" = "(sin texto en esta página)"
+"(truncated)" = "(truncado)"
 "Header" = "Encab."
 
 # -- Editor: spreadsheet grid (CSV/TSV) --

@@ -658,6 +658,12 @@ code = "cs"
 
 # -- Viewer: table view (CSV/TSV) --
 "Table" = "Tabulka"
+"Document" = "Dokument"
+"Sheet" = "List"
+"Slide" = "Snímek"
+"Page" = "Strana"
+"(no text on this page)" = "(na této straně není text)"
+"(truncated)" = "(zkráceno)"
 "Header" = "Záhlaví"
 
 # -- Editor: spreadsheet grid (CSV/TSV) --

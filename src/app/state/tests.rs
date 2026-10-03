@@ -4106,6 +4106,67 @@ async fn f3_opens_image_viewer_and_falls_back_to_text() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// A minimal Word document holding one heading and one paragraph.
+fn tiny_docx() -> Vec<u8> {
+    use std::io::Write;
+    let doc = r#"<w:document xmlns:w="w"><w:body>
+        <w:p><w:pPr><w:outlineLvl w:val="0"/></w:pPr><w:r><w:t>Quarterly</w:t></w:r></w:p>
+        <w:p><w:r><w:t>Numbers went up.</w:t></w:r></w:p></w:body></w:document>"#;
+    let mut z = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    z.start_file("word/document.xml", zip::write::SimpleFileOptions::default()).unwrap();
+    z.write_all(doc.as_bytes()).unwrap();
+    z.finish().unwrap().into_inner()
+}
+
+/// F3 on a document opens on what it reads as; a broken one opens on its
+/// bytes with the reason shown; and one fetched from elsewhere (a temp copy
+/// without its extension) is read under its own name.
+#[tokio::test]
+async fn f3_opens_a_document_on_its_text_and_a_broken_one_on_its_bytes() {
+    let root = temp_dir("docview");
+    std::fs::write(root.join("report.docx"), tiny_docx()).unwrap();
+    std::fs::write(root.join("broken.docx"), b"not a zip at all").unwrap();
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    st.panels[0].cwd = VfsPath::local(&root);
+    st.panels[0].backend = st.registry.local();
+    st.panels[0].reload().await.unwrap();
+
+    let idx = st.panels[0].entries.iter().position(|e| e.name == "report.docx").unwrap();
+    st.panels[0].cursor = idx;
+    st.open_view().await;
+    let v = st.viewer.as_ref().expect("viewer opened for the document");
+    assert!(v.active_doc().is_some(), "F3 on a .docx shows the document");
+    assert!(st.dialog.is_none());
+    st.viewer = None;
+
+    let idx = st.panels[0].entries.iter().position(|e| e.name == "broken.docx").unwrap();
+    st.panels[0].cursor = idx;
+    st.open_view().await;
+    let v = st.viewer.as_ref().expect("a broken document still opens");
+    assert!(v.active_doc().is_none(), "nothing to show but the bytes");
+    assert!(matches!(st.dialog, Some(Dialog::Message(_))), "and the reason is shown");
+    st.viewer = None;
+    st.dialog = None;
+
+    let temp = root.join("rc-fetch-0001");
+    std::fs::write(&temp, tiny_docx()).unwrap();
+    st.apply_event(AppEvent::FileFetched {
+        id: 1,
+        kind: FetchKind::View,
+        name: "remote.docx".into(),
+        orig_path: VfsPath::local(root.join("remote.docx")),
+        temp,
+    })
+    .await;
+    let v = st.viewer.as_ref().expect("viewer opened for the fetched copy");
+    assert!(v.active_doc().is_some(), "a fetched document is read under its own name");
+
+    st.viewer = None;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// F3 on an executable or library opens its analysis; on a file that only looks
 /// like one, or on text, the ordinary viewer.
 #[tokio::test]

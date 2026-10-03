@@ -658,6 +658,12 @@ code = "nl"
 
 # -- Viewer: table view (CSV/TSV) --
 "Table" = "Tabel"
+"Document" = "Document"
+"Sheet" = "Blad"
+"Slide" = "Dia"
+"Page" = "Pagina"
+"(no text on this page)" = "(geen tekst op deze pagina)"
+"(truncated)" = "(afgekapt)"
 "Header" = "Kop"
 
 # -- Editor: spreadsheet grid (CSV/TSV) --

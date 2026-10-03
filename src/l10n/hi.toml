@@ -658,6 +658,12 @@ code = "hi"
 
 # -- Viewer: table view (CSV/TSV) --
 "Table" = "तालिका"
+"Document" = "दस्तावेज़"
+"Sheet" = "शीट"
+"Slide" = "स्लाइड"
+"Page" = "पृष्ठ"
+"(no text on this page)" = "(इस पृष्ठ पर कोई पाठ नहीं)"
+"(truncated)" = "(छोटा किया गया)"
 "Header" = "शीर्षक"
 
 # -- Editor: spreadsheet grid (CSV/TSV) --
