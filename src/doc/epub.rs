@@ -92,11 +92,7 @@ impl Html<'_> {
                 "p" => self.md.para(&text_of(c)),
                 "ul" | "ol" => self.list(c, depth),
                 "pre" => self.md.code(&c.text()),
-                "blockquote" => {
-                    let t = text_of(c);
-                    self.md
-                        .para(&t.lines().map(|l| format!("> {l}")).collect::<Vec<_>>().join("\n"));
-                }
+                "blockquote" => self.md.quote(&text_of(c)),
                 "table" => self.md.table(&table_rows(c)),
                 "hr" => self.md.rule(),
                 "head" | "script" | "style" => {}
@@ -233,7 +229,7 @@ mod tests {
         let opf = r#"<package xmlns:dc="dc"><metadata><dc:title>My Book</dc:title></metadata>
             <manifest><item id="a" href="Text/a.xhtml" media-type="application/xhtml+xml"/><item id="b" href="Text/b.xhtml" media-type="application/xhtml+xml"/></manifest>
             <spine><itemref idref="b"/><itemref idref="a"/></spine></package>"#;
-        let a = r#"<html><head><title>x</title></head><body><h2><img src="t.jpg" alt="Second"/></h2><ol><li>one</li><li>two</li></ol></body></html>"#;
+        let a = r#"<html><head><title>x</title></head><body><h2><img src="t.jpg" alt="Second"/></h2><ol><li>one</li><li>two</li></ol><blockquote><p>Quoted.</p></blockquote></body></html>"#;
         let b = r#"<html><body><h2>First</h2><p>Hello&nbsp;there,
             <em>world</em>.<br/>Next line</p></body></html>"#;
         let bytes = zip(&[
@@ -246,7 +242,7 @@ mod tests {
         let out = epub(&bytes).unwrap();
         assert_eq!(
             out,
-            "# My Book\n\n## First\n\nHello\u{a0}there, world.\nNext line\n\n---\n\n## Second\n\n1. one\n2. two\n"
+            "# My Book\n\n## First\n\nHello\u{a0}there, world.\nNext line\n\n---\n\n## Second\n\n1. one\n2. two\n\n> Quoted.\n"
         );
     }
 }

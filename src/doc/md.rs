@@ -109,6 +109,20 @@ impl Md {
         self.in_list = true;
     }
 
+    /// A quoted block: each line behind the renderer's quote bar.
+    pub fn quote(&mut self, text: &str) {
+        let lines: Vec<String> = text.lines().map(|l| l.trim().to_string()).collect();
+        if lines.iter().all(|l| l.is_empty()) || !self.room() {
+            return;
+        }
+        self.block();
+        for l in trim_blank(&lines) {
+            self.out.push_str("> ");
+            self.out.push_str(l);
+            self.out.push('\n');
+        }
+    }
+
     /// A horizontal rule (between chapters).
     pub fn rule(&mut self) {
         if !self.room() {
@@ -271,7 +285,11 @@ mod tests {
         md.item(0, "-", "a");
         md.item(1, "1.", "b\nmore");
         md.para("after");
-        assert_eq!(md.finish(), "## Title\n\nfirst\nsecond\n\n- a\n  1. b\n     more\n\nafter\n");
+        md.quote("# quoted\nline");
+        assert_eq!(
+            md.finish(),
+            "## Title\n\nfirst\nsecond\n\n- a\n  1. b\n     more\n\nafter\n\n> # quoted\n> line\n"
+        );
     }
 
     #[test]
