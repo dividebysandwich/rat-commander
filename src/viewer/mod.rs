@@ -924,23 +924,32 @@ impl ViewerState {
         };
         let rows = self.view_rows.max(1);
         let simple = total.saturating_sub(rows);
-        if self.mode == ViewMode::Hex || !self.wrap {
+        let md = self.markdown_active();
+        if self.mode == ViewMode::Hex || !self.wrap && !md {
             return simple;
         }
-        // Wrapped text: a logical line can span several visual rows. Every line
-        // is at least one row, so the answer lies in the window `simple..total`;
-        // measure those lines and take the largest top whose lines still reach
-        // the bottom row of the screen.
+        // Wrapped text (or a Markdown table's borders): a logical line can span
+        // several visual rows. Every line is at least one row, so the answer
+        // lies in the window `simple..total`; measure those lines and take the
+        // largest top whose lines still reach the bottom row of the screen.
         let width = self.view_cols.max(1);
-        let md = self.markdown_active();
         let mut in_code = md && self.in_code_fence_at(simple);
+        let mut table: Option<std::ops::Range<usize>> = None;
         let mut heights = Vec::with_capacity(total - simple);
         for i in simple..total {
             let line = self.line_str(i);
-            heights.push(if md {
-                markdown_rows(&line, &mut in_code, width, self.prose)
-            } else {
-                line.chars().count().div_ceil(width).max(1)
+            if md && !in_code && !table.as_ref().is_some_and(|t| t.contains(&i)) {
+                table = self.table_block_at(i);
+            }
+            heights.push(match &table {
+                Some(t) if md && !in_code && t.contains(&i) => {
+                    markdown::table_rows(i - t.start, t.len())
+                }
+                _ if md => {
+                    let rows = markdown_rows(&line, &mut in_code, width, self.prose);
+                    if self.wrap { rows } else { 1 }
+                }
+                _ => line.chars().count().div_ceil(width).max(1),
             });
         }
         let mut acc = 0usize;
@@ -2106,6 +2115,15 @@ impl ViewerState {
         inside
     }
 
+    /// The source lines of the Markdown table line `li` is part of, if any.
+    /// A document's prose has no tables: its own are drawn already.
+    pub(crate) fn table_block_at(&self, li: usize) -> Option<std::ops::Range<usize>> {
+        if self.prose {
+            return None;
+        }
+        markdown::table_block(li, self.line_count(), |i| self.line_str(i))
+    }
+
     /// Text of logical line `i`, with tabs expanded and CR stripped.
     fn line_str(&self, i: usize) -> String {
         let start = self.line_starts[i];
@@ -2437,6 +2455,49 @@ mod tests {
         // is still framed by side borders and closed at the bottom.
         assert!(rows.iter().any(|r| r.contains("bbbb") && r.contains('│')), "content framed");
         assert!(rows.join("\n").contains('└'), "bottom border still drawn");
+    }
+
+    #[test]
+    fn markdown_tables_are_boxed_and_the_end_stays_reachable() {
+        let md = concat!(
+            "intro\n",
+            "| Name | Qty |\n",
+            "|------|----:|\n",
+            "| **Apple** | 3 |\n",
+            "| Pear | 12 |\n",
+            "end\n",
+        );
+        let mut v = ViewerState::new("t.md".into(), md.as_bytes().to_vec());
+        let rows = draw_rows(&mut v, 30, 12);
+        let at = rows.iter().position(|r| r.contains('┌')).expect("top border drawn");
+        let table: Vec<&str> = rows[at..at + 6].iter().map(|r| r.trim_end()).collect();
+        assert_eq!(
+            table,
+            [
+                "┌───────┬─────┐",
+                "│ Name  │ Qty │",
+                "├───────┼─────┤",
+                "│ Apple │   3 │",
+                "│ Pear  │  12 │",
+                "└───────┴─────┘",
+            ]
+        );
+        assert!(rows[at + 6].starts_with("end"), "the line after the table follows its box");
+
+        // The two border rows count when clamping the scroll: a short screen
+        // can still reach the last line, unwrapped or wrapped.
+        for wrap in [false, true] {
+            v.wrap = wrap;
+            v.view_rows = 3;
+            v.view_cols = 30;
+            assert_eq!(v.max_top(), 4, "wrap {wrap}: bottom border and `end` fill the screen");
+        }
+        // Opened mid-table, the box still draws from that row on.
+        v.wrap = false;
+        v.top = 3;
+        let rows = draw_rows(&mut v, 30, 5);
+        assert!(rows[1].starts_with("│ Apple │   3 │"), "{rows:?}");
+        assert!(rows[3].starts_with("└───────┴─────┘"), "{rows:?}");
     }
 
     #[test]

@@ -4,7 +4,8 @@
 //! headings by level, emphasize bold/italic/code, accent lists and links.
 //!
 //! It is purely line-local (no multi-line fenced-code tracking) so it fits the
-//! viewer's paged line model. The source line index is unchanged (scrolling /
+//! viewer's paged line model — except for tables, whose column widths need the
+//! whole block: [`table_block`] finds it and [`render_table`] draws it boxed. The source line index is unchanged (scrolling /
 //! goto / search still work on the raw bytes); only each line's *rendering* is
 //! transformed.
 
@@ -250,6 +251,207 @@ fn is_hr(body: &[char]) -> bool {
 }
 
 // ---------------------------------------------------------------------------
+// Tables (GitHub-style pipe tables, drawn in a box)
+// ---------------------------------------------------------------------------
+
+/// How far a table is looked for above and below a pipe line, so a huge run
+/// of `|` lines can't make every frame scan the whole file.
+const TABLE_SCAN: usize = 2000;
+
+/// One rendered row: display chars and their per-char styles.
+pub type Row = (Vec<char>, Vec<Style>);
+
+/// A column's alignment, from the colons of the delimiter row.
+#[derive(Clone, Copy, PartialEq)]
+enum Align {
+    Left,
+    Center,
+    Right,
+}
+
+/// Whether `line` could be a table row: a non-blank line holding a `|`.
+fn is_table_row(line: &str) -> bool {
+    line.contains('|') && !line.trim().is_empty()
+}
+
+/// The cells of a table row: the outer pipes dropped, split on every `|` not
+/// escaped as `\|`, each cell trimmed.
+fn split_cells(line: &str) -> Vec<String> {
+    let t = line.trim();
+    let t = t.strip_prefix('|').unwrap_or(t);
+    let t = if t.ends_with('|') && !t.ends_with("\\|") { &t[..t.len() - 1] } else { t };
+    let mut cells = vec![String::new()];
+    let mut chars = t.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' if chars.peek() == Some(&'|') => {
+                cells.last_mut().unwrap().push('|');
+                chars.next();
+            }
+            '|' => cells.push(String::new()),
+            _ => cells.last_mut().unwrap().push(c),
+        }
+    }
+    cells.iter().map(|c| c.trim().to_string()).collect()
+}
+
+/// The column alignments if `line` is a table's delimiter row (`|---|:-:|`),
+/// else `None`.
+fn delimiter_aligns(line: &str) -> Option<Vec<Align>> {
+    if !line.contains('|') {
+        return None; // a bare `---` is a rule
+    }
+    split_cells(line)
+        .iter()
+        .map(|c| {
+            let left = c.starts_with(':');
+            let right = c.ends_with(':') && c.len() > 1;
+            let dashes = c.trim_start_matches(':').trim_end_matches(':');
+            if dashes.is_empty() || !dashes.chars().all(|ch| ch == '-') {
+                return None;
+            }
+            Some(match (left, right) {
+                (true, true) => Align::Center,
+                (false, true) => Align::Right,
+                _ => Align::Left,
+            })
+        })
+        .collect()
+}
+
+/// The source-line range of the table that line `li` belongs to, if any: a
+/// header row, the delimiter row under it with as many cells, and the rows
+/// that follow up to the first line without a `|`. `line(i)` fetches source
+/// line `i` of `count`.
+pub fn table_block(
+    li: usize,
+    count: usize,
+    line: impl Fn(usize) -> String,
+) -> Option<std::ops::Range<usize>> {
+    if li >= count || !is_table_row(&line(li)) {
+        return None;
+    }
+    let floor = li.saturating_sub(TABLE_SCAN);
+    let mut start = li;
+    while start > floor && is_table_row(&line(start - 1)) {
+        start -= 1;
+    }
+    let ceil = count.min(li + TABLE_SCAN);
+    let mut end = li + 1;
+    while end < ceil && is_table_row(&line(end)) {
+        end += 1;
+    }
+    let header = (start..end.saturating_sub(1)).find(|&h| {
+        delimiter_aligns(&line(h + 1)).is_some_and(|a| a.len() == split_cells(&line(h)).len())
+    })?;
+    (li >= header).then_some(header..end)
+}
+
+/// How many screen rows source line `i` of an `n`-line table takes: the
+/// header carries the top border and the last line the bottom one.
+pub fn table_rows(i: usize, n: usize) -> usize {
+    1 + usize::from(i == 0) + usize::from(i + 1 == n && n > 2)
+}
+
+/// Draw a table from its source lines (as [`table_block`] found them): the
+/// columns padded to their widest cell and aligned as the delimiter row says,
+/// the cells' inline markup applied when `inline`. Returns, for each source
+/// line, its screen rows — `table_rows` of them.
+pub fn render_table(lines: &[String], theme: &Theme, inline: bool) -> Vec<Vec<Row>> {
+    use unicode_width::UnicodeWidthChar;
+    let base = Style::default().fg(theme.text_fg).bg(theme.panel_bg);
+    let border = base.fg(theme.panel_border);
+    let head = base.fg(heading_color(1, theme)).add_modifier(Modifier::BOLD);
+    let aligns = lines.get(1).and_then(|l| delimiter_aligns(l)).unwrap_or_default();
+    let cols = aligns.len().max(1);
+    let width = |cell: &Row| cell.0.iter().map(|c| c.width().unwrap_or(0)).sum::<usize>();
+
+    // Each row's cells rendered (the delimiter row has none of its own),
+    // cut or padded to the header's column count.
+    let cells: Vec<Vec<Row>> = lines
+        .iter()
+        .enumerate()
+        .map(|(i, l)| {
+            if i == 1 {
+                return Vec::new();
+            }
+            let mut row: Vec<Row> = split_cells(l)
+                .into_iter()
+                .take(cols)
+                .map(|c| {
+                    let chars: Vec<char> = c.chars().collect();
+                    let mut out = Out { c: Vec::new(), s: Vec::new() };
+                    emit(&chars, 0, if i == 0 { head } else { base }, &mut out, theme, inline);
+                    (out.c, out.s)
+                })
+                .collect();
+            row.resize_with(cols, || (Vec::new(), Vec::new()));
+            row
+        })
+        .collect();
+    let mut widths = vec![1usize; cols];
+    for row in &cells {
+        for (w, cell) in widths.iter_mut().zip(row) {
+            *w = (*w).max(width(cell));
+        }
+    }
+
+    let rule = |l: char, m: char, r: char| -> Row {
+        let mut out = Out { c: Vec::new(), s: Vec::new() };
+        out.push(l, border);
+        for (i, w) in widths.iter().enumerate() {
+            for _ in 0..w + 2 {
+                out.push('─', border);
+            }
+            out.push(if i + 1 == cols { r } else { m }, border);
+        }
+        (out.c, out.s)
+    };
+    let draw = |row: &[Row]| -> Row {
+        let mut out = Out { c: Vec::new(), s: Vec::new() };
+        out.push('│', border);
+        for (i, cell) in row.iter().enumerate() {
+            let pad = widths[i] - width(cell);
+            let (before, after) = match aligns.get(i) {
+                Some(Align::Right) => (pad, 0),
+                Some(Align::Center) => (pad / 2, pad - pad / 2),
+                _ => (0, pad),
+            };
+            for _ in 0..=before {
+                out.push(' ', base);
+            }
+            for (&c, &s) in cell.0.iter().zip(&cell.1) {
+                out.push(c, s);
+            }
+            for _ in 0..=after {
+                out.push(' ', base);
+            }
+            out.push('│', border);
+        }
+        (out.c, out.s)
+    };
+
+    let n = lines.len();
+    (0..n)
+        .map(|i| {
+            let mut rows = Vec::with_capacity(2);
+            if i == 0 {
+                rows.push(rule('┌', '┬', '┐'));
+            }
+            rows.push(match i {
+                1 if n == 2 => rule('└', '┴', '┘'),
+                1 => rule('├', '┼', '┤'),
+                _ => draw(&cells[i]),
+            });
+            if i + 1 == n && n > 2 {
+                rows.push(rule('└', '┴', '┘'));
+            }
+            rows
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
 // Document outline (the viewer's F6 heading navigator)
 // ---------------------------------------------------------------------------
 
@@ -431,6 +633,55 @@ mod tests {
         assert!(is_fence("  ~~~"));
         assert!(!is_fence("`inline`"));
         assert!(!is_fence("text"));
+    }
+
+    fn table(src: &[&str]) -> Vec<String> {
+        let lines: Vec<String> = src.iter().map(|s| s.to_string()).collect();
+        render_table(&lines, &Theme::mc(), true)
+            .into_iter()
+            .flatten()
+            .map(|(c, _)| c.into_iter().collect())
+            .collect()
+    }
+
+    #[test]
+    fn tables_are_boxed_with_aligned_columns() {
+        let out =
+            table(&["| Name | Qty | Note |", "|:-----|----:|:----:|", "| `Apple` | 3 | ok |"]);
+        assert_eq!(
+            out,
+            [
+                "┌───────┬─────┬──────┐",
+                "│ Name  │ Qty │ Note │",
+                "├───────┼─────┼──────┤",
+                "│ Apple │   3 │  ok  │",
+                "└───────┴─────┴──────┘",
+            ]
+        );
+    }
+
+    #[test]
+    fn table_rows_fill_missing_cells_and_honour_escaped_pipes() {
+        let out = table(&["a | b", "--|--", "x \\| y", "1 | 2 | dropped"]);
+        assert_eq!(out[3], "│ x | y │   │");
+        assert_eq!(out[4], "│ 1     │ 2 │");
+        // A header with no body still closes its box.
+        assert_eq!(table(&["| a |", "|---|"]), ["┌───┐", "│ a │", "└───┘"]);
+    }
+
+    #[test]
+    fn table_block_needs_a_matching_delimiter_row() {
+        let src = ["intro | text", "| h1 | h2 |", "|----|----|", "| 1 | 2 |", "", "a | b"];
+        let line = |i: usize| src[i].to_string();
+        assert_eq!(table_block(3, src.len(), line), Some(1..4));
+        assert_eq!(table_block(1, src.len(), line), Some(1..4));
+        assert_eq!(table_block(0, src.len(), line), None, "above the header");
+        assert_eq!(table_block(5, src.len(), line), None, "no delimiter row");
+        // A delimiter row whose cell count differs from the header's isn't one.
+        let bad = ["| a | b |", "|---|", "| 1 | 2 |"];
+        assert_eq!(table_block(0, bad.len(), |i| bad[i].to_string()), None);
+        assert_eq!((0..3).map(|i| table_rows(i, 3)).collect::<Vec<_>>(), [2, 1, 2]);
+        assert_eq!((0..2).map(|i| table_rows(i, 2)).collect::<Vec<_>>(), [2, 1]);
     }
 
     #[test]
