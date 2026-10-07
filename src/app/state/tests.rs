@@ -198,6 +198,7 @@ impl crate::vfs::Vfs for StubVfs {
             gid: None,
             symlink_target: None,
             symlink_broken: false,
+            symlink_dir: false,
         })
     }
     async fn open_read(&self, _p: &VfsPath) -> crate::util::Result<crate::vfs::BoxRead> {
@@ -2849,6 +2850,7 @@ fn mk_entry(name: &str) -> VfsEntry {
         gid: None,
         symlink_target: None,
         symlink_broken: false,
+        symlink_dir: false,
     }
 }
 

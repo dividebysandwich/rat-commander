@@ -68,6 +68,7 @@ fn entry_from(name: String, kind: VfsKind, m: &FileAttributes) -> VfsEntry {
         gid: m.gid,
         symlink_target: None,
         symlink_broken: false,
+        symlink_dir: false,
     }
 }
 

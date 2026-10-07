@@ -1093,6 +1093,7 @@ mod tests {
             gid: None,
             symlink_target: None,
             symlink_broken: broken,
+            symlink_dir: false,
         }
     }
 

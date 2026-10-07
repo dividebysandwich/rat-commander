@@ -124,6 +124,7 @@ impl<T> VfsTree<T> {
             gid: None,
             symlink_target: c.symlink_target.clone(),
             symlink_broken: false,
+            symlink_dir: false,
         }
     }
 }
@@ -142,6 +143,7 @@ fn dir_entry(name: String, mtime: Option<SystemTime>, mode: Option<u32>) -> VfsE
         gid: None,
         symlink_target: None,
         symlink_broken: false,
+        symlink_dir: false,
     }
 }
 

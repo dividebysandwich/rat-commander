@@ -1,6 +1,6 @@
 //! Sort keys, toggles, and the comparator used to order a directory listing.
 
-use crate::vfs::{VfsEntry, VfsKind};
+use crate::vfs::VfsEntry;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
@@ -60,8 +60,8 @@ impl SortConfig {
 
         // Directories grouped first (not affected by `reverse`).
         if self.dirs_first {
-            let a_dir = a.kind == VfsKind::Dir;
-            let b_dir = b.kind == VfsKind::Dir;
+            let a_dir = a.is_dir_like();
+            let b_dir = b.is_dir_like();
             if a_dir != b_dir {
                 return b_dir.cmp(&a_dir);
             }
@@ -109,6 +109,7 @@ impl SortConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vfs::VfsKind;
     use std::time::{Duration, UNIX_EPOCH};
 
     fn ent(name: &str, kind: VfsKind, size: u64, mode: u32) -> VfsEntry {
@@ -125,6 +126,7 @@ mod tests {
             gid: None,
             symlink_target: None,
             symlink_broken: false,
+            symlink_dir: false,
         }
     }
 
@@ -142,6 +144,22 @@ mod tests {
         ];
         SortConfig::default().apply(&mut v);
         assert_eq!(names(&v), vec!["..", "alpha", "beta.txt", "zeta.txt"]);
+    }
+
+    #[test]
+    fn symlinked_dirs_group_with_dirs() {
+        let link = |name: &str, to_dir: bool| VfsEntry {
+            symlink_dir: to_dir,
+            ..ent(name, VfsKind::Symlink, 0, 0o777)
+        };
+        let mut v = vec![
+            ent("b.txt", VfsKind::File, 1, 0o644),
+            link("a-file-link", false),
+            ent("dir", VfsKind::Dir, 0, 0o755),
+            link("z-dir-link", true),
+        ];
+        SortConfig::default().apply(&mut v);
+        assert_eq!(names(&v), vec!["dir", "z-dir-link", "a-file-link", "b.txt"]);
     }
 
     #[test]

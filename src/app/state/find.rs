@@ -206,6 +206,7 @@ impl AppState {
             gid: None,
             symlink_target: None,
             symlink_broken: false,
+            symlink_dir: false,
         }];
         let mut vpaths = vec![cwd]; // dummy path paired with ".."
         for crate::app::event::FindHit { path, size, .. } in results {
@@ -222,6 +223,7 @@ impl AppState {
                 gid: None,
                 symlink_target: None,
                 symlink_broken: false,
+                symlink_dir: false,
             });
             vpaths.push(path);
         }

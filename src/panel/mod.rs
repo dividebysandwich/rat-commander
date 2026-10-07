@@ -659,7 +659,7 @@ impl Panel {
                 self.cwd.file_name()
             };
             self.cwd.parent().map(|p| (p, Some(from)))
-        } else if e.kind == VfsKind::Dir {
+        } else if e.is_dir_like() {
             Some((self.cwd.join(&e.name), None))
         } else {
             None
@@ -711,6 +711,7 @@ fn parent_entry() -> VfsEntry {
         gid: None,
         symlink_target: None,
         symlink_broken: false,
+        symlink_dir: false,
     }
 }
 
@@ -764,6 +765,35 @@ mod tests {
         let (target, focus) = panel.target_dir_under_cursor().unwrap();
         assert!(panel.try_enter(target, backend, focus.as_deref()).await);
         assert_eq!(panel.current_entry().map(|e| e.name.as_str()), Some("zzz"));
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// Enter on a symlink to a directory descends into it through the link's
+    /// own path, so ".." comes back to the directory holding the link.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn entering_a_symlinked_directory_follows_the_link() {
+        let nanos =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let root = std::env::temp_dir().join(format!("rc-symdir-{}-{nanos}", std::process::id()));
+        std::fs::create_dir_all(root.join("real")).unwrap();
+        std::fs::write(root.join("real").join("inside"), b"").unwrap();
+        std::fs::write(root.join("afile"), b"").unwrap();
+        std::os::unix::fs::symlink(root.join("real"), root.join("link")).unwrap();
+
+        let backend = crate::vfs::registry::Registry::default().local();
+        let mut panel = Panel::new(backend.clone(), VfsPath::local(&root));
+        panel.reload().await.unwrap();
+        let link = panel.entries.iter().position(|e| e.name == "link").unwrap();
+        let file = panel.entries.iter().position(|e| e.name == "afile").unwrap();
+        assert!(link < file, "the directory link sorts with the directories");
+        panel.cursor = link;
+
+        let (target, focus) = panel.target_dir_under_cursor().unwrap();
+        assert_eq!(target, VfsPath::local(root.join("link")));
+        assert!(panel.try_enter(target, backend, focus.as_deref()).await);
+        assert!(panel.entries.iter().any(|e| e.name == "inside"));
 
         std::fs::remove_dir_all(&root).ok();
     }

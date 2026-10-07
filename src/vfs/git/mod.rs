@@ -439,6 +439,7 @@ impl GitFs {
                 gid: None,
                 symlink_target: None,
                 symlink_broken: false,
+                symlink_dir: false,
             })
             .collect())
     }
@@ -478,6 +479,7 @@ impl Vfs for GitFs {
                 gid: None,
                 symlink_target: None,
                 symlink_broken: false,
+                symlink_dir: false,
             }),
             Some((rev, tree, sub)) if sub == "/" => {
                 let mut e = tree.stat("/")?;

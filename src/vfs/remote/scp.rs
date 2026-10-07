@@ -68,6 +68,7 @@ fn entry_from(name: String, p: super::ParsedListing) -> VfsEntry {
         gid: None,
         symlink_target: p.symlink_target,
         symlink_broken: false,
+        symlink_dir: false,
     }
 }
 
@@ -137,6 +138,7 @@ impl Vfs for ScpFs {
             gid: None,
             symlink_target: None,
             symlink_broken: false,
+            symlink_dir: false,
         })
     }
 

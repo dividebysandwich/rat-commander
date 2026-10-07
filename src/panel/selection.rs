@@ -182,6 +182,7 @@ mod tests {
             gid: None,
             symlink_target: None,
             symlink_broken: false,
+            symlink_dir: false,
         }
     }
 

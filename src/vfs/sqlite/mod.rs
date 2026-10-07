@@ -269,6 +269,7 @@ fn dir_entry(name: String, mtime: Option<SystemTime>) -> VfsEntry {
         gid: None,
         symlink_target: None,
         symlink_broken: false,
+        symlink_dir: false,
     }
 }
 

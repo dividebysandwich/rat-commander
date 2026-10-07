@@ -62,9 +62,18 @@ pub struct VfsEntry {
     /// For symlinks: whether the target could not be resolved (dangling link).
     /// Always `false` for non-symlinks and backends that don't probe targets.
     pub symlink_broken: bool,
+    /// For symlinks: whether the target resolves to a directory. Always `false`
+    /// for non-symlinks and backends that don't probe targets.
+    pub symlink_dir: bool,
 }
 
 impl VfsEntry {
+    /// A directory, or a symlink that resolves to one: what Enter descends into
+    /// and dirs-first sorting groups on top.
+    pub fn is_dir_like(&self) -> bool {
+        self.kind == VfsKind::Dir || (self.kind == VfsKind::Symlink && self.symlink_dir)
+    }
+
     /// Whether this entry has any executable bit set (used by exec-first sort).
     pub fn is_executable(&self) -> bool {
         self.kind == VfsKind::File && self.mode.map(|m| m & 0o111 != 0).unwrap_or(false)
@@ -374,6 +383,7 @@ pub(crate) mod testmock {
                 gid: None,
                 symlink_target: None,
                 symlink_broken: false,
+                symlink_dir: false,
             })
         }
         async fn open_read(&self, _: &VfsPath) -> Result<BoxRead> {
