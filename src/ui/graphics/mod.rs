@@ -85,6 +85,14 @@ impl Gfx {
         if pref == "off" {
             return None;
         }
+        if !query_safe() {
+            // The query can't be answered here, so only a forced protocol is
+            // honored, with a guessed cell size.
+            let p = forced_protocol(&pref)?;
+            let mut picker = Picker::from_fontsize((10u16, 20u16).into());
+            picker.set_protocol_type(p);
+            return Some(Gfx { picker, detected: p, enabled: true, cache: HashMap::new() });
+        }
         let mut picker = Picker::from_query_stdio().ok()?;
         match forced_protocol(&pref) {
             Some(p) => picker.set_protocol_type(p),
@@ -288,6 +296,22 @@ fn sig_of(img: &RgbaImage) -> u64 {
     img.height().hash(&mut h);
     img.as_raw().hash(&mut h);
     h.finish()
+}
+
+/// Whether the terminal-capability query may be sent. On Windows only modern
+/// terminals answer it: the classic console host (cmd/PowerShell windows) prints
+/// the Kitty query as text and never replies, and `ratatui-image`'s query thread
+/// then stays blocked reading stdin after the timeout, stealing every keypress
+/// from the event loop. So on Windows the query is limited to terminals known to
+/// reply (Windows Terminal, WezTerm, VS Code's terminal).
+fn query_safe() -> bool {
+    if !cfg!(windows) {
+        return true;
+    }
+    let set = |k: &str| std::env::var_os(k).is_some_and(|v| !v.is_empty());
+    set("WT_SESSION")
+        || set("WEZTERM_EXECUTABLE")
+        || std::env::var("TERM_PROGRAM").is_ok_and(|t| t == "vscode")
 }
 
 /// Map a `graphics` config string to a forced protocol, or `None` for auto.
