@@ -454,7 +454,9 @@ Grab a release from the **Releases** page:
   sudo dpkg -i rat-commander_<ver>_arm64.deb
   ```
 - **Windows** — `rc-<ver>-x86_64-pc-windows-msvc.zip`, or the `.msi` installer
-  (adds `rc` to your PATH).
+  (adds `rc` to your PATH). The `.zip` is portable: it ships a `portable` marker
+  file, so settings stay in a `config\` folder next to `rc.exe` (see
+  [Configuration](#configuration)).
 - **macOS** — `rc-<ver>-<arch>.tar.gz`, or the `.pkg` installer (installs `rc`
   to `/usr/local/bin`). Intel and Apple Silicon builds are provided. The package
   is unsigned, so the first launch may require *System Settings → Privacy &
@@ -560,7 +562,10 @@ draws audio files; it just cannot play them.
 ## Configuration
 
 Configuration lives in your platform config directory
-(`~/.config/rat-commander/` on Linux): **`config.toml`** (written from the
+(`~/.config/rat-commander/` on Linux, `%APPDATA%\rat-commander\config\` on
+Windows). If a file named `portable` sits next to the executable, a `config`
+folder beside it is used instead, on any platform. That folder holds
+**`config.toml`** (written from the
 Settings dialog), **`themes.toml`** (editable color themes), **`lang/`**
 (one editable TOML per UI language), **`templates/`** (the hex editor's binary
 templates, editable, plus your own), and **`menu`** (the F2 user menu, in

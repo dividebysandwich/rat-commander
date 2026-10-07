@@ -108,7 +108,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Compress-Archive -Path "target/${{ matrix.target }}/release/rc.exe", "README.md", "packaging/windows/rcedit.cmd" `
+          Compress-Archive -Path "target/${{ matrix.target }}/release/rc.exe", "README.md", "packaging/windows/rcedit.cmd", "packaging/windows/portable" `
             -DestinationPath "dist/rc-$env:VERSION-${{ matrix.target }}.zip" -Force
 
       # ---- Debian packages (amd64 / arm64 / armhf) ----

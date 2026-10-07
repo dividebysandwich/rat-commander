@@ -55,7 +55,7 @@ pub fn user_dir() -> Option<PathBuf> {
     if cfg!(test) {
         return None;
     }
-    directories::ProjectDirs::from("", "", "rat-commander").map(|d| d.config_dir().join("schemas"))
+    crate::config::paths::config_dir().map(|d| d.join("schemas"))
 }
 
 /// The schema a document names in itself.

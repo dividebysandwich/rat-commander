@@ -3259,7 +3259,14 @@ one you launched `rc` from (PowerShell, `pwsh`, Git-Bash, …), or whatever
 ## Configuration
 
 Configuration files live in your platform config directory
-(`~/.config/rat-commander/` on Linux):
+(`~/.config/rat-commander/` on Linux, `%APPDATA%\rat-commander\config\` on
+Windows).
+
+**Portable mode.** If a file named `portable` sits next to the executable,
+rat-commander keeps all of these files in a `config` folder beside it instead.
+The Windows `.zip` ships with this marker, so it runs from a USB stick without
+touching `%APPDATA%`. Delete the marker to go back to the platform directory.
+The marker works the same way on Linux and macOS.
 
 - **`config.toml`** — written by the Settings dialog, which can change every
   setting described in this paragraph. Holds the active theme and
