@@ -89,7 +89,7 @@ impl Gfx {
             // The query can't be answered here, so only a forced protocol is
             // honored, with a guessed cell size.
             let p = forced_protocol(&pref)?;
-            let mut picker = Picker::from_fontsize((10u16, 20u16).into());
+            let mut picker = Picker::halfblocks();
             picker.set_protocol_type(p);
             return Some(Gfx { picker, detected: p, enabled: true, cache: HashMap::new() });
         }
