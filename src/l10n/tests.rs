@@ -84,6 +84,12 @@ fn menu_accelerators_are_unique_per_menu_in_every_language() {
     // The Git submenu's keys come straight from the menu itself, so the two can
     // never drift apart.
     let git_keys: Vec<&str> = crate::ui::menu::GIT_MENU_KEYS.iter().map(|(k, _)| *k).collect();
+    // Likewise the panel menus' Sort order submenu: its sort keys, then the toggles.
+    let sort_keys: Vec<&str> = crate::ui::menu::SORT_KEYS
+        .iter()
+        .map(|(k, _)| *k)
+        .chain(["&Reverse order", "&Directories first"])
+        .collect();
     // The item label keys of each menu (mirroring `ui::menu`). The `&`
     // accelerator letter must be unique within a menu, in every language.
     let mut editor_menus: Vec<&[&str]> = crate::editor::menu::MENU_KEYS.to_vec();
@@ -117,6 +123,7 @@ fn menu_accelerators_are_unique_per_menu_in_every_language() {
         // The Git submenu (File → Git, or Alt-G). Its accelerators only need to be
         // unique among themselves, since it is a menu of its own.
         &git_keys,
+        &sort_keys,
         &[
             "C&ommand palette...",
             "Directory &hotlist...",
@@ -147,12 +154,7 @@ fn menu_accelerators_are_unique_per_menu_in_every_language() {
             "&3D view",
             "T&humbnails view",
             "&Activity log",
-            "Sort: &Name",
-            "Sort: &Extension",
-            "Sort: &Size",
-            "Sort: &Modify time",
-            "Sort: &Unsorted",
-            "&Reverse order",
+            "&Sort order",
             "SFT&P connection...",
             "F&TP connection...",
             "FTPS c&onnection...",

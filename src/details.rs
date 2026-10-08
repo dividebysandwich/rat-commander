@@ -126,6 +126,8 @@ pub struct FileInfo {
     pub mtime: Option<SystemTime>,
     pub atime: Option<SystemTime>,
     pub ctime: Option<SystemTime>,
+    /// Birth (creation) time, where the platform and filesystem record one.
+    pub btime: Option<SystemTime>,
     pub inode: Option<u64>,
     pub symlink_target: Option<String>,
 }
@@ -227,6 +229,9 @@ fn render_file(f: &mut Frame, area: Rect, fi: &FileInfo, theme: &Theme) -> usize
     }
     if let Some(t) = fi.ctime {
         rows.push(("Changed", format_time(t)));
+    }
+    if let Some(t) = fi.btime {
+        rows.push(("Created", format_time(t)));
     }
     if let Some(i) = fi.inode {
         rows.push(("Inode", i.to_string()));
@@ -672,6 +677,7 @@ mod tests {
             mtime: None,
             atime: None,
             ctime: None,
+            btime: None,
             inode: None,
             symlink_target: None,
         }

@@ -392,6 +392,7 @@ impl AppState {
             mtime: e.mtime,
             atime: e.atime,
             ctime: e.ctime,
+            btime: e.btime,
             inode: e.inode,
             symlink_target: e.symlink_target.clone(),
         }

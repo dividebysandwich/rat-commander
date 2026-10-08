@@ -705,6 +705,7 @@ fn parent_entry() -> VfsEntry {
         mtime: None,
         atime: None,
         ctime: None,
+        btime: None,
         inode: None,
         mode: None,
         uid: None,

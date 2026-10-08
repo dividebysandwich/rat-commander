@@ -1087,6 +1087,7 @@ mod tests {
             mtime: Some(SystemTime::UNIX_EPOCH),
             atime: None,
             ctime: None,
+            btime: None,
             inode: None,
             mode: Some(mode),
             uid: None,

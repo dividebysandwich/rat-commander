@@ -503,7 +503,10 @@ impl AppState {
 
     /// Alt-G: open the menu bar straight into the File menu's Git submenu.
     pub(in crate::app::state) fn open_git_menu(&mut self) {
-        self.menu = Some(MenuBarState::new_git(&self.session_list(), self.side_remote()));
+        self.menu = Some(
+            MenuBarState::new_git(&self.session_list(), self.side_remote())
+                .with_sort(self.panel_sorts()),
+        );
         self.alt_hint = false;
     }
 

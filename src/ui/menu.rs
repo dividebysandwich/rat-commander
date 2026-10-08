@@ -3,7 +3,7 @@
 //! [`crate::ui::pulldown`], which the editor's menu is built on too.
 
 use crate::panel::ViewFormat;
-use crate::panel::sort::SortKey;
+use crate::panel::sort::{SortConfig, SortKey};
 use crate::ui::menubar::titles;
 use crate::ui::pulldown::{self, Action, Menu, MenuItem, PulldownState};
 use crate::vfs::remote::Protocol;
@@ -96,8 +96,12 @@ pub enum MenuAction {
     UnselectGroup,
     Invert,
     SetFormat(usize, ViewFormat),
+    /// Opens a panel menu's Sort order submenu. Never runs an action itself.
+    SortMenu,
     SetSort(usize, SortKey),
     ToggleReverse(usize),
+    /// Toggle grouping directories before files in a panel's listing.
+    ToggleDirsFirst(usize),
     SwapPanels,
     Refresh,
     ToggleSplit,
@@ -209,13 +213,7 @@ impl MenuBarState {
                 item("T&humbnails view", MenuAction::SetFormat(side, ViewFormat::Thumbs)),
                 item("&Activity log", MenuAction::SetFormat(side, ViewFormat::Activity)),
                 sep(),
-                item("Sort: &Name", MenuAction::SetSort(side, SortKey::Name)),
-                item("Sort: &Extension", MenuAction::SetSort(side, SortKey::Extension)),
-                item("Sort: &Size", MenuAction::SetSort(side, SortKey::Size)),
-                item("Sort: &Modify time", MenuAction::SetSort(side, SortKey::ModifyTime)),
-                item("Sort: &Unsorted", MenuAction::SetSort(side, SortKey::Unsorted)),
-                sep(),
-                item("&Reverse order", MenuAction::ToggleReverse(side)),
+                item_sub("&Sort order", "▶", MenuAction::SortMenu, sort_menu_items(side)),
                 sep(),
                 item("SFT&P connection...", MenuAction::Connect(side, Protocol::Sftp)),
                 item("F&TP connection...", MenuAction::Connect(side, Protocol::Ftp)),
@@ -345,6 +343,34 @@ impl MenuBarState {
         m
     }
 
+    /// Tick each panel's current sort key and order toggles in its Sort order
+    /// submenu. `sort` is `[left, right]`.
+    pub fn with_sort(mut self, sort: [SortConfig; 2]) -> Self {
+        for (menu, cfg) in [(0, sort[0]), (4, sort[1])] {
+            let Some(parent) = self.menus[menu]
+                .items
+                .iter_mut()
+                .find(|it| matches!(it.action, MenuAction::SortMenu))
+            else {
+                continue;
+            };
+            for it in &mut parent.submenu {
+                let on = match it.action {
+                    MenuAction::SetSort(_, key) => key == cfg.key,
+                    MenuAction::ToggleReverse(_) => cfg.reverse,
+                    MenuAction::ToggleDirsFirst(_) => cfg.dirs_first,
+                    _ => false,
+                };
+                it.shortcut = match (on, it.shortcut) {
+                    (true, "Ctrl-E") => "✓ Ctrl-E",
+                    (true, _) => "✓",
+                    (false, s) => s,
+                };
+            }
+        }
+        self
+    }
+
     /// The top-bar title index at screen column `col` on the menu-bar row, or
     /// `None` — used to open the bar on a click, before it has been drawn.
     pub fn title_index_at(area: Rect, col: u16, row: u16) -> Option<usize> {
@@ -356,6 +382,32 @@ impl Default for MenuBarState {
     fn default() -> Self {
         Self::new(1, &[], [false, false])
     }
+}
+
+/// The sort keys offered in a panel's Sort order submenu (and the command
+/// palette), with their label keys.
+pub const SORT_KEYS: &[(&str, SortKey)] = &[
+    ("Sort: &Name", SortKey::Name),
+    ("Sort: &Extension", SortKey::Extension),
+    ("Sort: &Size", SortKey::Size),
+    ("Sort: &Modify time", SortKey::ModifyTime),
+    ("Sort: &Change time", SortKey::ChangeTime),
+    ("Sort: &Access time", SortKey::AccessTime),
+    ("Sort: &Birth time", SortKey::BirthTime),
+    ("Sort: &Unsorted", SortKey::Unsorted),
+];
+
+/// A panel menu's Sort order submenu: the sort keys, then the order toggles.
+/// [`MenuBarState::with_sort`] ticks the ones currently in effect.
+fn sort_menu_items(side: usize) -> Vec<FileMenuItem> {
+    let mut items: Vec<FileMenuItem> =
+        SORT_KEYS.iter().map(|&(label, key)| item(label, MenuAction::SetSort(side, key))).collect();
+    items.extend([
+        sep(),
+        item_key("&Reverse order", "Ctrl-E", MenuAction::ToggleReverse(side)),
+        item("&Directories first", MenuAction::ToggleDirsFirst(side)),
+    ]);
+    items
 }
 
 /// The Git submenu (File → Git, or Alt-G), newest-to-oldest in workflow order:
@@ -550,6 +602,52 @@ mod tests {
         assert!(
             matches!(m.handle_key(key('l')), MenuSignal::Stay),
             "typing 'l' must not activate a disabled Go local"
+        );
+    }
+
+    #[test]
+    fn sort_submenu_sets_keys_and_ticks_the_current_ones() {
+        // 's' opens the panel menu's Sort order submenu; 'b' then sorts by birth time.
+        let mut m = MenuBarState::new(4, &[], [false, false]);
+        assert!(matches!(m.handle_key(key('s')), MenuSignal::Stay));
+        assert!(m.sub_open, "'s' opens the Sort order submenu");
+        assert!(matches!(
+            m.handle_key(key('b')),
+            MenuSignal::Activate(MenuAction::SetSort(1, SortKey::BirthTime))
+        ));
+        let mut m = MenuBarState::new(0, &[], [false, false]);
+        m.handle_key(key('s'));
+        assert!(matches!(
+            m.handle_key(key('d')),
+            MenuSignal::Activate(MenuAction::ToggleDirsFirst(0))
+        ));
+
+        let right = SortConfig {
+            key: SortKey::ChangeTime,
+            reverse: true,
+            dirs_first: false,
+            ..Default::default()
+        };
+        let m = MenuBarState::new(0, &[], [false, false]).with_sort([SortConfig::default(), right]);
+        let ticks = |menu: usize| -> Vec<(String, &'static str)> {
+            let parent =
+                m.menus[menu].items.iter().find(|it| matches!(it.action, MenuAction::SortMenu));
+            let sub = &parent.expect("panel menu has a Sort order item").submenu;
+            sub.iter()
+                .filter(|it| it.shortcut.starts_with('✓'))
+                .map(|it| (it.label.clone(), it.shortcut))
+                .collect()
+        };
+        assert_eq!(
+            ticks(0),
+            vec![("Sort: &Name".to_string(), "✓"), ("&Directories first".to_string(), "✓")]
+        );
+        assert_eq!(
+            ticks(4),
+            vec![
+                ("Sort: &Change time".to_string(), "✓"),
+                ("&Reverse order".to_string(), "✓ Ctrl-E")
+            ]
         );
     }
 

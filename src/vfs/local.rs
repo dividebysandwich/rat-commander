@@ -51,6 +51,7 @@ fn entry_from_meta(
         mtime: meta.modified().ok(),
         atime: ext.atime,
         ctime: ext.ctime,
+        btime: meta.created().ok(),
         inode: ext.inode,
         mode: ext.mode,
         uid: ext.uid,

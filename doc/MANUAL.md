@@ -206,7 +206,7 @@ A quick **Alt** + digit does the same.
   to the **system clipboard** — see *The system clipboard* below
 - `Ctrl-R` — Re-read (refresh) the active panel — usually unnecessary now, see
   *Auto-refreshing panels* below
-- `Ctrl-E` — Toggle reverse sort order (choose the sort key from the panel menu)
+- `Ctrl-E` — Toggle reverse sort order (choose the sort key from the panel menu's Sort order submenu)
 - `Alt-T` — Cycle the view format (full → brief → details → tree → 3D → thumbnails)
 - `Ctrl-X` — Toggle vertical / horizontal split
 - `Ctrl-U` — Swap the two panels
@@ -628,10 +628,13 @@ one from the **Left** / **Right** menu:
   renamed anywhere under the *other* panel's directory. Chosen from the **Left** /
   **Right** menu (it is not in the `Alt-T` cycle). See *Activity log* below.
 
-**Sorting** is configurable from the **Left** / **Right** menu; **Ctrl-E** toggles
-reverse order. The keys are: Unsorted, Name, Extension, Size,
-Modify / Access / Change time, or Inode — with reverse, case-sensitive and
-executables-first toggles.
+**Sorting** is configurable from the **Left** / **Right** menu's **Sort order**
+submenu, which ticks the current key and toggles; **Ctrl-E** toggles reverse
+order. The keys are: Name, Extension, Size, Modify time (last data change),
+Change time (last status change), Access time, Birth time (creation, where the
+filesystem records it — entries without one sort as oldest), or Unsorted. The
+**Directories first** toggle groups directories ahead of files (on by default);
+turn it off to mix them into one ordering. The choices are kept per panel.
 
 Filenames carry an `ls -F`-style **type marker** so kinds read by symbol, not
 just color: `/` directory, `*` executable, `@` symlink, `!` broken symlink, and

@@ -15,6 +15,8 @@ pub enum SortKey {
     ModifyTime,
     AccessTime,
     ChangeTime,
+    /// Birth (creation) time; entries without one sort as the oldest.
+    BirthTime,
     Inode,
 }
 
@@ -97,6 +99,9 @@ impl SortConfig {
             SortKey::ChangeTime => {
                 a.ctime.cmp(&b.ctime).then_with(|| self.cmp_name(&a.name, &b.name))
             }
+            SortKey::BirthTime => {
+                a.btime.cmp(&b.btime).then_with(|| self.cmp_name(&a.name, &b.name))
+            }
             SortKey::Inode => a.inode.cmp(&b.inode).then_with(|| self.cmp_name(&a.name, &b.name)),
         }
     }
@@ -120,6 +125,7 @@ mod tests {
             mtime: Some(UNIX_EPOCH + Duration::from_secs(size)),
             atime: None,
             ctime: None,
+            btime: None,
             inode: Some(size),
             mode: Some(mode),
             uid: None,
@@ -181,6 +187,23 @@ mod tests {
             vec![ent("data.txt", VfsKind::File, 1, 0o644), ent("run.sh", VfsKind::File, 2, 0o755)];
         cfg.apply(&mut v);
         assert_eq!(names(&v), vec!["run.sh", "data.txt"]);
+    }
+
+    #[test]
+    fn by_birth_time_without_dirs_first() {
+        let cfg = SortConfig { key: SortKey::BirthTime, dirs_first: false, ..Default::default() };
+        let born = |name: &str, kind: VfsKind, secs: u64| VfsEntry {
+            btime: Some(UNIX_EPOCH + Duration::from_secs(secs)),
+            ..ent(name, kind, 0, 0o644)
+        };
+        let mut v = vec![
+            born("new.txt", VfsKind::File, 30),
+            born("dir", VfsKind::Dir, 20),
+            born("old.txt", VfsKind::File, 10),
+            born("..", VfsKind::Dir, 99),
+        ];
+        cfg.apply(&mut v);
+        assert_eq!(names(&v), vec!["..", "old.txt", "dir", "new.txt"]);
     }
 
     #[test]

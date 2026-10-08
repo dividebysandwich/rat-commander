@@ -2,7 +2,6 @@
 //! state, and running the entry the user picks.
 
 use super::*;
-use crate::panel::sort::SortKey;
 use crate::ui::menu::ClipTarget;
 use crate::vfs::remote::Protocol;
 
@@ -94,12 +93,15 @@ impl AppState {
             cmd("&3D view", MenuAction::SetFormat(side, ViewFormat::Space3d)),
             cmd("T&humbnails view", MenuAction::SetFormat(side, ViewFormat::Thumbs)),
             cmd("&Activity log", MenuAction::SetFormat(side, ViewFormat::Activity)),
-            cmd("Sort: &Name", MenuAction::SetSort(side, SortKey::Name)),
-            cmd("Sort: &Extension", MenuAction::SetSort(side, SortKey::Extension)),
-            cmd("Sort: &Size", MenuAction::SetSort(side, SortKey::Size)),
-            cmd("Sort: &Modify time", MenuAction::SetSort(side, SortKey::ModifyTime)),
-            cmd("Sort: &Unsorted", MenuAction::SetSort(side, SortKey::Unsorted)),
+        ]);
+        entries.extend(
+            crate::ui::menu::SORT_KEYS
+                .iter()
+                .map(|&(key, sort)| cmd(key, MenuAction::SetSort(side, sort))),
+        );
+        entries.extend([
             cmd("&Reverse order", MenuAction::ToggleReverse(side)),
+            cmd("&Directories first", MenuAction::ToggleDirsFirst(side)),
             cmd("SFT&P connection...", MenuAction::Connect(side, Protocol::Sftp)),
             cmd("F&TP connection...", MenuAction::Connect(side, Protocol::Ftp)),
             cmd("FTPS c&onnection...", MenuAction::Connect(side, Protocol::Ftps)),

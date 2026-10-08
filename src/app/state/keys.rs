@@ -84,7 +84,10 @@ impl AppState {
                 // lower-cases and so still matches the shifted letter.
                 && c != 'o'
             {
-                self.menu = Some(MenuBarState::new(idx, &self.session_list(), self.side_remote()));
+                self.menu = Some(
+                    MenuBarState::new(idx, &self.session_list(), self.side_remote())
+                        .with_sort(self.panel_sorts()),
+                );
                 self.alt_hint = false;
                 return Flow::Continue;
             }
@@ -260,7 +263,7 @@ impl AppState {
             MenuAction::CopyToClipboard(what) => self.copy_paths_to_clipboard(what),
             // The Git submenu's parent never acts on its own — opening it is
             // handled inside the menu bar.
-            MenuAction::GitMenu => {}
+            MenuAction::GitMenu | MenuAction::SortMenu => {}
             MenuAction::GitStatus
             | MenuAction::GitBrowseRev
             | MenuAction::GitLog
@@ -292,6 +295,10 @@ impl AppState {
             }
             MenuAction::ToggleReverse(side) => {
                 self.panels[side].sort.reverse = !self.panels[side].sort.reverse;
+                self.panels[side].resort();
+            }
+            MenuAction::ToggleDirsFirst(side) => {
+                self.panels[side].sort.dirs_first = !self.panels[side].sort.dirs_first;
                 self.panels[side].resort();
             }
             MenuAction::SwapPanels => self.panels.swap(0, 1),
@@ -1057,7 +1064,15 @@ impl AppState {
     fn open_menu(&mut self) {
         // F9 opens the pulldown menu matching the active panel: Left (0)/Right (4).
         let active = if self.active == 0 { 0 } else { 4 };
-        self.menu = Some(MenuBarState::new(active, &self.session_list(), self.side_remote()));
+        self.menu = Some(
+            MenuBarState::new(active, &self.session_list(), self.side_remote())
+                .with_sort(self.panel_sorts()),
+        );
+    }
+
+    /// Each panel's `[left, right]` sort settings, ticked in the Sort order submenus.
+    pub(in crate::app::state) fn panel_sorts(&self) -> [crate::panel::sort::SortConfig; 2] {
+        [self.panels[0].sort, self.panels[1].sort]
     }
 
     pub(in crate::app::state) fn open_user_menu(&mut self) {

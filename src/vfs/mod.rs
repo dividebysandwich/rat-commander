@@ -52,6 +52,8 @@ pub struct VfsEntry {
     pub mtime: Option<SystemTime>,
     pub atime: Option<SystemTime>,
     pub ctime: Option<SystemTime>,
+    /// Birth (creation) time, where the platform and filesystem record one.
+    pub btime: Option<SystemTime>,
     pub inode: Option<u64>,
     /// Unix permission/type bits (`st_mode`), when available.
     pub mode: Option<u32>,
@@ -377,6 +379,7 @@ pub(crate) mod testmock {
                 mtime: None,
                 atime: None,
                 ctime: None,
+                btime: None,
                 inode: None,
                 mode: None,
                 uid: None,
