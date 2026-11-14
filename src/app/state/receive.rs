@@ -44,9 +44,9 @@ impl AppState {
             return;
         }
         let Some(dir) = self.receive_server.as_ref().map(|s| s.dir.clone()) else { return };
-        for side in 0..2 {
-            if self.panels[side].cwd.is_plain_local() && self.panels[side].cwd.path == dir {
-                let _ = self.panels[side].reload().await;
+        for panel in &mut self.panels {
+            if panel.cwd.is_plain_local() && panel.cwd.path == dir {
+                let _ = panel.reload().await;
             }
         }
     }

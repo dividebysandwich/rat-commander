@@ -800,8 +800,7 @@ fn draw_overview_graphics(
             raster::draw_text(&mut full, ox as i32 + 6, oy as i32 + 2, &title, color, None, tpx);
             let shown = card.ips.len().min(MAX_IPS);
             let px = (ch as f32 * 0.58).clamp(10.0, 18.0);
-            for r in 0..shown {
-                let ip = &card.ips[r];
+            for (r, ip) in card.ips.iter().enumerate().take(shown) {
                 let ny = oy + (1 + r as u32) * ch;
                 let is_sel = sel == Some((*ci, r));
                 if is_sel {

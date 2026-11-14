@@ -207,8 +207,8 @@ impl AppState {
             let (index, total) = t.position();
             (t.side, crate::panel::ScrubRow { label: t.label(), index, total })
         });
-        for i in 0..2 {
-            self.panels[i].scrub = match &snapshot {
+        for (i, panel) in self.panels.iter_mut().enumerate() {
+            panel.scrub = match &snapshot {
                 Some((side, row)) if *side == i => Some(row.clone()),
                 _ => None,
             };

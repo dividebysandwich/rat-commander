@@ -1783,18 +1783,18 @@ async fn trash_keeps_cursor_row_in_mtime_sorted_panel() {
     };
     assert_eq!(names(&st, 0), ["..", "c.txt", "a.txt", "d.txt", "b.txt"], "sorted by mtime");
 
-    for side in 0..2 {
-        st.panels[side].cursor = 2; // a.txt
+    for panel in &mut st.panels {
+        panel.cursor = 2; // a.txt
     }
     let targets = st.panels[0].operation_targets();
     st.handle_submit(Submit::Trash(targets)).await;
     drain_taskdone(&mut st, &mut rx).await;
 
     assert!(!dir.join("a.txt").exists(), "a.txt went to the trash");
-    for side in 0..2 {
-        assert_eq!(st.panels[side].cursor, 2, "panel {side}: cursor keeps its row");
+    for (side, panel) in st.panels.iter().enumerate() {
+        assert_eq!(panel.cursor, 2, "panel {side}: cursor keeps its row");
         assert_eq!(
-            st.panels[side].current_entry().map(|e| e.name.as_str()),
+            panel.current_entry().map(|e| e.name.as_str()),
             Some("d.txt"),
             "panel {side}: cursor lands on the file that followed",
         );
