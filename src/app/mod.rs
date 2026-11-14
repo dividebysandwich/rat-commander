@@ -247,7 +247,11 @@ async fn run_loop(term: &mut Term, state: &mut AppState, rx: &mut AppReceiver) -
                         Some(Err(e)) => return Err(e.into()),
                         None => break 'main, // stdin closed
                     };
-                    if !more {
+                    // Stop before taking an event the batch has no room left
+                    // to handle: one pulled from the stream here and then
+                    // dropped by the loop ending is gone for good — which
+                    // swallowed every 65th character of a paste.
+                    if !more || taken + 1 == INPUT_BATCH {
                         break;
                     }
                     // Take the next event only if one is already waiting: this
