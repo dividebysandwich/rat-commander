@@ -1612,8 +1612,16 @@ async fn shift_f6_opens_multi_rename_for_selection() {
     st.panels[0].backend = st.registry.local();
     st.panels[0].reload().await.unwrap();
 
-    // With nothing selected, the shortcut shows an error instead of the tool.
+    // With nothing selected, Shift-F6 renames the file under the cursor in
+    // place; Ctrl-F6 still wants a selection and says so.
+    st.panels[0].cursor = st.panels[0].entries.iter().position(|e| e.name == "a.txt").unwrap();
     st.handle_key(KeyEvent::new(KeyCode::F(6), KeyModifiers::SHIFT)).await;
+    assert!(
+        matches!(&st.dialog, Some(Dialog::Input(d)) if matches!(d.purpose, InputPurpose::RenameDest(_))),
+        "no selection → rename in place"
+    );
+    st.dialog = None;
+    st.handle_key(KeyEvent::new(KeyCode::F(6), KeyModifiers::CONTROL)).await;
     assert!(matches!(st.dialog, Some(Dialog::Message(_))), "no selection → error message");
     st.dialog = None;
 
@@ -1624,6 +1632,47 @@ async fn shift_f6_opens_multi_rename_for_selection() {
     st.dialog = None;
     st.handle_key(KeyEvent::new(KeyCode::F(6), KeyModifiers::CONTROL)).await;
     assert!(matches!(st.dialog, Some(Dialog::MultiRename(_))), "Ctrl-F6 opens multi rename");
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
+#[tokio::test]
+async fn shift_f6_renames_the_cursor_file_in_its_own_directory() {
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let root =
+        std::env::temp_dir().join(format!("rc_renameinplace_{}_{nanos}", std::process::id()));
+    let other = root.join("other");
+    std::fs::create_dir_all(&other).unwrap();
+    std::fs::write(root.join("a.txt"), b"a").unwrap();
+
+    let (tx, _rx) = async_bridge::channel();
+    let mut st = AppState::new(tx);
+    st.active = 0;
+    for (i, dir) in [(0, &root), (1, &other)] {
+        st.panels[i].cwd = VfsPath::local(dir);
+        st.panels[i].backend = st.registry.local();
+        st.panels[i].reload().await.unwrap();
+    }
+    let at = st.panels[0].entries.iter().position(|e| e.name == "a.txt").unwrap();
+    st.panels[0].cursor = at;
+
+    st.handle_key(KeyEvent::new(KeyCode::F(6), KeyModifiers::SHIFT)).await;
+    let Some(Dialog::Input(d)) = &st.dialog else { panic!("rename prompt expected") };
+    assert_eq!(d.buffer, "a.txt", "prefilled with the file's own name");
+    st.dialog = None;
+
+    // The new name lands beside the file, not in the other panel's directory.
+    st.begin_rename(VfsPath::local(root.join("a.txt")), "b.txt").await;
+    for _ in 0..200 {
+        if root.join("b.txt").exists() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    assert!(root.join("b.txt").exists(), "renamed in place");
+    assert!(!root.join("a.txt").exists());
+    assert!(!other.join("b.txt").exists());
 
     std::fs::remove_dir_all(&root).ok();
 }

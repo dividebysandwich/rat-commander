@@ -182,6 +182,9 @@ pub enum Submit {
     EditNewFile(String),
     Copy(Vec<VfsPath>, String),
     Move(Vec<VfsPath>, String),
+    /// Rename a file in place: the new name (or path) is relative to its own
+    /// directory.
+    Rename(VfsPath, String),
     Delete(Vec<VfsPath>),
     Quit,
     EditorSaveQuit,

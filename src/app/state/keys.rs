@@ -440,7 +440,16 @@ impl AppState {
             }
             KeyCode::F(4) => return self.open_edit().await,
             KeyCode::F(5) => self.open_transfer_dialog(OpKind::Copy),
-            // Shift-F6 / Ctrl-F6 open the multi-rename tool; plain F6 is move.
+            // Ctrl-F6 opens the multi-rename tool, and so does Shift-F6 when
+            // files are marked; with nothing marked Shift-F6 renames the file
+            // under the cursor in place (MC's rename). Plain F6 is move.
+            KeyCode::F(6)
+                if key.modifiers.contains(KeyModifiers::SHIFT)
+                    && !ctrl
+                    && self.panels[self.active].selection.is_empty() =>
+            {
+                self.open_rename_in_place()
+            }
             KeyCode::F(6) if ctrl || key.modifiers.contains(KeyModifiers::SHIFT) => {
                 self.open_multi_rename()
             }

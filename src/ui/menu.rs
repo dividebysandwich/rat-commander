@@ -258,7 +258,7 @@ impl MenuBarState {
                 item_key("&Edit", "F4", MenuAction::Edit),
                 item_key("&Copy", "F5", MenuAction::Copy),
                 item_key("&Rename/Move", "F6", MenuAction::Move),
-                item_key("M&ulti rename", "Shift-F6", MenuAction::MultiRename),
+                item_key("M&ulti rename", "Ctrl-F6", MenuAction::MultiRename),
                 item_key("&Make directory", "F7", MenuAction::Mkdir),
                 item_key("&Delete", "F8", MenuAction::Delete),
                 sep(),

@@ -13,8 +13,54 @@ impl AppState {
         // `scheme://` prefix (or its absence on a remote panel) can redirect it
         // to any registered backend — letting a local path override a remote one.
         let other = self.other_index();
+        let target = dest_vfspath(dest, &self.panels[other].cwd, &self.panels[self.active].cwd);
+        let ends_with_sep = dest.ends_with('/') || dest.ends_with(std::path::MAIN_SEPARATOR);
+        self.begin_transfer_to(kind, sources, target, ends_with_sep).await;
+    }
+
+    /// Shift-F6 with nothing marked: rename the file under the cursor where it
+    /// is (MC's rename mode). The prompt holds just its name, and whatever is
+    /// typed is taken relative to the file's own directory — not, as with F6,
+    /// the other panel's.
+    pub(in crate::app::state) fn open_rename_in_place(&mut self) {
+        let p = &self.panels[self.active];
+        let Some(source) = p.operation_targets().into_iter().next() else { return };
+        if !p.backend.capabilities().writable {
+            self.show_error(crate::l10n::tr("That panel's filesystem is read-only"));
+            return;
+        }
+        let name = source.file_name();
+        self.dialog = Some(Dialog::Input(InputDialog::new(
+            "Rename",
+            "Rename to:",
+            name,
+            InputPurpose::RenameDest(source),
+        )));
+    }
+
+    /// Submit of [`open_rename_in_place`](Self::open_rename_in_place). A typed
+    /// `scheme://` target still goes anywhere, as it would from F6.
+    pub(in crate::app::state) async fn begin_rename(&mut self, source: VfsPath, dest: &str) {
+        if split_scheme(dest).is_some() {
+            return self.begin_transfer(OpKind::Move, vec![source], dest).await;
+        }
+        let Some(dir) = source.parent() else { return };
+        let target = resolve_dest_on(dest, &dir);
+        let ends_with_sep = dest.ends_with('/') || dest.ends_with(std::path::MAIN_SEPARATOR);
+        self.begin_transfer_to(OpKind::Move, vec![source], target, ends_with_sep).await;
+    }
+
+    /// Copy or move `sources` to an already-resolved `target` (see
+    /// [`begin_transfer`](Self::begin_transfer)). `ends_with_sep`: the target
+    /// was typed with a trailing separator, so it names a directory.
+    async fn begin_transfer_to(
+        &mut self,
+        kind: OpKind,
+        sources: Vec<VfsPath>,
+        target: VfsPath,
+        ends_with_sep: bool,
+    ) {
         let active = self.active;
-        let target = dest_vfspath(dest, &self.panels[other].cwd, &self.panels[active].cwd);
         // Into a native archive from ordinary local files → rebuild the archive
         // once with all of them, which is far cheaper than the generic engine's
         // rebuild-per-file. Anything else (sources inside another archive, an
@@ -37,7 +83,6 @@ impl AppState {
         // existing directory nor slash-terminated is a rename/move-to-name — the
         // last component is the new name and `target`'s parent is the container.
         // Otherwise the target *is* the directory the sources drop into.
-        let ends_with_sep = dest.ends_with('/') || dest.ends_with(std::path::MAIN_SEPARATOR);
         // A `*` in the last component settles that question by itself: it is a
         // name mask (see `ops::expand_name_mask`), never a directory, for any
         // number of sources. Decided without asking the filesystem, so what a

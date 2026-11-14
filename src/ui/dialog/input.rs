@@ -15,6 +15,9 @@ pub enum InputPurpose {
     EditNewFile,
     CopyDest(Vec<VfsPath>),
     MoveDest(Vec<VfsPath>),
+    /// Enter a new name for a file, relative to its own directory (Shift-F6
+    /// with nothing marked).
+    RenameDest(VfsPath),
     Compress(Vec<VfsPath>),
     /// Enter a mount point for `device` (disk mounter).
     MountPath(String),
@@ -152,6 +155,7 @@ impl InputDialog {
                     InputPurpose::EditNewFile => Submit::EditNewFile(text),
                     InputPurpose::CopyDest(s) => Submit::Copy(s.clone(), text),
                     InputPurpose::MoveDest(s) => Submit::Move(s.clone(), text),
+                    InputPurpose::RenameDest(s) => Submit::Rename(s.clone(), text),
                     InputPurpose::Compress(s) => Submit::Compress(s.clone(), text),
                     InputPurpose::MountPath(device) => {
                         Submit::Mount { device: device.clone(), path: text }

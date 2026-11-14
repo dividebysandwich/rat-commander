@@ -337,7 +337,8 @@ also has a Midnight-Commander-style alias: press **Esc** then a digit — `Esc 1
 | `Shift-F4` | Edit a new file (asks for the name) |
 | `F5` | Copy |
 | `F6` | Rename / move |
-| `Shift-F6` / `Ctrl-F6` | Multi rename (selected files) |
+| `Shift-F6` | Rename in place (nothing marked) / multi rename (marked files) |
+| `Ctrl-F6` | Multi rename (selected files) |
 | `F7` | Make directory |
 | `F8` | Delete |
 | `F9` | Pulldown menu (Left/Right follows the active panel) |

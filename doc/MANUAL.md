@@ -144,7 +144,9 @@ A quick **Alt** + digit does the same.
   file in the active panel's directory
 - `F5` — Copy
 - `F6` — Rename / move
-- `Shift-F6` / `Ctrl-F6` — Multi rename (the selected files)
+- `Shift-F6` — Rename the file under the cursor in place (prompt prefilled
+  with its name); with files marked, multi rename
+- `Ctrl-F6` — Multi rename (the selected files)
 - `F7` — Make directory
 - `F8` — Delete
 - `F9` — Pulldown menu (Left/Right follows the active panel)
@@ -704,7 +706,8 @@ From the **File** menu:
 
 ## Multi rename
 
-*File menu → Multi rename…*, or **Shift-F6** / **Ctrl-F6**.
+*File menu → Multi rename…*, or **Ctrl-F6** (or **Shift-F6** while files are
+marked — with nothing marked, Shift-F6 renames the file under the cursor in place).
 
 Batch-renames the **tagged** files using a naming mask, with a
 live two-column preview — original names on the left, projected names on the
