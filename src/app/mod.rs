@@ -3,6 +3,7 @@
 
 mod backend;
 pub mod event;
+mod input;
 pub mod state;
 
 use crate::ui;
@@ -174,32 +175,43 @@ async fn run_loop(term: &mut Term, state: &mut AppState, rx: &mut AppReceiver) -
         };
     }
 
-    'main: loop {
-        // Start-in-editor mode (`rc /edit …`): once the editor and any of its
-        // dialogs are closed, the program's work is done — exit instead of
-        // revealing the file-manager panels.
-        if state.edit_only && state.editor.is_none() && state.dialog.is_none() {
-            break;
-        }
-        refresh_and_draw(term, state)?;
+    // The terminal's events reach the handlers through the sequence mender
+    // (see `input`), which may hold some back or hand several over at once;
+    // `backlog` keeps what it released until there is room to handle it.
+    let mut mender = input::SeqMender::default();
+    let mut backlog: std::collections::VecDeque<Event> = std::collections::VecDeque::new();
 
-        tokio::select! {
-            maybe_event = events.next() => {
-                // Fold the whole input backlog into this one frame.
-                //
-                // Auto-repeat and the wheel deliver events far faster than a
-                // frame can be drawn, and a burst of them is a burst of *cursor
-                // moves*: only where it ends up has to be painted. Answering
-                // each one with its own frame instead lets the terminal's input
-                // queue outrun the render loop, so the panel keeps scrolling
-                // after the key is released. That is easy to miss until a frame
-                // gets expensive — with the 3D view open one costs the terminal
-                // a whole re-transmitted image — which is why it showed up as
-                // "scrolling the other panel is sluggish".
-                let mut next = maybe_event;
-                for taken in 0..INPUT_BATCH {
-                    let more = match next {
-                        Some(Ok(Event::Key(key))) => {
+    // Handle one batch of input: `$first` is the event the stream just
+    // produced, or `None` to start with what is already in `backlog`.
+    macro_rules! input_batch {
+        ($out:lifetime, $first:expr) => {{
+            // Fold the whole input backlog into this one frame.
+            //
+            // Auto-repeat and the wheel deliver events far faster than a
+            // frame can be drawn, and a burst of them is a burst of *cursor
+            // moves*: only where it ends up has to be painted. Answering
+            // each one with its own frame instead lets the terminal's input
+            // queue outrun the render loop, so the panel keeps scrolling
+            // after the key is released. That is easy to miss until a frame
+            // gets expensive — with the 3D view open one costs the terminal
+            // a whole re-transmitted image — which is why it showed up as
+            // "scrolling the other panel is sluggish".
+            let mut next: Option<Option<std::io::Result<Event>>> = $first;
+            let mut taken = 0;
+            loop {
+                if backlog.is_empty() {
+                    match next.take() {
+                        Some(Some(Ok(ev))) => {
+                            backlog.extend(mender.push(ev, std::time::Instant::now()))
+                        }
+                        Some(Some(Err(e))) => return Err(e.into()),
+                        Some(None) => break $out, // stdin closed
+                        None => {}
+                    }
+                }
+                if let Some(ev) = backlog.pop_front() {
+                    let more = match ev {
+                        Event::Key(key) => {
                             // Track held modifiers (where the terminal reports them via
                             // the enhanced keyboard protocol) so the editor's F-key bar
                             // can show the Shift/Ctrl alternate labels while held.
@@ -211,12 +223,12 @@ async fn run_loop(term: &mut Term, state: &mut AppState, rx: &mut AppReceiver) -
                             // Act on presses and auto-repeats; release events only
                             // update the modifier hint above.
                             if matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
-                                act!('main, state.handle_key(key).await)
+                                act!($out, state.handle_key(key).await)
                             } else {
                                 true
                             }
                         }
-                        Some(Ok(Event::Mouse(me))) => {
+                        Event::Mouse(me) => {
                             // The wheel, bare motion and a 3D orbit are happy in
                             // a batch (see `AppState::mouse_folds`). Everything
                             // else the pointer does is answered against the
@@ -229,9 +241,9 @@ async fn run_loop(term: &mut Term, state: &mut AppState, rx: &mut AppReceiver) -
                             if !folds && taken > 0 {
                                 refresh_and_draw(term, state)?;
                             }
-                            act!('main, state.handle_mouse(me).await) && folds
+                            act!($out, state.handle_mouse(me).await) && folds
                         }
-                        Some(Ok(Event::Resize(cols, rows))) => {
+                        Event::Resize(cols, rows) => {
                             // Keep the console emulator and every live shell PTY the
                             // same size as the terminal, then redraw next iteration.
                             state.console.resize(rows, cols);
@@ -243,30 +255,57 @@ async fn run_loop(term: &mut Term, state: &mut AppState, rx: &mut AppReceiver) -
                             }
                             true
                         }
-                        Some(Ok(_)) => true, // other events: redraw next iteration
-                        Some(Err(e)) => return Err(e.into()),
-                        None => break 'main, // stdin closed
+                        _ => true, // other events: redraw next iteration
                     };
-                    // Stop before taking an event the batch has no room left
-                    // to handle: one pulled from the stream here and then
-                    // dropped by the loop ending is gone for good — which
-                    // swallowed every 65th character of a paste.
-                    if !more || taken + 1 == INPUT_BATCH {
+                    taken += 1;
+                    // Room is checked before anything more is taken from the
+                    // stream: an event pulled out and then dropped by the
+                    // batch ending would be gone for good.
+                    if !more || taken >= INPUT_BATCH {
                         break;
                     }
-                    // Take the next event only if one is already waiting: this
-                    // must never block, or the frame the batch is being drawn
-                    // for would never arrive. `poll!` rather than
-                    // `now_or_never` — the latter polls with a no-op waker, and
-                    // `EventStream` hands whichever waker it is first given to
-                    // the blocking reader thread it parks input on. Handing it a
-                    // waker that does nothing would leave the next real key
-                    // waking nobody.
-                    match futures::poll!(events.next()) {
-                        Poll::Ready(e) => next = e,
-                        Poll::Pending => break,
-                    }
+                    continue;
                 }
+                // Take the next event only if one is already waiting: this
+                // must never block, or the frame the batch is being drawn
+                // for would never arrive. `poll!` rather than
+                // `now_or_never` — the latter polls with a no-op waker, and
+                // `EventStream` hands whichever waker it is first given to
+                // the blocking reader thread it parks input on. Handing it a
+                // waker that does nothing would leave the next real key
+                // waking nobody.
+                match futures::poll!(events.next()) {
+                    Poll::Ready(e) => next = Some(e),
+                    Poll::Pending => break,
+                }
+            }
+        }};
+    }
+
+    'main: loop {
+        // Start-in-editor mode (`rc /edit …`): once the editor and any of its
+        // dialogs are closed, the program's work is done — exit instead of
+        // revealing the file-manager panels.
+        if state.edit_only && state.editor.is_none() && state.dialog.is_none() {
+            break;
+        }
+        refresh_and_draw(term, state)?;
+
+        tokio::select! {
+            maybe_event = events.next(), if backlog.is_empty() => {
+                input_batch!('main, Some(maybe_event));
+            }
+            // Events released by the sequence mender, or left over from a
+            // batch that ran out of room.
+            _ = std::future::ready(()), if !backlog.is_empty() => {
+                input_batch!('main, None);
+            }
+            // A bare Esc the sequence mender was holding has waited long
+            // enough to be just an Esc.
+            _ = tokio::time::sleep_until(mender.deadline().unwrap_or_else(std::time::Instant::now).into()),
+                if mender.deadline().is_some() =>
+            {
+                backlog.extend(mender.expire(std::time::Instant::now()));
             }
             Some(app_event) = rx.recv() => {
                 let console = matches!(app_event, event::AppEvent::ConsoleOutput);
